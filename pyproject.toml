@@ -10,7 +10,7 @@ authors = [
     {name = "Jacob Kaplan-Moss", email = "jacob@jacobian.org"},
     {name = "Brian M. Dennis"}
 ]
-license = {text = "wtfpl"}
+license = {text = "Apache-2.0"}
 readme = "README.md"
 requires-python = ">=3.6"
 dependencies = [
