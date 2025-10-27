@@ -2,8 +2,26 @@ import click
 import os
 import json
 import sqlite_utils
+from pathlib import Path
+from platformdirs import user_data_dir
 from . import lastfm
 import dateutil.parser
+
+APP_NAME = "dev.pirateninja.scrobbledb"
+
+
+def get_default_auth_path():
+    """Get the default path for the auth.json file in XDG compliant directory."""
+    data_dir = Path(user_data_dir(APP_NAME))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "auth.json")
+
+
+def get_default_db_path():
+    """Get the default path for the database in XDG compliant directory."""
+    data_dir = Path(user_data_dir(APP_NAME))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "scrobbledb.db")
 
 
 @click.group()
@@ -17,9 +35,8 @@ def cli():
     "-a",
     "--auth",
     type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
-    default="auth.json",
-    help="Path to save token to",
-    show_default=True,
+    default=None,
+    help="Path to save token to (default: XDG data directory)",
 )
 @click.option(
     "-n",
@@ -31,6 +48,9 @@ def cli():
 )
 def auth(auth, network):
     "Save authentication credentials to a JSON file"
+
+    if auth is None:
+        auth = get_default_auth_path()
 
     if network == "lastfm":
         click.echo(
@@ -60,16 +80,15 @@ def auth(auth, network):
 @cli.command()
 @click.argument(
     "database",
-    required=True,
+    required=False,
     type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
 )
 @click.option(
     "-a",
     "--auth",
     type=click.Path(file_okay=True, dir_okay=False, allow_dash=False, exists=True),
-    default="auth.json",
-    help="Path to read auth token from",
-    show_default=True,
+    default=None,
+    help="Path to read auth token from (default: XDG data directory)",
 )
 @click.option(
     "--since",
@@ -84,9 +103,16 @@ def plays(database, auth, since, since_date):
 
     This command fetches your listening history and saves it to DATABASE,
     including artist, album, track, and play data with timestamps.
+    If DATABASE is not specified, uses the default location in the XDG data directory.
     """
     if since and since_date:
         raise click.UsageError("use either --since or --since-date, not both")
+
+    if database is None:
+        database = get_default_db_path()
+
+    if auth is None:
+        auth = get_default_auth_path()
 
     db = sqlite_utils.Database(database)
 
