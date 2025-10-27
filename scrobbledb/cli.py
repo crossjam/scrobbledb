@@ -4,22 +4,33 @@ import json
 import sqlite_utils
 from pathlib import Path
 from platformdirs import user_data_dir
+from rich.console import Console
+from rich.prompt import Prompt
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.panel import Panel
+from rich.table import Table
 from . import lastfm
 import dateutil.parser
 
 APP_NAME = "dev.pirateninja.scrobbledb"
+console = Console()
+
+
+def get_data_dir():
+    """Get the XDG compliant data directory for the app."""
+    return Path(user_data_dir(APP_NAME))
 
 
 def get_default_auth_path():
     """Get the default path for the auth.json file in XDG compliant directory."""
-    data_dir = Path(user_data_dir(APP_NAME))
+    data_dir = get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     return str(data_dir / "auth.json")
 
 
 def get_default_db_path():
     """Get the default path for the database in XDG compliant directory."""
-    data_dir = Path(user_data_dir(APP_NAME))
+    data_dir = get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     return str(data_dir / "scrobbledb.db")
 
@@ -28,6 +39,62 @@ def get_default_db_path():
 @click.version_option()
 def cli():
     "Save data from last.fm/libre.fm to a SQLite database"
+
+
+@cli.command()
+def init():
+    """
+    Initialize scrobbledb data directory and database.
+
+    Creates the XDG compliant data directory and initializes
+    a default SQLite database for storing scrobble data.
+    """
+    data_dir = get_data_dir()
+    db_path = Path(get_default_db_path())
+
+    # Check if directory exists
+    if data_dir.exists():
+        console.print(f"[green]✓[/green] Data directory already exists: [cyan]{data_dir}[/cyan]")
+    else:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        console.print(f"[green]✓[/green] Created data directory: [cyan]{data_dir}[/cyan]")
+
+    # Check if database exists
+    if db_path.exists():
+        console.print(f"[yellow]![/yellow] Database already exists: [cyan]{db_path}[/cyan]")
+
+        # Show database info
+        db = sqlite_utils.Database(str(db_path))
+
+        table = Table(title="Database Tables")
+        table.add_column("Table", style="cyan")
+        table.add_column("Rows", style="magenta", justify="right")
+
+        for table_name in db.table_names():
+            count = db[table_name].count
+            table.add_row(table_name, str(count))
+
+        if table.row_count > 0:
+            console.print(table)
+        else:
+            console.print("[dim]Database has no tables yet[/dim]")
+    else:
+        # Create new database
+        db = sqlite_utils.Database(str(db_path))
+        console.print(f"[green]✓[/green] Created database: [cyan]{db_path}[/cyan]")
+
+    # Show summary in a panel
+    summary = f"""[bold]Scrobbledb initialized successfully![/bold]
+
+Data directory: [cyan]{data_dir}[/cyan]
+Database: [cyan]{db_path}[/cyan]
+Auth file: [cyan]{data_dir / 'auth.json'}[/cyan]
+
+Next steps:
+  1. Run [bold cyan]scrobbledb auth[/bold cyan] to configure your API credentials
+  2. Run [bold cyan]scrobbledb plays[/bold cyan] to import your listening history
+"""
+    console.print(Panel(summary, border_style="green"))
 
 
 @cli.command()
@@ -52,16 +119,19 @@ def auth(auth, network):
     if auth is None:
         auth = get_default_auth_path()
 
+    console.print(Panel(f"[bold]Configure {network.upper()} API Credentials[/bold]", border_style="blue"))
+
     if network == "lastfm":
-        click.echo(
-            f"Create an API account here: https://www.last.fm/api/account/create"
+        console.print(
+            "Create an API account here: [link=https://www.last.fm/api/account/create]https://www.last.fm/api/account/create[/link]"
         )
     elif network == "librefm":
-        click.echo(f"Create an API account here: xxxfixme")
-    click.echo()
-    username = click.prompt("Your username")
-    api_key = click.prompt("API Key")
-    shared_secret = click.prompt("Shared Secret")
+        console.print("Create an API account here: xxxfixme")
+
+    console.print()
+    username = Prompt.ask("[cyan]Your username[/cyan]")
+    api_key = Prompt.ask("[cyan]API Key[/cyan]")
+    shared_secret = Prompt.ask("[cyan]Shared Secret[/cyan]")
 
     # TODO: we could test that this works by calling Network.get_user()
 
@@ -75,6 +145,8 @@ def auth(auth, network):
         }
     )
     json.dump(auth_data, open(auth, "w"))
+
+    console.print(f"\n[green]✓[/green] Credentials saved to: [cyan]{auth}[/cyan]")
 
 
 @cli.command()
@@ -121,23 +193,31 @@ def plays(database, auth, since, since_date):
     if since_date:
         since_date = dateutil.parser.parse(since_date)
 
-    auth = json.load(open(auth))
+    auth_data = json.load(open(auth))
     network = lastfm.get_network(
-        auth["lastfm_network"],
-        key=auth["lastfm_api_key"],
-        secret=auth["lastfm_shared_secret"],
+        auth_data["lastfm_network"],
+        key=auth_data["lastfm_api_key"],
+        secret=auth_data["lastfm_shared_secret"],
     )
 
-    user = network.get_user(auth["lastfm_username"])
+    user = network.get_user(auth_data["lastfm_username"])
     playcount = user.get_playcount()
     history = lastfm.recent_tracks(user, since_date)
 
+    console.print(f"[cyan]Importing plays from {auth_data['lastfm_username']}...[/cyan]")
+
     # FIXME: the progress bar is wrong if there's a since_date
-    with click.progressbar(
-        history, length=playcount, label="Importing plays", show_pos=True
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
     ) as progress:
-        for track in progress:
+        task = progress.add_task("[cyan]Importing plays...", total=playcount)
+        for track in history:
             lastfm.save_artist(db, track["artist"])
             lastfm.save_album(db, track["album"])
             lastfm.save_track(db, track["track"])
             lastfm.save_play(db, track["play"])
+            progress.advance(task)
+
+    console.print(f"[green]✓[/green] Successfully imported plays to: [cyan]{database}[/cyan]")
