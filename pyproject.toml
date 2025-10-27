@@ -1,26 +1,36 @@
-[tool.poetry]
-name = "lastfm-to-sqlite"
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scrobbledb"
 version = "1.0.0"
 description = "Save data from last.fm/libre.fm to a SQLite database"
-authors = ["Jacob Kaplan-Moss <jacob@jacobian.org>"]
-license = "wtfpl"
+authors = [{name = "Jacob Kaplan-Moss", email = "jacob@jacobian.org"}]
+license = {text = "wtfpl"}
 readme = "README.md"
-repository = "https://github.com/jacobian/lastfm-to-sqlite/"
+requires-python = ">=3.6"
+dependencies = [
+    "pylast>=3.1.0",
+    "sqlite-utils>=1.12.1",
+    "click>=7.0",
+    "python-dateutil>=2.8.1",
+]
 
-[tool.poetry.scripts]
-lastfm-to-sqlite = "lastfm_to_sqlite.cli:cli"
+[project.optional-dependencies]
+dev = [
+    "pytest>=5.2.2",
+    "pytest-cov>=2.8.1",
+]
 
-[tool.poetry.dependencies]
-python = "^3.6"
-pylast = "^3.1.0"
-sqlite-utils = "^1.12.1"
-click = "^7.0"
-python-dateutil = "^2.8.1"
+[project.scripts]
+scrobbledb = "scrobbledb.cli:cli"
 
-[tool.poetry.dev-dependencies]
-pytest = "^5.2.2"
-pytest-cov = "^2.8.1"
+[project.urls]
+Repository = "https://github.com/jacobian/lastfm-to-sqlite/"
 
-[build-system]
-requires = ["poetry>=0.12"]
-build-backend = "poetry.masonry.api"
+[dependency-groups]
+dev = [
+    "pytest>=7.0.1",
+    "pytest-cov>=4.0.0",
+]

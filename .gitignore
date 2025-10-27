@@ -3,3 +3,7 @@ auth.json
 *.db
 .coverage
 .vscode/
+__pycache__/
+*.pyc
+.venv/
+uv.lock

@@ -1,6 +1,6 @@
 from xml.dom import minidom
 import pytest
-from lastfm_to_sqlite import lastfm
+from scrobbledb import lastfm
 import datetime as dt
 
 
@@ -37,6 +37,6 @@ def test_extract_track_data(track_node: minidom.Node):
     }
     assert data["play"] == {
         "track_id": "track-123",
-        "timestamp": dt.datetime(2008, 6, 9, 13, 16, 59),
+        "timestamp": dt.datetime(2008, 6, 9, 17, 16, 59),
     }
 
