@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Save data from last.fm/libre.fm to a SQLite database"
 authors = [
     {name = "Jacob Kaplan-Moss", email = "jacob@jacobian.org"},
-    {name = "Brian M. Dennis"}
+    {name = "Brian M. Dennis", email = "bmd@pirateninja.dev"}
 ]
 license = {text = "Apache-2.0"}
 readme = "README.md"
