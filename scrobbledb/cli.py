@@ -42,49 +42,129 @@ def cli():
 
 
 @cli.command()
-def init():
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Check initialization state without making changes",
+)
+def init(dry_run):
     """
     Initialize scrobbledb data directory and database.
 
     Creates the XDG compliant data directory and initializes
     a default SQLite database for storing scrobble data.
+
+    Use --dry-run to check the current state without making any changes.
     """
     data_dir = get_data_dir()
-    db_path = Path(get_default_db_path())
 
-    # Check if directory exists
-    if data_dir.exists():
-        console.print(f"[green]✓[/green] Data directory already exists: [cyan]{data_dir}[/cyan]")
-    else:
-        data_dir.mkdir(parents=True, exist_ok=True)
-        console.print(f"[green]✓[/green] Created data directory: [cyan]{data_dir}[/cyan]")
+    if dry_run:
+        # In dry-run mode, construct paths without creating directories
+        db_path = data_dir / "scrobbledb.db"
+        auth_path = data_dir / "auth.json"
+        # Dry-run mode: just report status without making changes
+        console.print(Panel("[bold]Dry-run mode:[/bold] Checking initialization state...", border_style="blue"))
+        console.print()
 
-    # Check if database exists
-    if db_path.exists():
-        console.print(f"[yellow]![/yellow] Database already exists: [cyan]{db_path}[/cyan]")
+        actions_needed = []
 
-        # Show database info
-        db = sqlite_utils.Database(str(db_path))
-
-        table = Table(title="Database Tables")
-        table.add_column("Table", style="cyan")
-        table.add_column("Rows", style="magenta", justify="right")
-
-        for table_name in db.table_names():
-            count = db[table_name].count
-            table.add_row(table_name, str(count))
-
-        if table.row_count > 0:
-            console.print(table)
+        # Check directory
+        if data_dir.exists():
+            console.print(f"[green]✓[/green] Data directory exists: [cyan]{data_dir}[/cyan]")
         else:
-            console.print("[dim]Database has no tables yet[/dim]")
-    else:
-        # Create new database
-        db = sqlite_utils.Database(str(db_path))
-        console.print(f"[green]✓[/green] Created database: [cyan]{db_path}[/cyan]")
+            console.print(f"[yellow]○[/yellow] Data directory does not exist: [cyan]{data_dir}[/cyan]")
+            actions_needed.append("Create data directory")
 
-    # Show summary in a panel
-    summary = f"""[bold]Scrobbledb initialized successfully![/bold]
+        # Check database
+        if db_path.exists():
+            console.print(f"[green]✓[/green] Database exists: [cyan]{db_path}[/cyan]")
+
+            # Show database info
+            db = sqlite_utils.Database(str(db_path))
+            table = Table(title="Database Tables")
+            table.add_column("Table", style="cyan")
+            table.add_column("Rows", style="magenta", justify="right")
+
+            for table_name in db.table_names():
+                count = db[table_name].count
+                table.add_row(table_name, str(count))
+
+            if table.row_count > 0:
+                console.print(table)
+            else:
+                console.print("[dim]  Database exists but has no tables yet[/dim]")
+        else:
+            console.print(f"[yellow]○[/yellow] Database does not exist: [cyan]{db_path}[/cyan]")
+            actions_needed.append("Create database")
+
+        # Check auth file
+        if auth_path.exists():
+            console.print(f"[green]✓[/green] Auth file exists: [cyan]{auth_path}[/cyan]")
+        else:
+            console.print(f"[yellow]○[/yellow] Auth file does not exist: [cyan]{auth_path}[/cyan]")
+            console.print("[dim]  (Auth file will be created when you run 'scrobbledb auth')[/dim]")
+
+        console.print()
+
+        # Show what would happen
+        if actions_needed:
+            actions_list = "".join(f"  • {action}\n" for action in actions_needed)
+            summary = f"""[bold yellow]Actions needed for initialization:[/bold yellow]
+
+{actions_list}
+Run [bold cyan]scrobbledb init[/bold cyan] (without --dry-run) to perform these actions.
+"""
+            console.print(Panel(summary, border_style="yellow"))
+        else:
+            summary = f"""[bold green]✓ Scrobbledb is already initialized![/bold green]
+
+All required components are in place.
+
+Next steps:
+  • If you haven't configured credentials: [bold cyan]scrobbledb auth[/bold cyan]
+  • To import listening history: [bold cyan]scrobbledb plays[/bold cyan]
+"""
+            console.print(Panel(summary, border_style="green"))
+
+    else:
+        # Normal mode: actually create things
+        db_path = Path(get_default_db_path())
+        auth_path = Path(get_default_auth_path())
+
+        # Check if directory exists
+        if data_dir.exists():
+            console.print(f"[green]✓[/green] Data directory already exists: [cyan]{data_dir}[/cyan]")
+        else:
+            data_dir.mkdir(parents=True, exist_ok=True)
+            console.print(f"[green]✓[/green] Created data directory: [cyan]{data_dir}[/cyan]")
+
+        # Check if database exists
+        if db_path.exists():
+            console.print(f"[yellow]![/yellow] Database already exists: [cyan]{db_path}[/cyan]")
+
+            # Show database info
+            db = sqlite_utils.Database(str(db_path))
+
+            table = Table(title="Database Tables")
+            table.add_column("Table", style="cyan")
+            table.add_column("Rows", style="magenta", justify="right")
+
+            for table_name in db.table_names():
+                count = db[table_name].count
+                table.add_row(table_name, str(count))
+
+            if table.row_count > 0:
+                console.print(table)
+            else:
+                console.print("[dim]Database has no tables yet[/dim]")
+        else:
+            # Create new database
+            db = sqlite_utils.Database(str(db_path))
+            console.print(f"[green]✓[/green] Created database: [cyan]{db_path}[/cyan]")
+
+        # Show summary in a panel
+        summary = f"""[bold]Scrobbledb initialized successfully![/bold]
 
 Data directory: [cyan]{data_dir}[/cyan]
 Database: [cyan]{db_path}[/cyan]
@@ -94,7 +174,7 @@ Next steps:
   1. Run [bold cyan]scrobbledb auth[/bold cyan] to configure your API credentials
   2. Run [bold cyan]scrobbledb plays[/bold cyan] to import your listening history
 """
-    console.print(Panel(summary, border_style="green"))
+        console.print(Panel(summary, border_style="green"))
 
 
 @cli.command()
