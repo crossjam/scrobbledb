@@ -6,7 +6,10 @@ build-backend = "setuptools.build_meta"
 name = "scrobbledb"
 version = "1.0.0"
 description = "Save data from last.fm/libre.fm to a SQLite database"
-authors = [{name = "Jacob Kaplan-Moss", email = "jacob@jacobian.org"}]
+authors = [
+    {name = "Jacob Kaplan-Moss", email = "jacob@jacobian.org"},
+    {name = "Brian M. Dennis"}
+]
 license = {text = "wtfpl"}
 readme = "README.md"
 requires-python = ">=3.6"

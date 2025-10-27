@@ -79,6 +79,12 @@ def auth(auth, network):
 )
 @click.option("--since-date", metavar="DATE", help="Pull new posts since DATE")
 def plays(database, auth, since, since_date):
+    """
+    Import play history from last.fm/libre.fm to a SQLite database.
+
+    This command fetches your listening history and saves it to DATABASE,
+    including artist, album, track, and play data with timestamps.
+    """
     if since and since_date:
         raise click.UsageError("use either --since or --since-date, not both")
 
