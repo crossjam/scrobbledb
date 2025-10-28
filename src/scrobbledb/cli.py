@@ -212,21 +212,32 @@ def auth(auth, network):
     username = Prompt.ask("[cyan]Your username[/cyan]")
     api_key = Prompt.ask("[cyan]API Key[/cyan]")
     shared_secret = Prompt.ask("[cyan]Shared Secret[/cyan]")
+    password = Prompt.ask("[cyan]Your password[/cyan]", password=True)
 
-    # TODO: we could test that this works by calling Network.get_user()
+    # Authenticate and get session key
+    console.print("\n[cyan]Authenticating...[/cyan]")
+    try:
+        temp_network = lastfm.get_network(network, key=api_key, secret=shared_secret)
+        session_key = temp_network.get_session_key(username, password)
 
-    auth_data = json.load(open(auth)) if os.path.exists(auth) else {}
-    auth_data.update(
-        {
-            "lastfm_network": network,
-            "lastfm_username": username,
-            "lastfm_api_key": api_key,
-            "lastfm_shared_secret": shared_secret,
-        }
-    )
-    json.dump(auth_data, open(auth, "w"))
+        auth_data = json.load(open(auth)) if os.path.exists(auth) else {}
+        auth_data.update(
+            {
+                "lastfm_network": network,
+                "lastfm_username": username,
+                "lastfm_api_key": api_key,
+                "lastfm_shared_secret": shared_secret,
+                "lastfm_session_key": session_key,
+            }
+        )
+        json.dump(auth_data, open(auth, "w"))
 
-    console.print(f"\n[green]✓[/green] Credentials saved to: [cyan]{auth}[/cyan]")
+        console.print(f"\n[green]✓[/green] Authentication successful!")
+        console.print(f"[green]✓[/green] Credentials saved to: [cyan]{auth}[/cyan]")
+    except Exception as e:
+        console.print(f"\n[red]✗[/red] Authentication failed: {e}")
+        console.print("[yellow]Please check your credentials and try again.[/yellow]")
+        raise click.Abort()
 
 
 @cli.command()
@@ -280,10 +291,19 @@ def plays(database, auth, since, since_date, limit):
         since_date = dateutil.parser.parse(since_date)
 
     auth_data = json.load(open(auth))
+
+    # Check if session key exists in auth data
+    session_key = auth_data.get("lastfm_session_key")
+    if not session_key:
+        console.print("[red]✗[/red] No session key found in authentication file.")
+        console.print("[yellow]Please run 'scrobbledb auth' to re-authenticate.[/yellow]")
+        raise click.Abort()
+
     network = lastfm.get_network(
         auth_data["lastfm_network"],
         key=auth_data["lastfm_api_key"],
         secret=auth_data["lastfm_shared_secret"],
+        session_key=session_key,
     )
 
     user = network.get_user(auth_data["lastfm_username"])

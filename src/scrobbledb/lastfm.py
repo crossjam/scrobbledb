@@ -90,9 +90,12 @@ def _extract_track_data(track: Node):
     }
 
 
-def get_network(name: str, key: str, secret: str):
+def get_network(name: str, key: str, secret: str, session_key: str = None):
     cls = {"lastfm": pylast.LastFMNetwork, "librefm": pylast.LibreFMNetwork}[name]
-    network = cls(api_key=key, api_secret=secret)
+    if session_key:
+        network = cls(api_key=key, api_secret=secret, session_key=session_key)
+    else:
+        network = cls(api_key=key, api_secret=secret)
     network.enable_caching()
     network.enable_rate_limit()
     return network
