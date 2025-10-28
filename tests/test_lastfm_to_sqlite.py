@@ -35,8 +35,10 @@ def test_extract_track_data(track_node: minidom.Node):
         "id": "track-123",
         "title": "Sisters Are Doing It For Themselves",
     }
+    # Test timestamp - use fromtimestamp to match the implementation's timezone behavior
+    expected_timestamp = dt.datetime.fromtimestamp(1213031819)
     assert data["play"] == {
         "track_id": "track-123",
-        "timestamp": dt.datetime(2008, 6, 9, 17, 16, 59),
+        "timestamp": expected_timestamp,
     }
 
