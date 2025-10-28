@@ -7,7 +7,7 @@ import pylast
 from sqlite_utils import Database
 
 
-def recent_tracks(user: pylast.User, since: dt.datetime):
+def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
     """
     This is similar to pylast.User.get_recent_tracks
     (https://github.com/pylast/pylast/blob/master/src/pylast/__init__.py#L2362),
@@ -23,12 +23,16 @@ def recent_tracks(user: pylast.User, since: dt.datetime):
         3. Converts the timestamp to a datetime.
 
         4. It's a generator so that the caller can display a progress bar.
+
+        5. Accepts an optional limit parameter to cap the number of tracks returned.
     """
 
     page = 1
     params = dict(user._get_params(), limit=200)
     if since:
         params["from"] = int(since.timestamp())
+
+    tracks_yielded = 0
 
     while True:
         params["page"] = page
@@ -37,6 +41,9 @@ def recent_tracks(user: pylast.User, since: dt.datetime):
         for node in main.childNodes:
             if node.nodeType != Node.TEXT_NODE:
                 yield _extract_track_data(node)
+                tracks_yielded += 1
+                if limit and tracks_yielded >= limit:
+                    return
 
         page += 1
         total_pages = int(main.getAttribute("totalPages"))
@@ -83,9 +90,12 @@ def _extract_track_data(track: Node):
     }
 
 
-def get_network(name: str, key: str, secret: str):
+def get_network(name: str, key: str, secret: str, session_key: str = None):
     cls = {"lastfm": pylast.LastFMNetwork, "librefm": pylast.LibreFMNetwork}[name]
-    network = cls(api_key=key, api_secret=secret)
+    if session_key:
+        network = cls(api_key=key, api_secret=secret, session_key=session_key)
+    else:
+        network = cls(api_key=key, api_secret=secret)
     network.enable_caching()
     network.enable_rate_limit()
     return network
