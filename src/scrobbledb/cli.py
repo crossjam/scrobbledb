@@ -123,7 +123,7 @@ All required components are in place.
 
 Next steps:
   • If you haven't configured credentials: [bold cyan]scrobbledb auth[/bold cyan]
-  • To import listening history: [bold cyan]scrobbledb plays[/bold cyan]
+  • To import listening history: [bold cyan]scrobbledb ingest[/bold cyan]
 """
             console.print(Panel(summary, border_style="green"))
 
@@ -172,7 +172,7 @@ Auth file: [cyan]{data_dir / 'auth.json'}[/cyan]
 
 Next steps:
   1. Run [bold cyan]scrobbledb auth[/bold cyan] to configure your API credentials
-  2. Run [bold cyan]scrobbledb plays[/bold cyan] to import your listening history
+  2. Run [bold cyan]scrobbledb ingest[/bold cyan] to import your listening history
 """
         console.print(Panel(summary, border_style="green"))
 
@@ -269,9 +269,9 @@ def auth(auth, network):
     default=None,
     help="Maximum number of tracks to import",
 )
-def plays(database, auth, since, since_date, limit):
+def ingest(database, auth, since, since_date, limit):
     """
-    Import play history from last.fm/libre.fm to a SQLite database.
+    Ingest play history from last.fm/libre.fm to a SQLite database.
 
     This command fetches your listening history and saves it to DATABASE,
     including artist, album, track, and play data with timestamps.
@@ -318,9 +318,9 @@ def plays(database, auth, since, since_date, limit):
     history = lastfm.recent_tracks(user, since_date, limit=limit)
 
     if limit:
-        console.print(f"[cyan]Importing up to {limit} plays from {auth_data['lastfm_username']}...[/cyan]")
+        console.print(f"[cyan]Ingesting up to {limit} tracks from {auth_data['lastfm_username']}...[/cyan]")
     else:
-        console.print(f"[cyan]Importing plays from {auth_data['lastfm_username']}...[/cyan]")
+        console.print(f"[cyan]Ingesting tracks from {auth_data['lastfm_username']}...[/cyan]")
 
     # FIXME: the progress bar is wrong if there's a since_date
     with Progress(
@@ -328,7 +328,7 @@ def plays(database, auth, since, since_date, limit):
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task("[cyan]Importing plays...", total=expected_count)
+        task = progress.add_task("[cyan]Ingesting tracks...", total=expected_count)
         for track in history:
             lastfm.save_artist(db, track["artist"])
             lastfm.save_album(db, track["album"])
@@ -336,4 +336,4 @@ def plays(database, auth, since, since_date, limit):
             lastfm.save_play(db, track["play"])
             progress.advance(task)
 
-    console.print(f"[green]✓[/green] Successfully imported plays to: [cyan]{database}[/cyan]")
+    console.print(f"[green]✓[/green] Successfully ingested tracks to: [cyan]{database}[/cyan]")
