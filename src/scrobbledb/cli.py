@@ -217,8 +217,11 @@ def auth(auth, network):
     # Authenticate and get session key
     console.print("\n[cyan]Authenticating...[/cyan]")
     try:
+        import pylast
         temp_network = lastfm.get_network(network, key=api_key, secret=shared_secret)
-        session_key = temp_network.get_session_key(username, password)
+        password_hash = pylast.md5(password)
+        sg = pylast.SessionKeyGenerator(temp_network)
+        session_key = sg.get_session_key(username, password_hash)
 
         auth_data = json.load(open(auth)) if os.path.exists(auth) else {}
         auth_data.update(
