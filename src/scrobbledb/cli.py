@@ -249,7 +249,13 @@ def auth(auth, network):
     help="Pull new posts since last saved post in DB",
 )
 @click.option("--since-date", metavar="DATE", help="Pull new posts since DATE")
-def plays(database, auth, since, since_date):
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Maximum number of tracks to import",
+)
+def plays(database, auth, since, since_date, limit):
     """
     Import play history from last.fm/libre.fm to a SQLite database.
 
@@ -282,9 +288,16 @@ def plays(database, auth, since, since_date):
 
     user = network.get_user(auth_data["lastfm_username"])
     playcount = user.get_playcount()
-    history = lastfm.recent_tracks(user, since_date)
 
-    console.print(f"[cyan]Importing plays from {auth_data['lastfm_username']}...[/cyan]")
+    # Use limit if specified, otherwise use total playcount
+    expected_count = min(limit, playcount) if limit else playcount
+
+    history = lastfm.recent_tracks(user, since_date, limit=limit)
+
+    if limit:
+        console.print(f"[cyan]Importing up to {limit} plays from {auth_data['lastfm_username']}...[/cyan]")
+    else:
+        console.print(f"[cyan]Importing plays from {auth_data['lastfm_username']}...[/cyan]")
 
     # FIXME: the progress bar is wrong if there's a since_date
     with Progress(
@@ -292,7 +305,7 @@ def plays(database, auth, since, since_date):
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task("[cyan]Importing plays...", total=playcount)
+        task = progress.add_task("[cyan]Importing plays...", total=expected_count)
         for track in history:
             lastfm.save_artist(db, track["artist"])
             lastfm.save_album(db, track["album"])
