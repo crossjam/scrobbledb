@@ -232,3 +232,248 @@ def test_save_multiple_plays_same_track(temp_db, sample_artist_data, sample_albu
     timestamps = [play["timestamp"] for play in plays]
     assert timestamps == sorted(timestamps)
 
+
+def test_setup_fts5(temp_db, sample_artist_data, sample_album_data, sample_track_data):
+    """Test setting up FTS5 virtual table and triggers."""
+    # Save some data first
+    lastfm.save_artist(temp_db, sample_artist_data)
+    lastfm.save_album(temp_db, sample_album_data)
+    lastfm.save_track(temp_db, sample_track_data)
+
+    # Set up FTS5
+    lastfm.setup_fts5(temp_db)
+
+    # Verify FTS5 table exists
+    assert "tracks_fts" in temp_db.table_names()
+
+    # Verify FTS5 table has correct columns
+    columns = [col.name for col in temp_db["tracks_fts"].columns]
+    assert "artist_name" in columns
+    assert "album_title" in columns
+    assert "track_title" in columns
+    assert "artist_id" in columns
+    assert "album_id" in columns
+    assert "track_id" in columns
+
+
+def test_rebuild_fts5(temp_db, sample_artist_data, sample_album_data, sample_track_data):
+    """Test rebuilding FTS5 index from existing data."""
+    # Save test data
+    lastfm.save_artist(temp_db, sample_artist_data)
+    lastfm.save_album(temp_db, sample_album_data)
+    lastfm.save_track(temp_db, sample_track_data)
+
+    # Set up and rebuild FTS5
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Verify FTS5 table has data
+    fts_count = temp_db.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0]
+    assert fts_count == 1
+
+    # Verify the indexed data is correct
+    result = temp_db.execute("""
+        SELECT artist_name, album_title, track_title
+        FROM tracks_fts
+    """).fetchone()
+    assert result[0] == "Aretha Franklin"
+    assert result[1] == "Who's Zoomin' Who?"
+    assert result[2] == "Sisters Are Doing It For Themselves"
+
+
+def test_search_tracks_basic(temp_db, sample_artist_data, sample_album_data, sample_track_data, sample_play_data):
+    """Test basic track search functionality."""
+    # Save test data
+    lastfm.save_artist(temp_db, sample_artist_data)
+    lastfm.save_album(temp_db, sample_album_data)
+    lastfm.save_track(temp_db, sample_track_data)
+    lastfm.save_play(temp_db, sample_play_data)
+
+    # Set up FTS5 and rebuild
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Search for "Aretha"
+    results = lastfm.search_tracks(temp_db, "Aretha")
+    assert len(results) == 1
+    assert results[0]["artist_name"] == "Aretha Franklin"
+    assert results[0]["track_title"] == "Sisters Are Doing It For Themselves"
+    assert results[0]["album_title"] == "Who's Zoomin' Who?"
+    assert results[0]["play_count"] == 1
+
+
+def test_search_tracks_by_artist(temp_db):
+    """Test searching by artist name."""
+    # Create test data with multiple artists
+    artists = [
+        {"id": "artist-1", "name": "The Beatles"},
+        {"id": "artist-2", "name": "The Rolling Stones"},
+        {"id": "artist-3", "name": "Pink Floyd"},
+    ]
+    albums = [
+        {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"},
+        {"id": "album-2", "title": "Let It Bleed", "artist_id": "artist-2"},
+        {"id": "album-3", "title": "The Dark Side of the Moon", "artist_id": "artist-3"},
+    ]
+    tracks = [
+        {"id": "track-1", "title": "Come Together", "album_id": "album-1"},
+        {"id": "track-2", "title": "Gimme Shelter", "album_id": "album-2"},
+        {"id": "track-3", "title": "Time", "album_id": "album-3"},
+    ]
+
+    for artist in artists:
+        lastfm.save_artist(temp_db, artist)
+    for album in albums:
+        lastfm.save_album(temp_db, album)
+    for track in tracks:
+        lastfm.save_track(temp_db, track)
+
+    # Set up FTS5
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Search for "Beatles"
+    results = lastfm.search_tracks(temp_db, "Beatles")
+    assert len(results) == 1
+    assert results[0]["artist_name"] == "The Beatles"
+    assert results[0]["track_title"] == "Come Together"
+
+
+def test_search_tracks_by_track_title(temp_db):
+    """Test searching by track title."""
+    # Create test data
+    artist = {"id": "artist-1", "name": "The Beatles"}
+    album = {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"}
+    track = {"id": "track-1", "title": "Come Together", "album_id": "album-1"}
+
+    lastfm.save_artist(temp_db, artist)
+    lastfm.save_album(temp_db, album)
+    lastfm.save_track(temp_db, track)
+
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Search for track title
+    results = lastfm.search_tracks(temp_db, "Together")
+    assert len(results) == 1
+    assert results[0]["track_title"] == "Come Together"
+
+
+def test_search_tracks_by_album(temp_db):
+    """Test searching by album title."""
+    # Create test data
+    artist = {"id": "artist-1", "name": "Pink Floyd"}
+    album = {"id": "album-1", "title": "The Dark Side of the Moon", "artist_id": "artist-1"}
+    tracks = [
+        {"id": "track-1", "title": "Time", "album_id": "album-1"},
+        {"id": "track-2", "title": "Money", "album_id": "album-1"},
+    ]
+
+    lastfm.save_artist(temp_db, artist)
+    lastfm.save_album(temp_db, album)
+    for track in tracks:
+        lastfm.save_track(temp_db, track)
+
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Search for album
+    results = lastfm.search_tracks(temp_db, "Dark Side")
+    assert len(results) == 2
+    assert all(r["album_title"] == "The Dark Side of the Moon" for r in results)
+
+
+def test_search_tracks_with_limit(temp_db):
+    """Test search with result limit."""
+    # Create test data with multiple tracks
+    artist = {"id": "artist-1", "name": "The Beatles"}
+    album = {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"}
+    tracks = [
+        {"id": f"track-{i}", "title": f"Song {i}", "album_id": "album-1"}
+        for i in range(10)
+    ]
+
+    lastfm.save_artist(temp_db, artist)
+    lastfm.save_album(temp_db, album)
+    for track in tracks:
+        lastfm.save_track(temp_db, track)
+
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Search with limit
+    results = lastfm.search_tracks(temp_db, "Beatles", limit=5)
+    assert len(results) == 5
+
+
+def test_search_no_results(temp_db, sample_artist_data, sample_album_data, sample_track_data):
+    """Test search that returns no results."""
+    lastfm.save_artist(temp_db, sample_artist_data)
+    lastfm.save_album(temp_db, sample_album_data)
+    lastfm.save_track(temp_db, sample_track_data)
+
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Search for something that doesn't exist
+    results = lastfm.search_tracks(temp_db, "Nonexistent Artist")
+    assert len(results) == 0
+
+
+def test_fts5_trigger_on_insert(temp_db):
+    """Test that FTS5 index is automatically updated when new tracks are inserted."""
+    # Insert initial data to create the tables
+    artist = {"id": "artist-1", "name": "The Beatles"}
+    album = {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"}
+    track = {"id": "track-1", "title": "Come Together", "album_id": "album-1"}
+
+    lastfm.save_artist(temp_db, artist)
+    lastfm.save_album(temp_db, album)
+    lastfm.save_track(temp_db, track)
+
+    # Set up FTS5 with triggers AFTER tables exist
+    lastfm.setup_fts5(temp_db)
+
+    # Insert MORE data to test that triggers work
+    artist2 = {"id": "artist-2", "name": "The Rolling Stones"}
+    album2 = {"id": "album-2", "title": "Let It Bleed", "artist_id": "artist-2"}
+    track2 = {"id": "track-2", "title": "Gimme Shelter", "album_id": "album-2"}
+
+    lastfm.save_artist(temp_db, artist2)
+    lastfm.save_album(temp_db, album2)
+    lastfm.save_track(temp_db, track2)
+
+    # Verify FTS5 index was automatically populated by triggers for the new data
+    results = lastfm.search_tracks(temp_db, "Stones")
+    assert len(results) == 1
+    assert results[0]["artist_name"] == "The Rolling Stones"
+    assert results[0]["track_title"] == "Gimme Shelter"
+
+
+def test_search_tracks_with_play_count(temp_db):
+    """Test that search results include play count."""
+    # Create test data
+    artist = {"id": "artist-1", "name": "The Beatles"}
+    album = {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"}
+    track = {"id": "track-1", "title": "Come Together", "album_id": "album-1"}
+
+    lastfm.save_artist(temp_db, artist)
+    lastfm.save_album(temp_db, album)
+    lastfm.save_track(temp_db, track)
+
+    # Add multiple plays
+    for i in range(5):
+        play = {
+            "track_id": "track-1",
+            "timestamp": dt.datetime(2008, 6, 9 + i, 17, 16, 59),
+        }
+        lastfm.save_play(temp_db, play)
+
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Search and verify play count
+    results = lastfm.search_tracks(temp_db, "Beatles")
+    assert len(results) == 1
+    assert results[0]["play_count"] == 5
+

@@ -317,6 +317,11 @@ def ingest(database, auth, since, since_date, limit):
 
     history = lastfm.recent_tracks(user, since_date, limit=limit)
 
+    # Set up FTS5 index if it doesn't exist
+    if "tracks_fts" not in db.table_names():
+        console.print("[cyan]Setting up search index for the first time...[/cyan]")
+        lastfm.setup_fts5(db)
+
     if limit:
         console.print(f"[cyan]Ingesting up to {limit} tracks from {auth_data['lastfm_username']}...[/cyan]")
     else:
@@ -337,3 +342,181 @@ def ingest(database, auth, since, since_date, limit):
             progress.advance(task)
 
     console.print(f"[green]✓[/green] Successfully ingested tracks to: [cyan]{database}[/cyan]")
+    console.print("[dim]Search index is automatically maintained and ready to use.[/dim]")
+
+
+@cli.command()
+@click.argument(
+    "database",
+    required=False,
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+def index(database):
+    """
+    Set up and rebuild FTS5 full-text search index.
+
+    Creates the FTS5 virtual table with triggers and rebuilds the search index
+    from existing data. This enables fast full-text search across artists,
+    albums, and tracks.
+
+    If DATABASE is not specified, uses the default location in the XDG data directory.
+    """
+    if database is None:
+        database = get_default_db_path()
+
+    if not Path(database).exists():
+        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
+        console.print("[yellow]Run 'scrobbledb init' to create a new database.[/yellow]")
+        raise click.Abort()
+
+    db = sqlite_utils.Database(database)
+
+    # Check if we have data to index
+    if not db["tracks"].exists:
+        console.print("[yellow]![/yellow] No tracks found in database.")
+        console.print("[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]")
+        raise click.Abort()
+
+    console.print("[cyan]Setting up FTS5 search index...[/cyan]")
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+    ) as progress:
+        task = progress.add_task("[cyan]Creating FTS5 virtual table and triggers...", total=None)
+        lastfm.setup_fts5(db)
+        progress.update(task, description="[cyan]Rebuilding search index from existing data...")
+        lastfm.rebuild_fts5(db)
+        progress.update(task, description="[green]✓ FTS5 index ready!")
+
+    # Show index statistics
+    track_count = db["tracks"].count
+    fts_count = db.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0]
+
+    console.print(f"[green]✓[/green] Indexed {fts_count} tracks from database")
+    console.print(f"[cyan]Database:[/cyan] {database}")
+    console.print("\n[dim]You can now use 'scrobbledb search <query>' to search your music![/dim]")
+
+
+@cli.command()
+@click.argument("query", required=True)
+@click.argument(
+    "database",
+    required=False,
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+@click.option(
+    "-l",
+    "--limit",
+    type=int,
+    default=20,
+    help="Maximum number of results to return",
+    show_default=True,
+)
+@click.option(
+    "-f",
+    "--fields",
+    default="artist,album,track,plays",
+    help="Comma-separated list of fields to display (artist, album, track, plays, last_played)",
+    show_default=True,
+)
+def search(query, database, limit, fields):
+    """
+    Search for tracks using full-text search.
+
+    Searches across artist names, album titles, and track titles using
+    SQLite's FTS5 full-text search engine.
+
+    Examples:
+        scrobbledb search "rolling stones"
+        scrobbledb search "love" --limit 10
+        scrobbledb search "beatles" --fields artist,track,plays,last_played
+
+    If DATABASE is not specified, uses the default location in the XDG data directory.
+
+    Note: You must run 'scrobbledb index' first to set up the search index.
+    """
+    if database is None:
+        database = get_default_db_path()
+
+    if not Path(database).exists():
+        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
+        console.print("[yellow]Run 'scrobbledb init' to create a new database.[/yellow]")
+        raise click.Abort()
+
+    db = sqlite_utils.Database(database)
+
+    # Check if FTS5 index exists
+    if "tracks_fts" not in db.table_names():
+        console.print("[red]✗[/red] Search index not found.")
+        console.print("[yellow]Run 'scrobbledb index' to set up the search index first.[/yellow]")
+        raise click.Abort()
+
+    # Parse fields option
+    field_list = [f.strip().lower() for f in fields.split(",")]
+    valid_fields = {"artist", "album", "track", "plays", "last_played"}
+    invalid_fields = set(field_list) - valid_fields
+
+    if invalid_fields:
+        console.print(f"[red]✗[/red] Invalid fields: {', '.join(invalid_fields)}")
+        console.print(f"[yellow]Valid fields are: {', '.join(sorted(valid_fields))}[/yellow]")
+        raise click.Abort()
+
+    # Perform search
+    console.print(f"[cyan]Searching for:[/cyan] {query}\n")
+
+    try:
+        results = lastfm.search_tracks(db, query, limit=limit)
+    except Exception as e:
+        console.print(f"[red]✗[/red] Search failed: {e}")
+        console.print("[yellow]Make sure the FTS5 index is up to date by running 'scrobbledb index'.[/yellow]")
+        raise click.Abort()
+
+    if not results:
+        console.print("[yellow]No results found.[/yellow]")
+        console.print("\n[dim]Try a different search query or check your database has data.[/dim]")
+        return
+
+    # Create results table
+    table = Table(title=f"Search Results ({len(results)} found)")
+
+    # Add columns based on field selection
+    if "artist" in field_list:
+        table.add_column("Artist", style="cyan")
+    if "album" in field_list:
+        table.add_column("Album", style="magenta")
+    if "track" in field_list:
+        table.add_column("Track", style="green")
+    if "plays" in field_list:
+        table.add_column("Plays", justify="right", style="yellow")
+    if "last_played" in field_list:
+        table.add_column("Last Played", style="blue")
+
+    # Add rows
+    for result in results:
+        row = []
+        if "artist" in field_list:
+            row.append(result["artist_name"])
+        if "album" in field_list:
+            row.append(result["album_title"])
+        if "track" in field_list:
+            row.append(result["track_title"])
+        if "plays" in field_list:
+            row.append(str(result["play_count"]))
+        if "last_played" in field_list:
+            last_played = result["last_played"]
+            if last_played:
+                # Parse and format the datetime
+                if isinstance(last_played, str):
+                    last_played = dateutil.parser.parse(last_played)
+                    row.append(last_played.strftime("%Y-%m-%d %H:%M"))
+                else:
+                    row.append(str(last_played))
+            else:
+                row.append("-")
+
+        table.add_row(*row)
+
+    console.print(table)
+    console.print(f"\n[dim]Showing {len(results)} of {len(results)} results[/dim]")
