@@ -48,14 +48,22 @@ def cli():
     default=False,
     help="Check initialization state without making changes",
 )
-def init(dry_run):
+@click.option(
+    "--no-index",
+    is_flag=True,
+    default=False,
+    help="Skip FTS5 search index initialization",
+)
+def init(dry_run, no_index):
     """
     Initialize scrobbledb data directory and database.
 
     Creates the XDG compliant data directory and initializes
-    a default SQLite database for storing scrobble data.
+    a default SQLite database for storing scrobble data, including
+    the FTS5 full-text search index.
 
     Use --dry-run to check the current state without making any changes.
+    Use --no-index to skip FTS5 initialization (for minimal setup).
     """
     data_dir = get_data_dir()
 
@@ -85,18 +93,37 @@ def init(dry_run):
             table = Table(title="Database Tables")
             table.add_column("Table", style="cyan")
             table.add_column("Rows", style="magenta", justify="right")
+            table.add_column("Type", style="blue")
 
             for table_name in db.table_names():
                 count = db[table_name].count
-                table.add_row(table_name, str(count))
+                # Check if it's a virtual table
+                is_virtual = db.execute(
+                    "SELECT sql FROM sqlite_master WHERE name=? AND type='table'",
+                    [table_name]
+                ).fetchone()
+                table_type = "FTS5" if is_virtual and is_virtual[0] and "fts5" in str(is_virtual[0]).lower() else "Normal"
+                table.add_row(table_name, str(count), table_type)
 
             if table.row_count > 0:
                 console.print(table)
+
+                # Check if FTS5 exists
+                if "tracks_fts" in db.table_names():
+                    console.print(f"[green]✓[/green] FTS5 search index is initialized")
+                else:
+                    console.print(f"[yellow]○[/yellow] FTS5 search index is not initialized")
+                    if not no_index:
+                        actions_needed.append("Initialize FTS5 search index")
             else:
                 console.print("[dim]  Database exists but has no tables yet[/dim]")
+                if not no_index:
+                    actions_needed.append("Initialize FTS5 search index")
         else:
             console.print(f"[yellow]○[/yellow] Database does not exist: [cyan]{db_path}[/cyan]")
             actions_needed.append("Create database")
+            if not no_index:
+                actions_needed.append("Initialize FTS5 search index")
 
         # Check auth file
         if auth_path.exists():
@@ -124,6 +151,7 @@ All required components are in place.
 Next steps:
   • If you haven't configured credentials: [bold cyan]scrobbledb auth[/bold cyan]
   • To import listening history: [bold cyan]scrobbledb ingest[/bold cyan]
+  • To search your music: [bold cyan]scrobbledb search <query>[/bold cyan]
 """
             console.print(Panel(summary, border_style="green"))
 
@@ -140,19 +168,26 @@ Next steps:
             console.print(f"[green]✓[/green] Created data directory: [cyan]{data_dir}[/cyan]")
 
         # Check if database exists
-        if db_path.exists():
+        db_existed = db_path.exists()
+        db = sqlite_utils.Database(str(db_path))
+
+        if db_existed:
             console.print(f"[yellow]![/yellow] Database already exists: [cyan]{db_path}[/cyan]")
 
             # Show database info
-            db = sqlite_utils.Database(str(db_path))
-
             table = Table(title="Database Tables")
             table.add_column("Table", style="cyan")
             table.add_column("Rows", style="magenta", justify="right")
+            table.add_column("Type", style="blue")
 
             for table_name in db.table_names():
                 count = db[table_name].count
-                table.add_row(table_name, str(count))
+                is_virtual = db.execute(
+                    "SELECT sql FROM sqlite_master WHERE name=? AND type='table'",
+                    [table_name]
+                ).fetchone()
+                table_type = "FTS5" if is_virtual and is_virtual[0] and "fts5" in str(is_virtual[0]).lower() else "Normal"
+                table.add_row(table_name, str(count), table_type)
 
             if table.row_count > 0:
                 console.print(table)
@@ -160,19 +195,31 @@ Next steps:
                 console.print("[dim]Database has no tables yet[/dim]")
         else:
             # Create new database
-            db = sqlite_utils.Database(str(db_path))
             console.print(f"[green]✓[/green] Created database: [cyan]{db_path}[/cyan]")
 
+        # Initialize FTS5 if requested (default)
+        if not no_index:
+            if "tracks_fts" not in db.table_names():
+                console.print("[cyan]Initializing FTS5 search index...[/cyan]")
+                lastfm.setup_fts5(db)
+                console.print(f"[green]✓[/green] FTS5 search index initialized")
+            else:
+                console.print(f"[green]✓[/green] FTS5 search index already exists")
+
         # Show summary in a panel
+        fts5_status = "initialized and ready" if not no_index else "skipped (use 'scrobbledb index' to set up later)"
+
         summary = f"""[bold]Scrobbledb initialized successfully![/bold]
 
 Data directory: [cyan]{data_dir}[/cyan]
 Database: [cyan]{db_path}[/cyan]
 Auth file: [cyan]{data_dir / 'auth.json'}[/cyan]
+Search index: [cyan]{fts5_status}[/cyan]
 
 Next steps:
   1. Run [bold cyan]scrobbledb auth[/bold cyan] to configure your API credentials
   2. Run [bold cyan]scrobbledb ingest[/bold cyan] to import your listening history
+  3. Run [bold cyan]scrobbledb search <query>[/bold cyan] to search your music
 """
         console.print(Panel(summary, border_style="green"))
 
@@ -520,3 +567,330 @@ def search(query, database, limit, fields):
 
     console.print(table)
     console.print(f"\n[dim]Showing {len(results)} of {len(results)} results[/dim]")
+
+
+@cli.command()
+@click.argument(
+    "database",
+    required=False,
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+@click.option(
+    "-f",
+    "--file",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, allow_dash=True),
+    default=None,
+    help="Read from file (use '-' for stdin)",
+)
+@click.option(
+    "--format",
+    type=click.Choice(["jsonl", "csv", "tsv", "auto"], case_sensitive=False),
+    default="auto",
+    help="Input format",
+    show_default=True,
+)
+@click.option(
+    "--skip-errors",
+    is_flag=True,
+    default=False,
+    help="Continue on errors instead of aborting",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Validate input without saving to database",
+)
+@click.option(
+    "--no-duplicates",
+    is_flag=True,
+    default=False,
+    help="Skip scrobbles with duplicate timestamp+track",
+)
+@click.option(
+    "--update-index/--no-update-index",
+    default=None,
+    help="Update FTS5 search index after adding",
+)
+@click.option(
+    "--limit",
+    type=int,
+    default=None,
+    help="Add at most N records",
+)
+@click.option(
+    "--sample",
+    type=float,
+    default=None,
+    help="Sample probability 0.0-1.0",
+)
+@click.option(
+    "--seed",
+    type=int,
+    default=None,
+    help="Random seed for reproducible sampling (use with --sample)",
+)
+def add(database, file, format, skip_errors, dry_run, no_duplicates, update_index, limit, sample, seed):
+    """
+    Add scrobbles to the database from a file or stdin.
+
+    Supports JSONL (JSON Lines) and CSV/TSV formats with automatic detection.
+    Each scrobble requires: artist, track, and timestamp.
+    Album is optional (defaults to "(unknown album)").
+
+    \b
+    Examples:
+        # Add from file
+        scrobbledb add --file scrobbles.jsonl
+
+        # Add from stdin
+        cat scrobbles.jsonl | scrobbledb add
+
+        # Limit to first 100 records
+        scrobbledb add --file data.jsonl --limit 100
+
+        # Sample 10% of records
+        scrobbledb add --file data.jsonl --sample 0.1
+
+        # Validate without adding
+        scrobbledb add --file data.csv --dry-run
+    """
+    import sys
+
+    # Validate --sample
+    if sample is not None:
+        if not 0.0 <= sample <= 1.0:
+            raise click.BadParameter("must be between 0.0 and 1.0", param_hint="--sample")
+
+        # Warn for edge cases
+        if sample == 0.0:
+            console.print(
+                "[yellow]Warning:[/yellow] --sample=0.0 means NO records will be added.\n"
+                "This will process the input but add nothing to the database.\n"
+                "Did you mean to use a higher probability?\n"
+            )
+        elif sample == 1.0:
+            console.print(
+                "[yellow]Warning:[/yellow] --sample=1.0 means ALL records will be added.\n"
+                "This is equivalent to not using --sample at all.\n"
+                "Consider removing --sample for better performance.\n"
+            )
+
+    # Validate --seed (only valid with --sample)
+    if seed is not None and sample is None:
+        raise click.BadParameter("--seed can only be used with --sample", param_hint="--seed")
+
+    # Validate --limit
+    if limit is not None and limit < 1:
+        raise click.BadParameter("must be at least 1", param_hint="--limit")
+
+    # Determine input source
+    if file == "-":
+        input_file = sys.stdin
+        filename = "stdin"
+    elif file:
+        input_file = open(file, 'r', encoding='utf-8')
+        filename = file
+    elif not sys.stdin.isatty():
+        # Data is being piped
+        input_file = sys.stdin
+        filename = "stdin"
+    else:
+        raise click.UsageError(
+            "No input provided. Use --file to specify a file, or pipe data to stdin.\n"
+            "Example: cat scrobbles.jsonl | scrobbledb add"
+        )
+
+    # Get database path
+    if database is None:
+        database = get_default_db_path()
+
+    # Open database (in dry-run mode, we still need to check for duplicates)
+    db = sqlite_utils.Database(database)
+
+    try:
+        # Read first line to detect format
+        first_line = input_file.readline()
+        if not first_line:
+            console.print("[yellow]No data to process (empty input)[/yellow]")
+            return
+
+        # Auto-detect format
+        if format == "auto":
+            format = lastfm.detect_format(first_line)
+            console.print(f"[dim]Auto-detected format: {format}[/dim]")
+
+        # Parse scrobbles based on format
+        def parse_input():
+            """Generator that yields parsed scrobbles."""
+            line_num = 1
+
+            if format == "jsonl":
+                # Process first line
+                try:
+                    yield lastfm.parse_scrobble_jsonl(first_line, line_num)
+                except ValueError as e:
+                    if not skip_errors:
+                        raise click.ClickException(str(e))
+                    console.print(f"[yellow]Error:[/yellow] {e}")
+
+                # Process remaining lines
+                for line_num, line in enumerate(input_file, start=2):
+                    line = line.strip()
+                    if not line:
+                        continue  # Skip empty lines
+
+                    try:
+                        yield lastfm.parse_scrobble_jsonl(line, line_num)
+                    except ValueError as e:
+                        if not skip_errors:
+                            raise click.ClickException(str(e))
+                        console.print(f"[yellow]Error:[/yellow] {e}")
+
+            else:  # CSV or TSV
+                import csv
+                import io
+
+                # Combine first line with rest of file
+                full_content = first_line + input_file.read()
+                delimiter = '\t' if format == 'tsv' else ','
+
+                reader = csv.DictReader(
+                    io.StringIO(full_content),
+                    delimiter=delimiter
+                )
+
+                for line_num, row in enumerate(reader, start=2):  # Line 2 because of header
+                    try:
+                        yield lastfm.parse_scrobble_dict(row, line_num)
+                    except ValueError as e:
+                        if not skip_errors:
+                            raise click.ClickException(str(e))
+                        console.print(f"[yellow]Error:[/yellow] {e}")
+
+        # Show processing message
+        mode_parts = []
+        if dry_run:
+            mode_parts.append("dry-run")
+        if sample is not None:
+            mode_parts.append(f"sampling: {sample*100:.1f}%")
+        if limit is not None:
+            mode_parts.append(f"limit: {limit}")
+
+        mode_str = f" ({', '.join(mode_parts)})" if mode_parts else ""
+        console.print(f"[cyan]{'Validating' if dry_run else 'Adding'} scrobbles{mode_str}...[/cyan]\n")
+
+        # Process scrobbles
+        if not dry_run:
+            stats = lastfm.add_scrobbles(
+                db,
+                parse_input(),
+                skip_errors=skip_errors,
+                limit=limit,
+                sample=sample,
+                seed=seed,
+                no_duplicates=no_duplicates,
+            )
+        else:
+            # Dry run: just parse and count
+            stats = {
+                'total_processed': 0,
+                'sampled': 0,
+                'added': 0,
+                'skipped': 0,
+                'errors': [],
+                'limit_reached': False,
+            }
+
+            for scrobble in parse_input():
+                stats['total_processed'] += 1
+
+                # Apply sampling logic (but don't actually add)
+                if sample is not None:
+                    import random
+                    if seed is not None:
+                        random.seed(seed + stats['total_processed'])  # Vary seed
+                    if random.random() >= sample:
+                        continue
+                    stats['sampled'] += 1
+
+                # Check limit
+                if limit is not None and stats['added'] >= limit:
+                    stats['limit_reached'] = True
+                    break
+
+                stats['added'] += 1
+
+        # Display results
+        console.print()
+
+        if dry_run:
+            console.print(f"[green]✓[/green] Validation complete (dry-run mode)\n")
+        elif stats['added'] > 0:
+            console.print(f"[green]✓[/green] Successfully added scrobbles to database!\n")
+        else:
+            console.print(f"[yellow]![/yellow] No scrobbles were added\n")
+
+        # Show statistics
+        table = Table(title="Statistics")
+        table.add_column("Metric", style="cyan")
+        table.add_column("Count", style="magenta", justify="right")
+
+        table.add_row("Total processed", str(stats['total_processed']))
+
+        if sample is not None:
+            actual_rate = (stats['sampled'] / stats['total_processed'] * 100) if stats['total_processed'] > 0 else 0
+            table.add_row(
+                f"Sampled ({sample*100:.1f}%)",
+                f"{stats['sampled']} ({actual_rate:.1f}%)"
+            )
+
+        if dry_run:
+            table.add_row("Would add", str(stats['added']))
+        else:
+            table.add_row("Successfully added", str(stats['added']))
+
+        if stats['skipped'] > 0:
+            table.add_row("Skipped (duplicates)", str(stats['skipped']))
+
+        if stats['errors']:
+            table.add_row("Errors", str(len(stats['errors'])))
+
+        console.print(table)
+
+        # Show limit reached message
+        if stats['limit_reached']:
+            console.print(
+                f"\n[yellow]Note:[/yellow] Processing stopped after reaching --limit of {limit} records.\n"
+                "      Input may contain more records."
+            )
+
+        # Show errors if any
+        if stats['errors']:
+            console.print("\n[red]Errors:[/red]")
+            for i, error in enumerate(stats['errors'][:10], 1):  # Show first 10
+                console.print(f"  {i}. {error}")
+            if len(stats['errors']) > 10:
+                console.print(f"  ... and {len(stats['errors']) - 10} more errors")
+
+        # Show database info
+        if not dry_run:
+            console.print(f"\n[dim]Database:[/dim] [cyan]{database}[/cyan]")
+
+            # Update FTS5 index if requested or auto
+            should_update_index = update_index
+            if should_update_index is None:
+                # Auto: update if index exists
+                should_update_index = "tracks_fts" in db.table_names()
+
+            if should_update_index and stats['added'] > 0:
+                console.print("[cyan]Updating search index...[/cyan]")
+                if "tracks_fts" not in db.table_names():
+                    lastfm.setup_fts5(db)
+                lastfm.rebuild_fts5(db)
+                console.print("[green]✓[/green] Search index updated")
+
+    finally:
+        # Close file if we opened it
+        if file and file != "-":
+            input_file.close()

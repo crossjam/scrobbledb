@@ -1,9 +1,13 @@
 import datetime as dt
 import hashlib
-from typing import Dict
+import json
+import random
+import csv
+from typing import Dict, List, Optional, Iterator, Tuple
 from xml.dom.minidom import Node
 
 import pylast
+import dateutil.parser
 from sqlite_utils import Database
 
 
@@ -119,6 +123,313 @@ def save_track(db: Database, data: Dict):
 
 def save_play(db: Database, data: Dict):
     db["plays"].upsert(data, pk=["timestamp", "track_id"], foreign_keys=["track_id"])
+
+
+# Field name aliases for flexible input parsing
+FIELD_ALIASES = {
+    'timestamp': ['timestamp', 'time', 'played_at', 'date', 'datetime', 'when'],
+    'artist': ['artist', 'artist_name', 'artistname'],
+    'album': ['album', 'album_title', 'albumtitle', 'album_name'],
+    'track': ['track', 'track_title', 'tracktitle', 'song', 'title', 'track_name', 'name'],
+    'artist_mbid': ['artist_mbid', 'artist_id'],
+    'album_mbid': ['album_mbid', 'album_id'],
+    'track_mbid': ['track_mbid', 'track_id'],
+}
+
+# Timestamp formats to try when parsing
+TIMESTAMP_FORMATS = [
+    # ISO 8601 / RFC 3339
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%dT%H:%M:%SZ",
+    "%Y-%m-%dT%H:%M:%S.%f",
+    "%Y-%m-%dT%H:%M:%S.%fZ",
+    # Common formats
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d %H:%M",
+    "%Y/%m/%d %H:%M:%S",
+    "%m/%d/%Y %H:%M:%S",
+    "%d/%m/%Y %H:%M:%S",
+    # Date only (assumes 00:00:00)
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+]
+
+
+def normalize_field_name(field: str) -> str:
+    """Normalize field name to canonical form using aliases."""
+    field_lower = field.lower().strip()
+    for canonical, aliases in FIELD_ALIASES.items():
+        if field_lower in aliases:
+            return canonical
+    return field  # Unknown field, keep as-is
+
+
+def parse_timestamp(timestamp_str: str) -> dt.datetime:
+    """
+    Parse timestamp with support for multiple formats.
+
+    Supports Unix timestamps, ISO 8601, and common date formats.
+    Falls back to dateutil.parser for maximum compatibility.
+    """
+    # Try Unix timestamp first
+    try:
+        return dt.datetime.fromtimestamp(float(timestamp_str))
+    except (ValueError, TypeError):
+        pass
+
+    # Try known formats
+    for fmt in TIMESTAMP_FORMATS:
+        try:
+            return dt.datetime.strptime(timestamp_str, fmt)
+        except (ValueError, TypeError):
+            continue
+
+    # Fallback to dateutil.parser
+    try:
+        return dateutil.parser.parse(timestamp_str)
+    except (ValueError, TypeError, AttributeError):
+        raise ValueError(f"Unable to parse timestamp: {timestamp_str}")
+
+
+def synthesize_mbids(artist_name: str, album_title: str, track_title: str) -> Tuple[str, str, str]:
+    """
+    Generate MD5-based MBIDs for artist, album, and track.
+
+    Uses the same logic as _extract_track_data to ensure consistency.
+
+    Returns:
+        Tuple of (artist_mbid, album_mbid, track_mbid)
+    """
+    # Generate artist MBID
+    artist_mbid = "md5:" + hashlib.md5(artist_name.encode("utf8")).hexdigest()
+
+    # Generate album MBID
+    h = hashlib.md5()
+    h.update(artist_mbid.encode("utf8"))
+    h.update(album_title.encode("utf8"))
+    album_mbid = "md5:" + h.hexdigest()
+
+    # Generate track MBID
+    h = hashlib.md5()
+    h.update(album_mbid.encode("utf8"))
+    h.update(track_title.encode("utf8"))
+    track_mbid = "md5:" + h.hexdigest()
+
+    return artist_mbid, album_mbid, track_mbid
+
+
+def parse_scrobble_dict(data: Dict, line_num: int = None) -> Dict:
+    """
+    Parse a dictionary (from JSON or CSV) into scrobble data structure.
+
+    Args:
+        data: Dictionary with scrobble fields
+        line_num: Optional line number for error messages
+
+    Returns:
+        Dictionary with 'artist', 'album', 'track', 'play' keys
+
+    Raises:
+        ValueError: If required fields are missing or invalid
+    """
+    # Normalize field names
+    normalized = {}
+    for key, value in data.items():
+        norm_key = normalize_field_name(key)
+        normalized[norm_key] = value
+
+    # Build error prefix for messages
+    error_prefix = f"Line {line_num}: " if line_num else ""
+
+    # Check required fields
+    required_fields = ['timestamp', 'artist', 'track']
+    for field in required_fields:
+        if field not in normalized or not normalized[field]:
+            raise ValueError(f"{error_prefix}Missing required field: {field}")
+
+    # Extract and parse fields
+    try:
+        timestamp = parse_timestamp(str(normalized['timestamp']))
+    except ValueError as e:
+        raise ValueError(f"{error_prefix}Invalid timestamp: {e}")
+
+    artist_name = str(normalized['artist']).strip()
+    track_title = str(normalized['track']).strip()
+    album_title = str(normalized.get('album', '(unknown album)')).strip()
+
+    if not album_title:
+        album_title = "(unknown album)"
+
+    # Get or synthesize MBIDs
+    artist_mbid = normalized.get('artist_mbid', '')
+    album_mbid = normalized.get('album_mbid', '')
+    track_mbid = normalized.get('track_mbid', '')
+
+    if not artist_mbid or not album_mbid or not track_mbid:
+        synth_artist_mbid, synth_album_mbid, synth_track_mbid = synthesize_mbids(
+            artist_name, album_title, track_title
+        )
+        artist_mbid = artist_mbid or synth_artist_mbid
+        album_mbid = album_mbid or synth_album_mbid
+        track_mbid = track_mbid or synth_track_mbid
+
+    # Return same structure as _extract_track_data
+    return {
+        "artist": {"id": artist_mbid, "name": artist_name},
+        "album": {"id": album_mbid, "title": album_title, "artist_id": artist_mbid},
+        "track": {"id": track_mbid, "album_id": album_mbid, "title": track_title},
+        "play": {"track_id": track_mbid, "timestamp": timestamp},
+    }
+
+
+def parse_scrobble_jsonl(line: str, line_num: int = None) -> Dict:
+    """
+    Parse a single JSON line into scrobble data structure.
+
+    Args:
+        line: JSON string
+        line_num: Optional line number for error messages
+
+    Returns:
+        Scrobble data dictionary
+
+    Raises:
+        ValueError: If JSON is invalid or required fields missing
+    """
+    error_prefix = f"Line {line_num}: " if line_num else ""
+
+    try:
+        data = json.loads(line)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"{error_prefix}Invalid JSON: {e}")
+
+    if not isinstance(data, dict):
+        raise ValueError(f"{error_prefix}Expected JSON object, got {type(data).__name__}")
+
+    return parse_scrobble_dict(data, line_num)
+
+
+def detect_format(first_line: str) -> str:
+    """
+    Detect input format from first line.
+
+    Returns:
+        'jsonl', 'csv', or 'tsv'
+    """
+    stripped = first_line.strip()
+
+    # Try JSON
+    if stripped.startswith('{'):
+        try:
+            json.loads(stripped)
+            return 'jsonl'
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # Check for TSV (has tabs)
+    if '\t' in stripped:
+        return 'tsv'
+
+    # Check for CSV (has commas)
+    if ',' in stripped:
+        return 'csv'
+
+    # Default to JSONL
+    return 'jsonl'
+
+
+def add_scrobbles(
+    db: Database,
+    scrobbles_iter: Iterator[Dict],
+    skip_errors: bool = False,
+    limit: Optional[int] = None,
+    sample: Optional[float] = None,
+    seed: Optional[int] = None,
+    no_duplicates: bool = False,
+) -> Dict:
+    """
+    Add scrobbles to database with optional sampling and limiting.
+
+    Args:
+        db: Database instance
+        scrobbles_iter: Iterator of scrobble dictionaries
+        skip_errors: Continue processing on errors
+        limit: Maximum number of records to add
+        sample: Probability (0.0-1.0) to include each record
+        seed: Random seed for reproducible sampling
+        no_duplicates: Skip scrobbles with duplicate timestamp+track
+
+    Returns:
+        Statistics dictionary with:
+        - total_processed: Total records processed
+        - sampled: Records selected by sampling (if sampling enabled)
+        - added: Records successfully added
+        - skipped: Records skipped (duplicates)
+        - errors: List of error messages
+        - limit_reached: Whether limit was hit
+    """
+    # Set random seed if provided
+    if seed is not None:
+        random.seed(seed)
+
+    stats = {
+        'total_processed': 0,
+        'sampled': 0,
+        'added': 0,
+        'skipped': 0,
+        'errors': [],
+        'limit_reached': False,
+    }
+
+    # Get existing plays for duplicate detection
+    existing_plays = set()
+    if no_duplicates and "plays" in db.table_names():
+        for row in db["plays"].rows:
+            existing_plays.add((str(row["timestamp"]), row["track_id"]))
+
+    for scrobble in scrobbles_iter:
+        stats['total_processed'] += 1
+
+        # Apply sampling if enabled
+        if sample is not None:
+            if random.random() >= sample:
+                continue  # Skip this record
+            stats['sampled'] += 1
+
+        # Check limit
+        if limit is not None and stats['added'] >= limit:
+            stats['limit_reached'] = True
+            break
+
+        try:
+            # Check for duplicate
+            timestamp_str = str(scrobble["play"]["timestamp"])
+            track_id = scrobble["track"]["id"]
+
+            if no_duplicates and (timestamp_str, track_id) in existing_plays:
+                stats['skipped'] += 1
+                continue
+
+            # Add to database
+            save_artist(db, scrobble["artist"])
+            save_album(db, scrobble["album"])
+            save_track(db, scrobble["track"])
+            save_play(db, scrobble["play"])
+
+            # Track as existing for duplicate detection
+            if no_duplicates:
+                existing_plays.add((timestamp_str, track_id))
+
+            stats['added'] += 1
+
+        except Exception as e:
+            error_msg = str(e)
+            stats['errors'].append(error_msg)
+
+            if not skip_errors:
+                raise
+
+    return stats
 
 
 def setup_fts5(db: Database):
