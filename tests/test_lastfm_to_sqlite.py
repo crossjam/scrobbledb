@@ -2,6 +2,7 @@ from xml.dom import minidom
 import pytest
 from scrobbledb import lastfm
 import datetime as dt
+from datetime import timezone
 import sqlite_utils
 import tempfile
 import os
@@ -64,7 +65,7 @@ def sample_track_data():
 def sample_play_data():
     return {
         "track_id": "track-123",
-        "timestamp": dt.datetime(2008, 6, 9, 17, 16, 59),
+        "timestamp": dt.datetime(2008, 6, 9, 17, 16, 59, tzinfo=timezone.utc),
     }
 
 
@@ -81,8 +82,8 @@ def test_extract_track_data(track_node: minidom.Node):
         "id": "track-123",
         "title": "Sisters Are Doing It For Themselves",
     }
-    # Test timestamp - use fromtimestamp to match the implementation's timezone behavior
-    expected_timestamp = dt.datetime.fromtimestamp(1213031819)
+    # Test timestamp - should be timezone-aware UTC
+    expected_timestamp = dt.datetime.fromtimestamp(1213031819, tz=timezone.utc)
     assert data["play"] == {
         "track_id": "track-123",
         "timestamp": expected_timestamp,
@@ -165,8 +166,12 @@ def test_save_play(temp_db, sample_artist_data, sample_album_data, sample_track_
     plays = list(temp_db["plays"].rows)
     assert len(plays) == 1
     assert plays[0]["track_id"] == "track-123"
-    # sqlite-utils stores timestamps in ISO format
-    assert plays[0]["timestamp"] in ["2008-06-09 17:16:59", "2008-06-09T17:16:59"]
+    # sqlite-utils stores timestamps in ISO format with timezone
+    assert plays[0]["timestamp"] in [
+        "2008-06-09 17:16:59",
+        "2008-06-09T17:16:59",
+        "2008-06-09T17:16:59+00:00"
+    ]
 
     # Verify composite primary key
     assert set(temp_db["plays"].pks) == {"timestamp", "track_id"}
@@ -215,9 +220,9 @@ def test_save_multiple_plays_same_track(temp_db, sample_artist_data, sample_albu
     lastfm.save_track(temp_db, sample_track_data)
 
     # Save multiple plays at different times
-    play1 = {"track_id": "track-123", "timestamp": dt.datetime(2008, 6, 9, 17, 16, 59)}
-    play2 = {"track_id": "track-123", "timestamp": dt.datetime(2008, 6, 10, 18, 30, 0)}
-    play3 = {"track_id": "track-123", "timestamp": dt.datetime(2008, 6, 11, 12, 0, 0)}
+    play1 = {"track_id": "track-123", "timestamp": dt.datetime(2008, 6, 9, 17, 16, 59, tzinfo=timezone.utc)}
+    play2 = {"track_id": "track-123", "timestamp": dt.datetime(2008, 6, 10, 18, 30, 0, tzinfo=timezone.utc)}
+    play3 = {"track_id": "track-123", "timestamp": dt.datetime(2008, 6, 11, 12, 0, 0, tzinfo=timezone.utc)}
 
     lastfm.save_play(temp_db, play1)
     lastfm.save_play(temp_db, play2)
@@ -465,7 +470,7 @@ def test_search_tracks_with_play_count(temp_db):
     for i in range(5):
         play = {
             "track_id": "track-1",
-            "timestamp": dt.datetime(2008, 6, 9 + i, 17, 16, 59),
+            "timestamp": dt.datetime(2008, 6, 9 + i, 17, 16, 59, tzinfo=timezone.utc),
         }
         lastfm.save_play(temp_db, play)
 
@@ -717,7 +722,7 @@ def test_add_scrobbles_basic(temp_db):
             "artist": {"id": "artist-1", "name": "The Beatles"},
             "album": {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"},
             "track": {"id": "track-1", "title": "Come Together", "album_id": "album-1"},
-            "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30)},
+            "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30, tzinfo=timezone.utc)},
         }
     ]
 
@@ -736,7 +741,7 @@ def test_add_scrobbles_with_limit(temp_db):
             "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
             "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
             "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
-            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, i)},
+            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, i, tzinfo=timezone.utc)},
         }
         for i in range(10)
     ]
@@ -755,7 +760,7 @@ def test_add_scrobbles_with_sample(temp_db):
             "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
             "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
             "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
-            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, 0, i)},
+            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, 0, i, tzinfo=timezone.utc)},
         }
         for i in range(60)  # Use 60 items for valid seconds
     ]
@@ -775,7 +780,7 @@ def test_add_scrobbles_with_sample_seed_reproducible(temp_db):
             "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
             "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
             "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
-            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, i)},
+            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, i, tzinfo=timezone.utc)},
         }
         for i in range(50)
     ]
@@ -802,7 +807,7 @@ def test_add_scrobbles_no_duplicates(temp_db):
         "artist": {"id": "artist-1", "name": "The Beatles"},
         "album": {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"},
         "track": {"id": "track-1", "title": "Come Together", "album_id": "album-1"},
-        "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30)},
+        "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30, tzinfo=timezone.utc)},
     }
 
     # Add first time (no_duplicates not set)
@@ -834,7 +839,7 @@ def test_add_scrobbles_skip_errors(temp_db):
             "artist": {"id": "artist-1", "name": "The Beatles"},
             "album": {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"},
             "track": {"id": "track-1", "title": "Come Together", "album_id": "album-1"},
-            "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30)},
+            "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30, tzinfo=timezone.utc)},
         },
     ]
 
@@ -853,7 +858,7 @@ def test_add_scrobbles_combined_options(temp_db):
             "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
             "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
             "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
-            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, 0, i)},
+            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, 0, i, tzinfo=timezone.utc)},
         }
         for i in range(60)  # Use 60 items for valid seconds
     ]
@@ -864,5 +869,41 @@ def test_add_scrobbles_combined_options(temp_db):
     assert stats['total_processed'] <= 60
     assert stats['added'] == 10
     assert stats['limit_reached'] is True
+
+
+def test_parse_timestamp_returns_utc(temp_db):
+    """Test that parsed timestamps are timezone-aware and in UTC."""
+    # Unix timestamp
+    ts = lastfm.parse_timestamp("1213031819")
+    assert ts.tzinfo is not None
+    assert ts.tzinfo == timezone.utc
+
+    # ISO 8601
+    ts = lastfm.parse_timestamp("2024-01-15T14:30:00")
+    assert ts.tzinfo is not None
+    assert ts.tzinfo == timezone.utc
+
+    # Common format
+    ts = lastfm.parse_timestamp("2024-01-15 14:30:00")
+    assert ts.tzinfo is not None
+    assert ts.tzinfo == timezone.utc
+
+
+def test_parse_timestamp_converts_to_utc(temp_db):
+    """Test that timestamps with timezones are converted to UTC."""
+    # Parse a timestamp with timezone offset (EST = UTC-5)
+    ts = lastfm.parse_timestamp("2024-01-15T14:30:00-05:00")
+    assert ts.tzinfo == timezone.utc
+    # 14:30 EST = 19:30 UTC
+    assert ts.hour == 19
+    assert ts.minute == 30
+
+
+def test_extract_track_data_timezone_aware(track_node):
+    """Test that _extract_track_data returns timezone-aware timestamps."""
+    data = lastfm._extract_track_data(track_node)
+    timestamp = data["play"]["timestamp"]
+    assert timestamp.tzinfo is not None
+    assert timestamp.tzinfo == timezone.utc
 
 

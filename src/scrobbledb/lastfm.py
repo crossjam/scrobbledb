@@ -1,4 +1,5 @@
 import datetime as dt
+from datetime import timezone
 import hashlib
 import json
 import random
@@ -59,7 +60,8 @@ def _extract_track_data(track: Node):
     track_mbid = pylast._extract(track, "mbid")
     track_title = pylast._extract(track, "name")
     timestamp = dt.datetime.fromtimestamp(
-        int(track.getElementsByTagName("date")[0].getAttribute("uts"))
+        int(track.getElementsByTagName("date")[0].getAttribute("uts")),
+        tz=timezone.utc
     )
     artist_name = pylast._extract(track, "artist")
     artist_mbid = track.getElementsByTagName("artist")[0].getAttribute("mbid")
@@ -170,23 +172,35 @@ def parse_timestamp(timestamp_str: str) -> dt.datetime:
 
     Supports Unix timestamps, ISO 8601, and common date formats.
     Falls back to dateutil.parser for maximum compatibility.
+
+    All returned timestamps are timezone-aware and in UTC.
     """
-    # Try Unix timestamp first
+    # Try Unix timestamp first (interpret as UTC)
     try:
-        return dt.datetime.fromtimestamp(float(timestamp_str))
+        return dt.datetime.fromtimestamp(float(timestamp_str), tz=timezone.utc)
     except (ValueError, TypeError):
         pass
 
-    # Try known formats
+    # Try known formats (assume UTC if no timezone specified)
     for fmt in TIMESTAMP_FORMATS:
         try:
-            return dt.datetime.strptime(timestamp_str, fmt)
+            parsed = dt.datetime.strptime(timestamp_str, fmt)
+            # If naive, assume UTC
+            if parsed.tzinfo is None:
+                return parsed.replace(tzinfo=timezone.utc)
+            # If timezone-aware, convert to UTC
+            return parsed.astimezone(timezone.utc)
         except (ValueError, TypeError):
             continue
 
     # Fallback to dateutil.parser
     try:
-        return dateutil.parser.parse(timestamp_str)
+        parsed = dateutil.parser.parse(timestamp_str)
+        # If naive, assume UTC
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        # If timezone-aware, convert to UTC
+        return parsed.astimezone(timezone.utc)
     except (ValueError, TypeError, AttributeError):
         raise ValueError(f"Unable to parse timestamp: {timestamp_str}")
 
