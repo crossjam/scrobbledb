@@ -403,7 +403,8 @@ def add_scrobbles(
 
         try:
             # Check for duplicate
-            timestamp_str = str(scrobble["play"]["timestamp"])
+            # Use isoformat() to match database storage format
+            timestamp_str = scrobble["play"]["timestamp"].isoformat() if isinstance(scrobble["play"]["timestamp"], dt.datetime) else str(scrobble["play"]["timestamp"])
             track_id = scrobble["track"]["id"]
 
             if no_duplicates and (timestamp_str, track_id) in existing_plays:

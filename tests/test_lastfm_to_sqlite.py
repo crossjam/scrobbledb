@@ -477,3 +477,392 @@ def test_search_tracks_with_play_count(temp_db):
     assert len(results) == 1
     assert results[0]["play_count"] == 5
 
+
+# Tests for new 'add' command functionality
+
+def test_parse_timestamp_unix():
+    """Test parsing Unix timestamp."""
+    result = lastfm.parse_timestamp("1705329000")
+    assert result.year == 2024
+    assert result.month == 1
+    assert result.day == 15
+
+
+def test_parse_timestamp_iso8601():
+    """Test parsing ISO 8601 format."""
+    result = lastfm.parse_timestamp("2024-01-15T14:30:00")
+    assert result.year == 2024
+    assert result.month == 1
+    assert result.day == 15
+    assert result.hour == 14
+    assert result.minute == 30
+
+
+def test_parse_timestamp_various_formats():
+    """Test parsing various timestamp formats."""
+    formats = [
+        "2024-01-15 14:30:00",
+        "2024-01-15",
+        "2024/01/15 14:30:00",
+    ]
+    for ts in formats:
+        result = lastfm.parse_timestamp(ts)
+        assert result.year == 2024
+        assert result.month == 1
+        assert result.day == 15
+
+
+def test_parse_timestamp_invalid():
+    """Test parsing invalid timestamp raises error."""
+    import pytest
+    with pytest.raises(ValueError):
+        lastfm.parse_timestamp("not-a-date")
+
+
+def test_synthesize_mbids():
+    """Test MBID generation is consistent."""
+    artist = "The Beatles"
+    album = "Abbey Road"
+    track = "Come Together"
+
+    artist_mbid, album_mbid, track_mbid = lastfm.synthesize_mbids(artist, album, track)
+
+    # Should start with md5:
+    assert artist_mbid.startswith("md5:")
+    assert album_mbid.startswith("md5:")
+    assert track_mbid.startswith("md5:")
+
+    # Should be deterministic
+    artist_mbid2, album_mbid2, track_mbid2 = lastfm.synthesize_mbids(artist, album, track)
+    assert artist_mbid == artist_mbid2
+    assert album_mbid == album_mbid2
+    assert track_mbid == track_mbid2
+
+
+def test_synthesize_mbids_different_inputs():
+    """Test that different inputs generate different MBIDs."""
+    artist1_mbid, _, _ = lastfm.synthesize_mbids("Artist 1", "Album", "Track")
+    artist2_mbid, _, _ = lastfm.synthesize_mbids("Artist 2", "Album", "Track")
+
+    assert artist1_mbid != artist2_mbid
+
+
+def test_normalize_field_name():
+    """Test field name normalization with aliases."""
+    assert lastfm.normalize_field_name("timestamp") == "timestamp"
+    assert lastfm.normalize_field_name("time") == "timestamp"
+    assert lastfm.normalize_field_name("played_at") == "timestamp"
+    assert lastfm.normalize_field_name("artist") == "artist"
+    assert lastfm.normalize_field_name("artist_name") == "artist"
+    assert lastfm.normalize_field_name("track") == "track"
+    assert lastfm.normalize_field_name("song") == "track"
+    assert lastfm.normalize_field_name("title") == "track"
+
+
+def test_normalize_field_name_case_insensitive():
+    """Test field name normalization is case insensitive."""
+    assert lastfm.normalize_field_name("TIMESTAMP") == "timestamp"
+    assert lastfm.normalize_field_name("Artist") == "artist"
+    assert lastfm.normalize_field_name("TRACK_TITLE") == "track"
+
+
+def test_parse_scrobble_dict_basic():
+    """Test parsing basic scrobble dictionary."""
+    data = {
+        "timestamp": "2024-01-15T14:30:00",
+        "artist": "The Beatles",
+        "album": "Abbey Road",
+        "track": "Come Together"
+    }
+
+    result = lastfm.parse_scrobble_dict(data)
+
+    assert result["artist"]["name"] == "The Beatles"
+    assert result["album"]["title"] == "Abbey Road"
+    assert result["track"]["title"] == "Come Together"
+    assert result["play"]["timestamp"].year == 2024
+
+
+def test_parse_scrobble_dict_no_album():
+    """Test parsing scrobble without album defaults to (unknown album)."""
+    data = {
+        "timestamp": "2024-01-15T14:30:00",
+        "artist": "The Beatles",
+        "track": "Come Together"
+    }
+
+    result = lastfm.parse_scrobble_dict(data)
+
+    assert result["album"]["title"] == "(unknown album)"
+
+
+def test_parse_scrobble_dict_field_aliases():
+    """Test parsing scrobble with field aliases."""
+    data = {
+        "time": "2024-01-15T14:30:00",
+        "artist_name": "The Beatles",
+        "song": "Come Together"
+    }
+
+    result = lastfm.parse_scrobble_dict(data)
+
+    assert result["artist"]["name"] == "The Beatles"
+    assert result["track"]["title"] == "Come Together"
+
+
+def test_parse_scrobble_dict_missing_artist():
+    """Test parsing scrobble with missing artist raises error."""
+    import pytest
+    data = {
+        "timestamp": "2024-01-15T14:30:00",
+        "track": "Come Together"
+    }
+
+    with pytest.raises(ValueError, match="Missing required field: artist"):
+        lastfm.parse_scrobble_dict(data)
+
+
+def test_parse_scrobble_dict_missing_track():
+    """Test parsing scrobble with missing track raises error."""
+    import pytest
+    data = {
+        "timestamp": "2024-01-15T14:30:00",
+        "artist": "The Beatles"
+    }
+
+    with pytest.raises(ValueError, match="Missing required field: track"):
+        lastfm.parse_scrobble_dict(data)
+
+
+def test_parse_scrobble_dict_missing_timestamp():
+    """Test parsing scrobble with missing timestamp raises error."""
+    import pytest
+    data = {
+        "artist": "The Beatles",
+        "track": "Come Together"
+    }
+
+    with pytest.raises(ValueError, match="Missing required field: timestamp"):
+        lastfm.parse_scrobble_dict(data)
+
+
+def test_parse_scrobble_dict_with_line_number():
+    """Test error messages include line number."""
+    import pytest
+    data = {
+        "artist": "The Beatles",
+        "track": "Come Together"
+    }
+
+    with pytest.raises(ValueError, match="Line 42: Missing required field: timestamp"):
+        lastfm.parse_scrobble_dict(data, line_num=42)
+
+
+def test_parse_scrobble_jsonl_valid():
+    """Test parsing valid JSON line."""
+    line = '{"timestamp": "2024-01-15T14:30:00", "artist": "The Beatles", "track": "Come Together"}'
+
+    result = lastfm.parse_scrobble_jsonl(line)
+
+    assert result["artist"]["name"] == "The Beatles"
+    assert result["track"]["title"] == "Come Together"
+
+
+def test_parse_scrobble_jsonl_invalid_json():
+    """Test parsing invalid JSON raises error."""
+    import pytest
+    line = '{"timestamp": "2024-01-15T14:30:00", "artist": "The Beatles"'  # Missing closing brace
+
+    with pytest.raises(ValueError, match="Invalid JSON"):
+        lastfm.parse_scrobble_jsonl(line)
+
+
+def test_parse_scrobble_jsonl_not_object():
+    """Test parsing JSON that's not an object raises error."""
+    import pytest
+    line = '["array", "not", "object"]'
+
+    with pytest.raises(ValueError, match="Expected JSON object"):
+        lastfm.parse_scrobble_jsonl(line)
+
+
+def test_detect_format_jsonl():
+    """Test format detection for JSONL."""
+    line = '{"timestamp": "2024-01-15T14:30:00", "artist": "The Beatles"}'
+    assert lastfm.detect_format(line) == "jsonl"
+
+
+def test_detect_format_csv():
+    """Test format detection for CSV."""
+    line = "timestamp,artist,track"
+    assert lastfm.detect_format(line) == "csv"
+
+
+def test_detect_format_tsv():
+    """Test format detection for TSV."""
+    line = "timestamp\tartist\ttrack"
+    assert lastfm.detect_format(line) == "tsv"
+
+
+def test_detect_format_defaults_to_jsonl():
+    """Test format detection defaults to JSONL for ambiguous input."""
+    line = "some random text"
+    assert lastfm.detect_format(line) == "jsonl"
+
+
+def test_add_scrobbles_basic(temp_db):
+    """Test basic scrobble addition."""
+    scrobbles = [
+        {
+            "artist": {"id": "artist-1", "name": "The Beatles"},
+            "album": {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"},
+            "track": {"id": "track-1", "title": "Come Together", "album_id": "album-1"},
+            "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30)},
+        }
+    ]
+
+    stats = lastfm.add_scrobbles(temp_db, iter(scrobbles))
+
+    assert stats['total_processed'] == 1
+    assert stats['added'] == 1
+    assert stats['skipped'] == 0
+    assert len(stats['errors']) == 0
+
+
+def test_add_scrobbles_with_limit(temp_db):
+    """Test scrobble addition with limit."""
+    scrobbles = [
+        {
+            "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
+            "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
+            "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
+            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, i)},
+        }
+        for i in range(10)
+    ]
+
+    stats = lastfm.add_scrobbles(temp_db, iter(scrobbles), limit=5)
+
+    assert stats['total_processed'] == 6  # Processes one extra to detect limit
+    assert stats['added'] == 5
+    assert stats['limit_reached'] is True
+
+
+def test_add_scrobbles_with_sample(temp_db):
+    """Test scrobble addition with sampling."""
+    scrobbles = [
+        {
+            "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
+            "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
+            "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
+            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, 0, i)},
+        }
+        for i in range(60)  # Use 60 items for valid seconds
+    ]
+
+    stats = lastfm.add_scrobbles(temp_db, iter(scrobbles), sample=0.5, seed=42)
+
+    assert stats['total_processed'] == 60
+    assert stats['sampled'] > 0
+    assert stats['sampled'] < 60  # Should sample roughly 50%
+    assert stats['added'] == stats['sampled']
+
+
+def test_add_scrobbles_with_sample_seed_reproducible(temp_db):
+    """Test that sampling with seed is reproducible."""
+    scrobbles = [
+        {
+            "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
+            "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
+            "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
+            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, i)},
+        }
+        for i in range(50)
+    ]
+
+    # Run twice with same seed
+    stats1 = lastfm.add_scrobbles(temp_db, iter(scrobbles), sample=0.5, seed=42)
+
+    # Clear database
+    temp_db.execute("DELETE FROM plays")
+    temp_db.execute("DELETE FROM tracks")
+    temp_db.execute("DELETE FROM albums")
+    temp_db.execute("DELETE FROM artists")
+
+    stats2 = lastfm.add_scrobbles(temp_db, iter(scrobbles), sample=0.5, seed=42)
+
+    # Should sample same number with same seed
+    assert stats1['sampled'] == stats2['sampled']
+
+
+def test_add_scrobbles_no_duplicates(temp_db):
+    """Test duplicate detection."""
+    # Add initial scrobble
+    scrobble = {
+        "artist": {"id": "artist-1", "name": "The Beatles"},
+        "album": {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"},
+        "track": {"id": "track-1", "title": "Come Together", "album_id": "album-1"},
+        "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30)},
+    }
+
+    # Add first time (no_duplicates not set)
+    lastfm.add_scrobbles(temp_db, iter([scrobble]))
+
+    # Verify it was added
+    assert temp_db["plays"].count == 1
+
+    # Try to add same scrobble again with no_duplicates
+    stats = lastfm.add_scrobbles(temp_db, iter([scrobble]), no_duplicates=True)
+
+    # Should be skipped as duplicate
+    assert stats['added'] == 0
+    assert stats['skipped'] == 1
+
+    # Verify still only one play in database
+    assert temp_db["plays"].count == 1
+
+
+def test_add_scrobbles_skip_errors(temp_db):
+    """Test skip errors mode."""
+    # Note: We can't easily test database constraint errors in unit tests
+    # because sqlite-utils is very permissive. This test verifies that
+    # skip_errors mode works by not raising exceptions.
+    # A real error would come from malformed data in the parsing phase.
+
+    scrobbles = [
+        {
+            "artist": {"id": "artist-1", "name": "The Beatles"},
+            "album": {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"},
+            "track": {"id": "track-1", "title": "Come Together", "album_id": "album-1"},
+            "play": {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30)},
+        },
+    ]
+
+    # This should succeed without errors
+    stats = lastfm.add_scrobbles(temp_db, iter(scrobbles), skip_errors=True)
+
+    assert stats['total_processed'] == 1
+    assert stats['added'] == 1
+    assert len(stats['errors']) == 0
+
+
+def test_add_scrobbles_combined_options(temp_db):
+    """Test combining multiple options."""
+    scrobbles = [
+        {
+            "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
+            "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
+            "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
+            "play": {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 14, 0, i)},
+        }
+        for i in range(60)  # Use 60 items for valid seconds
+    ]
+
+    # Sample 50%, limit to 10
+    stats = lastfm.add_scrobbles(temp_db, iter(scrobbles), sample=0.5, limit=10, seed=42)
+
+    assert stats['total_processed'] <= 60
+    assert stats['added'] == 10
+    assert stats['limit_reached'] is True
+
+
