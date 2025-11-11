@@ -4,12 +4,15 @@ import hashlib
 import json
 import random
 import csv
+import logging
 from typing import Dict, List, Optional, Iterator, Tuple
 from xml.dom.minidom import Node
 
 import pylast
 import dateutil.parser
 from sqlite_utils import Database
+
+logger = logging.getLogger(__name__)
 
 
 def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
@@ -36,23 +39,42 @@ def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
     params = dict(user._get_params(), limit=200)
     if since:
         params["from"] = int(since.timestamp())
+        logger.info(f"Fetching tracks since {since.isoformat()}")
+    else:
+        logger.info("Fetching all available tracks")
+
+    if limit:
+        logger.info(f"Limiting to {limit} tracks")
 
     tracks_yielded = 0
+    total_pages = None
 
     while True:
         params["page"] = page
+        logger.info(f"Fetching page {page}" + (f" of {total_pages}" if total_pages else ""))
         doc = user._request("user.getRecentTracks", cacheable=True, params=params)
         main = pylast.cleanup_nodes(doc).documentElement.childNodes[0]
+
+        # Get total pages on first request
+        if total_pages is None:
+            total_pages = int(main.getAttribute("totalPages"))
+            logger.info(f"Total pages to fetch: {total_pages}")
+
+        tracks_in_page = 0
         for node in main.childNodes:
             if node.nodeType != Node.TEXT_NODE:
                 yield _extract_track_data(node)
                 tracks_yielded += 1
+                tracks_in_page += 1
                 if limit and tracks_yielded >= limit:
+                    logger.info(f"Reached limit of {limit} tracks")
                     return
 
+        logger.info(f"Yielded {tracks_in_page} tracks from page {page} (total: {tracks_yielded})")
+
         page += 1
-        total_pages = int(main.getAttribute("totalPages"))
         if page > total_pages:
+            logger.info(f"Completed fetching all {tracks_yielded} tracks")
             break
 
 

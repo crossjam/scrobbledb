@@ -1,12 +1,21 @@
 import click
 import os
 import json
+import logging
 import sqlite_utils
 from pathlib import Path
 from platformdirs import user_data_dir
 from rich.console import Console
 from rich.prompt import Prompt
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TaskProgressColumn,
+    MofNCompleteColumn,
+    TimeRemainingColumn,
+)
 from rich.panel import Panel
 from rich.table import Table
 from . import lastfm
@@ -316,7 +325,14 @@ def auth(auth, network):
     default=None,
     help="Maximum number of tracks to import",
 )
-def ingest(database, auth, since, since_date, limit):
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Enable verbose logging output",
+)
+def ingest(database, auth, since, since_date, limit, verbose):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -324,6 +340,14 @@ def ingest(database, auth, since, since_date, limit):
     including artist, album, track, and play data with timestamps.
     If DATABASE is not specified, uses the default location in the XDG data directory.
     """
+    # Configure logging if verbose mode is enabled
+    if verbose:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+
     if since and since_date:
         raise click.UsageError("use either --since or --since-date, not both")
 
@@ -374,13 +398,17 @@ def ingest(database, auth, since, since_date, limit):
     else:
         console.print(f"[cyan]Ingesting tracks from {auth_data['lastfm_username']}...[/cyan]")
 
-    # FIXME: the progress bar is wrong if there's a since_date
+    # Enhanced progress display with percentage and counts
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("[cyan]Ingesting tracks...", total=expected_count)
+        task = progress.add_task("[cyan]Ingesting tracks", total=expected_count)
         for track in history:
             lastfm.save_artist(db, track["artist"])
             lastfm.save_album(db, track["album"])
