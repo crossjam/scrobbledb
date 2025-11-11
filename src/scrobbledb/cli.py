@@ -1,10 +1,11 @@
 import click
 import os
 import json
-import logging
 import sqlite_utils
 from pathlib import Path
 from platformdirs import user_data_dir
+
+from loguru_config import setup_logger
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.progress import (
@@ -342,11 +343,7 @@ def ingest(database, auth, since, since_date, limit, verbose):
     """
     # Configure logging if verbose mode is enabled
     if verbose:
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        setup_logger(level="INFO")
 
     if since and since_date:
         raise click.UsageError("use either --since or --since-date, not both")

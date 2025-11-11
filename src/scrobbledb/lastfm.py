@@ -4,15 +4,13 @@ import hashlib
 import json
 import random
 import csv
-import logging
 from typing import Dict, List, Optional, Iterator, Tuple
 from xml.dom.minidom import Node
 
 import pylast
 import dateutil.parser
+from loguru import logger
 from sqlite_utils import Database
-
-logger = logging.getLogger(__name__)
 
 
 def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
