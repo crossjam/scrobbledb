@@ -42,5 +42,8 @@ dev = [
     "pytest-cov>=4.0.0",
 ]
 
+[tool.setuptools.package-data]
+scrobbledb = ["default_loguru_config.toml"]
+
 [tool.uv.sources]
 loguru-config = { git = "https://github.com/crossjam/loguru-config" }

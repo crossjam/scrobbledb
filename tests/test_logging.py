@@ -225,3 +225,71 @@ def test_log_levels_configuration():
         }
         LoguruConfig.load(config)
         assert len(logger._core.handlers) > 0
+
+
+def test_ensure_default_log_config():
+    """Test that default log config is created in user directory."""
+    from scrobbledb.cli import ensure_default_log_config
+    import tempfile
+    import shutil
+
+    # Create a temporary directory to use as the data dir
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Monkey patch the data directory
+        from scrobbledb import cli
+        original_get_data_dir = cli.get_data_dir
+
+        def mock_get_data_dir():
+            return Path(tmpdir)
+
+        cli.get_data_dir = mock_get_data_dir
+
+        try:
+            # Call ensure_default_log_config
+            config_path = ensure_default_log_config()
+
+            # Verify the config file was created
+            assert Path(config_path).exists()
+
+            # Verify it's in the correct location
+            assert str(tmpdir) in config_path
+            assert config_path.endswith("loguru_config.toml")
+
+            # Verify the content is valid
+            content = Path(config_path).read_text()
+            assert "[[handlers]]" in content
+            assert "sink" in content
+            assert "level" in content
+
+            # Call again to verify it doesn't recreate
+            config_path2 = ensure_default_log_config()
+            assert config_path == config_path2
+        finally:
+            # Restore original function
+            cli.get_data_dir = original_get_data_dir
+
+
+def test_default_log_config_used_with_verbose(runner):
+    """Test that default log config is used when --verbose is specified without --log-config."""
+    import tempfile
+    from scrobbledb import cli
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Monkey patch the data directory
+        original_get_data_dir = cli.get_data_dir
+
+        def mock_get_data_dir():
+            return Path(tmpdir)
+
+        cli.get_data_dir = mock_get_data_dir
+
+        try:
+            # The command will fail without auth, but we're testing that config is created
+            result = runner.invoke(cli.cli, ['ingest', '--verbose', '--limit', '1'])
+
+            # Check that the default config file was created
+            config_path = Path(tmpdir) / "loguru_config.toml"
+            assert config_path.exists()
+        finally:
+            # Restore original function
+            cli.get_data_dir = original_get_data_dir

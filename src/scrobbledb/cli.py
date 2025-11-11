@@ -45,6 +45,37 @@ def get_default_db_path():
     return str(data_dir / "scrobbledb.db")
 
 
+def get_default_log_config_path():
+    """Get the default path for the log config file in XDG compliant directory."""
+    data_dir = get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "loguru_config.toml")
+
+
+def ensure_default_log_config():
+    """Ensure default log config exists, creating it if necessary.
+
+    Returns:
+        Path to the default log config file.
+    """
+    config_path = Path(get_default_log_config_path())
+
+    if not config_path.exists():
+        # Copy the default config from the package
+        import importlib.resources
+        try:
+            # Python 3.9+
+            default_config = importlib.resources.files('scrobbledb').joinpath('default_loguru_config.toml').read_text()
+        except AttributeError:
+            # Python 3.7-3.8 fallback
+            import pkg_resources
+            default_config = pkg_resources.resource_string('scrobbledb', 'default_loguru_config.toml').decode('utf-8')
+
+        config_path.write_text(default_config)
+
+    return str(config_path)
+
+
 @click.group()
 @click.option(
     "--log-config",
@@ -356,10 +387,12 @@ def ingest(ctx, database, auth, since, since_date, limit, verbose):
     if verbose:
         log_config = ctx.obj.get('log_config') if ctx.obj else None
         if log_config:
+            # Use user-specified config file
             LoguruConfig.load(log_config)
         else:
-            # Use a simple INFO level configuration
-            LoguruConfig.load({"handlers": [{"sink": "sys.stderr", "level": "INFO"}]})
+            # Use default config file from user data directory
+            default_config = ensure_default_log_config()
+            LoguruConfig.load(default_config)
 
     if since and since_date:
         raise click.UsageError("use either --since or --since-date, not both")
