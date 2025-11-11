@@ -5,7 +5,7 @@ import sqlite_utils
 from pathlib import Path
 from platformdirs import user_data_dir
 
-from loguru_config import setup_logger
+from loguru_config import LoguruConfig
 from rich.console import Console
 from rich.prompt import Prompt
 from rich.progress import (
@@ -46,9 +46,19 @@ def get_default_db_path():
 
 
 @click.group()
+@click.option(
+    "--log-config",
+    type=click.Path(file_okay=True, dir_okay=False, exists=True),
+    default=None,
+    help="Path to loguru configuration file (JSON, YAML, or TOML)",
+)
 @click.version_option()
-def cli():
+@click.pass_context
+def cli(ctx, log_config):
     "Save data from last.fm/libre.fm to a SQLite database"
+    # Store log_config in context for subcommands to use
+    ctx.ensure_object(dict)
+    ctx.obj['log_config'] = log_config
 
 
 @cli.command()
@@ -333,7 +343,8 @@ def auth(auth, network):
     default=False,
     help="Enable verbose logging output",
 )
-def ingest(database, auth, since, since_date, limit, verbose):
+@click.pass_context
+def ingest(ctx, database, auth, since, since_date, limit, verbose):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -343,7 +354,12 @@ def ingest(database, auth, since, since_date, limit, verbose):
     """
     # Configure logging if verbose mode is enabled
     if verbose:
-        setup_logger(level="INFO")
+        log_config = ctx.obj.get('log_config') if ctx.obj else None
+        if log_config:
+            LoguruConfig.load(log_config)
+        else:
+            # Use a simple INFO level configuration
+            LoguruConfig.load({"handlers": [{"sink": "sys.stderr", "level": "INFO"}]})
 
     if since and since_date:
         raise click.UsageError("use either --since or --since-date, not both")
