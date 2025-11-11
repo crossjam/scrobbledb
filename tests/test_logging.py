@@ -293,3 +293,93 @@ def test_default_log_config_used_with_verbose(runner):
         finally:
             # Restore original function
             cli.get_data_dir = original_get_data_dir
+
+
+def test_version_flag(runner):
+    """Test that --version flag works."""
+    result = runner.invoke(cli, ['--version'])
+    assert result.exit_code == 0
+    assert 'version' in result.output.lower()
+    assert '1.0.0' in result.output
+
+
+def test_version_V_alias(runner):
+    """Test that -V alias works for version."""
+    result = runner.invoke(cli, ['-V'])
+    assert result.exit_code == 0
+    assert 'version' in result.output.lower()
+    assert '1.0.0' in result.output
+
+
+def test_reset_command_help(runner):
+    """Test that reset command help is available."""
+    result = runner.invoke(cli, ['reset', '--help'])
+    assert result.exit_code == 0
+    assert 'reset' in result.output.lower()
+    assert 'destructive' in result.output.lower()
+
+
+def test_reset_nonexistent_database(runner):
+    """Test reset with non-existent database."""
+    import tempfile
+    with tempfile.NamedTemporaryFile(delete=True) as f:
+        nonexistent_path = f.name  # File will be deleted immediately
+
+    result = runner.invoke(cli, ['reset', nonexistent_path, '--force'])
+    assert result.exit_code == 0
+    assert 'does not exist' in result.output.lower()
+
+
+def test_reset_with_force(runner):
+    """Test reset command with --force flag."""
+    import tempfile
+    import sqlite_utils
+
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+        db_path = f.name
+
+    try:
+        # Create a test database with data
+        db = sqlite_utils.Database(db_path)
+        db['test_table'].insert({'id': 1, 'name': 'test'})
+        assert 'test_table' in db.table_names()
+
+        # Reset with --force
+        result = runner.invoke(cli, ['reset', db_path, '--force'])
+        assert result.exit_code == 0
+        assert 'deleted' in result.output.lower()
+        assert 'reset complete' in result.output.lower()
+
+        # Verify database was reset
+        db = sqlite_utils.Database(db_path)
+        # Should have FTS5 tables but not test_table
+        assert 'test_table' not in db.table_names()
+        assert 'tracks_fts' in db.table_names()
+    finally:
+        Path(db_path).unlink(missing_ok=True)
+
+
+def test_reset_with_no_index(runner):
+    """Test reset command with --no-index flag."""
+    import tempfile
+    import sqlite_utils
+
+    with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
+        db_path = f.name
+
+    try:
+        # Create a test database
+        db = sqlite_utils.Database(db_path)
+        db['test_table'].insert({'id': 1, 'name': 'test'})
+
+        # Reset with --no-index
+        result = runner.invoke(cli, ['reset', db_path, '--force', '--no-index'])
+        assert result.exit_code == 0
+        assert 'reset complete' in result.output.lower()
+
+        # Verify database was reset without FTS5
+        db = sqlite_utils.Database(db_path)
+        assert 'test_table' not in db.table_names()
+        assert 'tracks_fts' not in db.table_names()
+    finally:
+        Path(db_path).unlink(missing_ok=True)

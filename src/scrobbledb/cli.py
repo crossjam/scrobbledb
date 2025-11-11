@@ -26,6 +26,14 @@ APP_NAME = "dev.pirateninja.scrobbledb"
 console = Console()
 
 
+def version_callback(ctx, param, value):
+    """Callback to handle version option."""
+    if not value or ctx.resilient_parsing:
+        return
+    click.echo("scrobbledb, version 1.0.0")
+    ctx.exit()
+
+
 def get_data_dir():
     """Get the XDG compliant data directory for the app."""
     return Path(user_data_dir(APP_NAME))
@@ -83,7 +91,14 @@ def ensure_default_log_config():
     default=None,
     help="Path to loguru configuration file (JSON, YAML, or TOML)",
 )
-@click.version_option()
+@click.option(
+    "-V", "--version",
+    is_flag=True,
+    callback=version_callback,
+    expose_value=False,
+    is_eager=True,
+    help="Show the version and exit."
+)
 @click.pass_context
 def cli(ctx, log_config):
     "Save data from last.fm/libre.fm to a SQLite database"
@@ -273,6 +288,117 @@ Next steps:
   3. Run [bold cyan]scrobbledb search <query>[/bold cyan] to search your music
 """
         console.print(Panel(summary, border_style="green"))
+
+
+@cli.command()
+@click.argument(
+    "database",
+    required=False,
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+@click.option(
+    "--no-index",
+    is_flag=True,
+    default=False,
+    help="Skip FTS5 search index initialization",
+)
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompt",
+)
+def reset(database, no_index, force):
+    """
+    Reset the scrobbledb database.
+
+    This command will DELETE all data in the database and reinitialize it.
+    This is a DESTRUCTIVE operation that cannot be undone.
+
+    If DATABASE is not specified, uses the default location in the XDG data directory.
+
+    Use --force to skip the confirmation prompt (dangerous!).
+    Use --no-index to skip FTS5 initialization after reset.
+    """
+    if database is None:
+        database = get_default_db_path()
+
+    db_path = Path(database)
+
+    # Check if database exists
+    if not db_path.exists():
+        console.print(f"[yellow]![/yellow] Database does not exist: [cyan]{db_path}[/cyan]")
+        console.print("[dim]Nothing to reset. Use 'scrobbledb init' to create a new database.[/dim]")
+        return
+
+    # Get database info before deletion
+    db = sqlite_utils.Database(str(db_path))
+    table_names = list(db.table_names())
+    total_rows = sum(db[table].count for table in table_names if table != "sqlite_sequence")
+
+    # Show what will be deleted
+    console.print()
+    console.print(Panel(
+        f"[bold red]⚠️  WARNING: DESTRUCTIVE OPERATION[/bold red]\n\n"
+        f"This will DELETE the database at:\n"
+        f"[cyan]{db_path}[/cyan]\n\n"
+        f"Current database contains:\n"
+        f"  • {len(table_names)} table(s)\n"
+        f"  • {total_rows} total row(s)\n\n"
+        f"[bold]This action CANNOT be undone![/bold]",
+        border_style="red",
+        title="[bold red]⚠️  RESET DATABASE ⚠️[/bold red]"
+    ))
+    console.print()
+
+    # Prompt for confirmation unless --force is used
+    if not force:
+        confirmation = Prompt.ask(
+            "[bold yellow]Type 'yes' to confirm deletion[/bold yellow]",
+            default="no"
+        )
+
+        if confirmation.lower() != "yes":
+            console.print("[green]✓[/green] Reset cancelled. Database preserved.")
+            return
+
+    # Delete the database
+    try:
+        db_path.unlink()
+        console.print(f"[green]✓[/green] Deleted database: [cyan]{db_path}[/cyan]")
+    except Exception as e:
+        console.print(f"[red]✗[/red] Failed to delete database: {e}")
+        raise click.Abort()
+
+    # Reinitialize the database
+    console.print("[cyan]Creating new database...[/cyan]")
+    db = sqlite_utils.Database(str(db_path))
+    console.print(f"[green]✓[/green] Created new database: [cyan]{db_path}[/cyan]")
+
+    # Initialize FTS5 if requested (default)
+    if not no_index:
+        console.print("[cyan]Initializing FTS5 search index...[/cyan]")
+        lastfm.setup_fts5(db)
+        console.print(f"[green]✓[/green] FTS5 search index initialized")
+    else:
+        console.print("[yellow]○[/yellow] FTS5 search index skipped (use 'scrobbledb index' to set up later)")
+
+    # Show success summary
+    fts5_status = "initialized and ready" if not no_index else "not initialized"
+
+    summary = f"""[bold]Database reset complete![/bold]
+
+Database: [cyan]{db_path}[/cyan]
+Search index: [cyan]{fts5_status}[/cyan]
+
+The database is now empty and ready to use.
+
+Next steps:
+  • Run [bold cyan]scrobbledb ingest[/bold cyan] to import your listening history
+  • Run [bold cyan]scrobbledb add[/bold cyan] to manually add scrobbles
+"""
+    console.print(Panel(summary, border_style="green"))
 
 
 @cli.command()
