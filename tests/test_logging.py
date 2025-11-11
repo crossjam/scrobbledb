@@ -116,7 +116,16 @@ def test_verbose_flag_without_log_config(runner, tmp_path):
     ])
 
     # Should fail due to missing auth, but not due to logging config
-    assert 'log' not in result.output.lower() or result.exit_code != 0
+    # Check that there are no logging configuration errors
+    output_lower = result.output.lower()
+    logging_errors = [
+        'failed to load log config',
+        'loguru config error',
+        'logging configuration error',
+        'invalid log config',
+    ]
+    for error in logging_errors:
+        assert error not in output_lower, f"Found logging error in output: {error}"
 
 
 def test_loguru_config_integration():
