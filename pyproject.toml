@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scrobbledb"
-version = "1.0.0"
+version = "1.1.0"
 description = "Save data from last.fm/libre.fm to a SQLite database"
 authors = [
     {name = "Jacob Kaplan-Moss", email = "jacob@jacobian.org"},
@@ -12,7 +12,7 @@ authors = [
 ]
 license = {text = "Apache-2.0"}
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.11"
 dependencies = [
     "pylast>=3.1.0",
     "sqlite-utils>=1.12.1",
@@ -20,6 +20,8 @@ dependencies = [
     "python-dateutil>=2.8.1",
     "platformdirs>=2.4.0",
     "rich>=10.11.0",
+    "loguru>=0.7.3",
+    "loguru-config",
 ]
 
 [project.optional-dependencies]
@@ -39,3 +41,9 @@ dev = [
     "pytest>=7.0.1",
     "pytest-cov>=4.0.0",
 ]
+
+[tool.setuptools.package-data]
+scrobbledb = ["default_loguru_config.toml"]
+
+[tool.uv.sources]
+loguru-config = { git = "https://github.com/crossjam/loguru-config" }

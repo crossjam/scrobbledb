@@ -1,0 +1,23 @@
+# Default loguru logging configuration for scrobbledb
+#
+# This configuration provides sensible defaults for logging.
+# You can customize this file or create your own and use --log-config to point to it.
+#
+# For more information on loguru configuration:
+# https://loguru.readthedocs.io/en/stable/api/logger.html
+
+# Console handler - logs to stderr
+[[handlers]]
+sink = "sys.stderr"
+level = "INFO"
+format = "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+colorize = true
+
+# Uncomment to enable file logging
+# [[handlers]]
+# sink = "scrobbledb.log"
+# level = "DEBUG"
+# format = "{time:YYYY-MM-DD HH:mm:ss.SSS} | {level: <8} | {name}:{function}:{line} - {message}"
+# rotation = "10 MB"
+# retention = "1 week"
+# compression = "zip"
