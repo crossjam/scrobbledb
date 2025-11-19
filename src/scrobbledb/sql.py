@@ -26,7 +26,62 @@ from sqlite_utils.cli import (
 )
 
 
-@click.group()
+class SqlGroup(click.Group):
+    """Custom Group class that provides dynamic help text."""
+
+    def format_help(self, ctx, formatter):
+        """Format help text with actual database path."""
+        # Import here to avoid circular import
+        from .cli import get_default_db_path
+
+        db_path = get_default_db_path()
+
+        # Write usage
+        self.format_usage(ctx, formatter)
+
+        # Create and write dynamic help text
+        help_text = f"""SQLite database query and inspection commands.
+
+These commands provide read-only access to your scrobbledb database
+using the sqlite-utils CLI. The database path defaults to your
+scrobbledb database in the XDG data directory.
+
+Default Database Location:
+  {db_path}
+
+To check if your database is initialized:
+  scrobbledb init --dry-run
+
+Examples:
+
+  # Query the database
+  scrobbledb sql query "SELECT * FROM tracks LIMIT 10"
+
+  # List all tables with row counts
+  scrobbledb sql tables --counts
+
+  # View table schema
+  scrobbledb sql schema tracks
+
+  # Browse table data
+  scrobbledb sql rows plays --limit 20
+
+  # Use a different database
+  scrobbledb sql query "SELECT * FROM users" --database /path/to/other.db
+"""
+
+        formatter.write_paragraph()
+        for line in help_text.strip().splitlines():
+            if line.strip():
+                formatter.write_text(line)
+            else:
+                formatter.write_paragraph()
+
+        # Format options (this also calls format_commands for Groups)
+        self.format_options(ctx, formatter)
+
+
+@click.group(cls=SqlGroup)
 @click.option(
     "--database",
     "-d",
@@ -36,31 +91,6 @@ from sqlite_utils.cli import (
 )
 @click.pass_context
 def sql(ctx, database):
-    """
-    SQLite database query and inspection commands.
-
-    These commands provide read-only access to your scrobbledb database
-    using the sqlite-utils CLI. The database path defaults to your
-    scrobbledb database in the XDG data directory.
-
-    Examples:
-
-        \b
-        # Query the database
-        scrobbledb sql query "SELECT * FROM tracks LIMIT 10"
-
-        # List all tables with row counts
-        scrobbledb sql tables --counts
-
-        # View table schema
-        scrobbledb sql schema tracks
-
-        # Browse table data
-        scrobbledb sql rows plays --limit 20
-
-        # Use a different database
-        scrobbledb sql query "SELECT * FROM users" --database /path/to/other.db
-    """
     # Import here to avoid circular import
     from .cli import get_default_db_path
 
