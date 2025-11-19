@@ -233,3 +233,196 @@ def test_sql_indexes_no_database_error():
     assert result.exit_code == 0
     # Result should be an empty JSON array
     assert result.output.strip() == '[]'
+
+
+def test_sql_rows_order_by_validation_rejects_sql_injection(populated_db):
+    """Test that ORDER BY validation rejects SQL injection attempts."""
+    db, path = populated_db
+    runner = CliRunner()
+
+    # Test various SQL injection attempts in ORDER BY
+    malicious_inputs = [
+        "name; DROP TABLE artists",
+        "name--",
+        "name/*comment*/",
+        "(SELECT 1)",
+        "name UNION SELECT password FROM users",
+        "name; DELETE FROM artists",
+        "CASE WHEN (1=1) THEN name ELSE 0 END",
+    ]
+
+    for malicious in malicious_inputs:
+        result = runner.invoke(cli.cli, [
+            'sql', '--database', path, 'rows', 'artists',
+            '--order', malicious
+        ])
+
+        # Should fail with error message
+        assert result.exit_code != 0, f"Should reject malicious ORDER BY: {malicious}"
+        assert "Invalid ORDER BY clause" in result.output, f"Should show error for: {malicious}"
+
+
+def test_sql_rows_order_by_validation_allows_safe_input(populated_db):
+    """Test that ORDER BY validation allows safe column references."""
+    db, path = populated_db
+    runner = CliRunner()
+
+    # Test various safe ORDER BY clauses (using actual columns that exist)
+    safe_inputs = [
+        "name",
+        "name ASC",
+        "name DESC",
+        "id, name",
+        "id ASC, name DESC",
+        "[name]",  # Bracketed identifiers
+    ]
+
+    for safe in safe_inputs:
+        result = runner.invoke(cli.cli, [
+            'sql', '--database', path, 'rows', 'artists',
+            '--order', safe
+        ])
+
+        # Should succeed
+        assert result.exit_code == 0, f"Should allow safe ORDER BY: {safe}, got error: {result.output}"
+
+
+def test_sql_rows_order_by_validation_allows_bracketed_names(populated_db):
+    """Test that ORDER BY validation allows bracketed column names with spaces."""
+    db, path = populated_db
+    runner = CliRunner()
+
+    # Create a table with a column name that has spaces
+    db.execute("""
+        CREATE TABLE test_order_table (
+            id INTEGER PRIMARY KEY,
+            "artist name" TEXT
+        )
+    """)
+    db.execute("""
+        INSERT INTO test_order_table VALUES (1, 'The Beatles'), (2, 'Pink Floyd')
+    """)
+    db.conn.commit()  # Ensure data is committed
+
+    # Test ORDER BY with bracketed identifier
+    result = runner.invoke(cli.cli, [
+        'sql', '--database', path, 'rows', 'test_order_table',
+        '--order', '[artist name] DESC'
+    ])
+
+    assert result.exit_code == 0, f"Should allow bracketed ORDER BY: {result.output}"
+    assert 'The Beatles' in result.output or 'Pink Floyd' in result.output
+
+
+def test_sql_rows_column_quoting(populated_db):
+    """Test that column names with spaces are properly quoted."""
+    db, path = populated_db
+    runner = CliRunner()
+
+    # Create a table with column names that need quoting
+    db.execute("""
+        CREATE TABLE test_table (
+            "column with spaces" TEXT,
+            "another-column" TEXT
+        )
+    """)
+    db.execute("""
+        INSERT INTO test_table VALUES ('value1', 'value2')
+    """)
+    db.conn.commit()  # Ensure data is committed
+
+    # Should properly quote column names
+    result = runner.invoke(cli.cli, [
+        'sql', '--database', path, 'rows', 'test_table',
+        '-c', 'column with spaces',
+        '-c', 'another-column'
+    ])
+
+    assert result.exit_code == 0, f"Failed to handle quoted columns: {result.output}"
+    assert 'value1' in result.output
+    assert 'value2' in result.output
+
+
+def test_sql_rows_table_name_quoting(populated_db):
+    """Test that table names with special characters are properly quoted."""
+    db, path = populated_db
+    runner = CliRunner()
+
+    # Create a table with a name that needs quoting
+    db.execute("""
+        CREATE TABLE "table-with-dashes" (
+            id INTEGER PRIMARY KEY,
+            name TEXT
+        )
+    """)
+    db.execute("""
+        INSERT INTO "table-with-dashes" VALUES (1, 'test')
+    """)
+    db.conn.commit()  # Ensure data is committed
+
+    # Should properly quote table name
+    result = runner.invoke(cli.cli, [
+        'sql', '--database', path, 'rows', 'table-with-dashes'
+    ])
+
+    assert result.exit_code == 0, f"Failed to handle quoted table: {result.output}"
+    assert 'test' in result.output
+
+
+def test_sql_rows_parameterized_where_clause(populated_db):
+    """Test that parameterized queries work with WHERE clause."""
+    db, path = populated_db
+    runner = CliRunner()
+
+    # Create additional test data
+    import datetime as dt
+    from datetime import timezone
+
+    artist2 = {"id": "artist-2", "name": "Pink Floyd"}
+    lastfm.save_artist(db, artist2)
+
+    # Use parameterized query for WHERE clause
+    result = runner.invoke(cli.cli, [
+        'sql', '--database', path, 'rows', 'artists',
+        '--where', 'name = :artist_name',
+        '-p', 'artist_name', 'The Beatles'
+    ])
+
+    assert result.exit_code == 0, f"Parameterized query failed: {result.output}"
+    assert 'The Beatles' in result.output
+    assert 'Pink Floyd' not in result.output
+
+
+def test_sql_rows_security_order_by_edge_cases(populated_db):
+    """Test ORDER BY validation edge cases."""
+    db, path = populated_db
+    runner = CliRunner()
+
+    # Test edge cases that should be rejected
+    rejected_cases = [
+        "name, (SELECT 1)",  # Subquery in list
+        "name;",             # Trailing semicolon
+        "name OR 1=1",       # SQL injection attempt
+        "name AND DELETE",   # SQL keyword
+    ]
+
+    for test_case in rejected_cases:
+        result = runner.invoke(cli.cli, [
+            'sql', '--database', path, 'rows', 'artists',
+            '--order', test_case
+        ])
+        assert result.exit_code != 0, f"Should reject: {test_case}"
+
+    # Test edge cases that should be allowed
+    allowed_cases = [
+        "name",
+        "id",
+        "id, name",
+    ]
+
+    for test_case in allowed_cases:
+        result = runner.invoke(cli.cli, [
+            'sql', '--database', path, 'rows', 'artists',
+            '--order', test_case
+        ])
+        assert result.exit_code == 0, f"Should allow: {test_case}, got: {result.output}"

@@ -7,6 +7,7 @@ automatically defaulting to the scrobbledb database in the XDG data directory.
 
 import click
 import sys
+import re
 from pathlib import Path
 
 # Import sqlite-utils CLI commands
@@ -24,6 +25,68 @@ from sqlite_utils.cli import (
     memory as sqlite_memory,
     plugins_list as sqlite_plugins,
 )
+
+
+def _is_safe_order_clause(order_clause):
+    """
+    Validate ORDER BY clause to prevent SQL injection.
+
+    Allows: column names (with optional brackets), ASC/DESC, commas, spaces, dots for qualified names.
+    Rejects: semicolons, comments, keywords like SELECT/DROP/UPDATE, parentheses, etc.
+
+    Examples of valid clauses:
+        - "name"
+        - "name ASC"
+        - "artist_name DESC"
+        - "[artist name] DESC"
+        - "tracks.name, plays.timestamp DESC"
+
+    Examples of invalid clauses:
+        - "name; DROP TABLE"
+        - "name--"
+        - "(SELECT ...)"
+        - "name UNION SELECT"
+    """
+    # Block SQL keywords that shouldn't appear in ORDER BY
+    # Check outside of brackets to allow column names that might contain these words
+    clause_upper = order_clause.upper()
+
+    # Remove bracketed content temporarily for keyword checking
+    temp_clause = re.sub(r'\[([^\]]+)\]', '', clause_upper)
+
+    forbidden_keywords = [
+        'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'DROP', 'CREATE', 'ALTER',
+        'UNION', 'EXEC', 'EXECUTE', 'DECLARE', '--', '/*', '*/', ';'
+    ]
+
+    for keyword in forbidden_keywords:
+        if keyword in temp_clause:
+            return False
+
+    # Block parentheses (subqueries)
+    if '(' in order_clause or ')' in order_clause:
+        return False
+
+    # Allow: letters, numbers, underscores, spaces, commas, dots, brackets, ASC/DESC
+    # Pattern matches: column_name [ASC|DESC], [column name] [ASC|DESC], etc.
+    pattern = r'^[\w\s,.\[\]]+$'
+    if not re.match(pattern, order_clause):
+        return False
+
+    # Additional check: verify each comma-separated part is a valid column reference
+    parts = [p.strip() for p in order_clause.split(',')]
+    for part in parts:
+        # Remove any bracketed identifier
+        part_check = re.sub(r'\[[^\]]+\]', 'COL', part)
+
+        # After replacing bracketed ids, should have at most 2 tokens: column [ASC|DESC]
+        tokens = part_check.split()
+        if len(tokens) > 2:
+            return False
+        if len(tokens) == 2 and tokens[1].upper() not in ('ASC', 'DESC'):
+            return False
+
+    return True
 
 
 class SqlGroup(click.Group):
@@ -339,7 +402,7 @@ def schema(ctx, tables, **kwargs):
     "-c", "--column", multiple=True, help="Columns to return"
 )
 @click.option(
-    "--where", help="SQL where clause to filter rows"
+    "--where", help="SQL where clause to filter rows (use --param for user data)"
 )
 @click.option(
     "-o", "--order", help="Order by ('column' or 'column desc')"
@@ -400,18 +463,39 @@ def rows(ctx, table_name, column, where, order, limit, offset, nl, arrays, csv, 
         \b
         scrobbledb sql rows plays --limit 20
         scrobbledb sql rows tracks -c artist_name -c track_title --limit 10
+        scrobbledb sql rows plays --where "timestamp > :date" -p date 2024-01-01
+
+    Security Note:
+        The --where and --order options accept raw SQL. Use --param for untrusted user data
+        to prevent SQL injection. Column and table names are automatically quoted.
     """
     path = ctx.obj['database']
 
-    # Build the SQL query (copied from sqlite-utils rows command)
-    columns = "*"
+    # Build the SQL query with proper identifier quoting using square brackets
+    # (SQLite standard for identifiers with special characters/spaces)
     if column:
+        # Quote each column name using square brackets to handle special characters
         columns = ", ".join("[{}]".format(c) for c in column)
+    else:
+        columns = "*"
+
+    # Quote table name using square brackets
     sql = "select {} from [{}]".format(columns, table_name)
+
+    # WHERE clause - kept as-is for flexibility, but user should use --param for untrusted data
     if where:
         sql += " where " + where
+
+    # ORDER BY clause - validate to prevent SQL injection
     if order:
+        if not _is_safe_order_clause(order):
+            raise click.ClickException(
+                "Invalid ORDER BY clause. Must contain only column names with optional ASC/DESC.\n"
+                "Avoid SQL keywords, semicolons, comments, or subqueries."
+            )
         sql += " order by " + order
+
+    # LIMIT and OFFSET are safe as they're typed as integers
     if limit:
         sql += " limit {}".format(limit)
     if offset:
