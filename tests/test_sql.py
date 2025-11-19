@@ -153,7 +153,6 @@ def test_sql_query_command(populated_db):
     assert 'The Beatles' in result.output
 
 
-@pytest.mark.skip(reason="rows command has Click context parameter pollution issue - same as triggers/indexes before fix")
 def test_sql_rows_command(populated_db):
     """Test the sql rows command."""
     db, path = populated_db

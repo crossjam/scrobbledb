@@ -366,6 +366,9 @@ def schema(ctx, tables, **kwargs):
 @click.option("--tsv", is_flag=True, help="Output TSV")
 @click.option("--no-headers", is_flag=True, help="Omit CSV headers")
 @click.option(
+    "-t", "--table-format", "table", is_flag=True, help="Output as a formatted table"
+)
+@click.option(
     "--fmt",
     help="Table format - see tabulate documentation for available formats",
 )
@@ -388,7 +391,7 @@ def schema(ctx, tables, **kwargs):
     help="Path to SQLite extension, with optional :entrypoint",
 )
 @click.pass_context
-def rows(ctx, table_name, column, order, **kwargs):
+def rows(ctx, table_name, column, where, order, limit, offset, nl, arrays, csv, tsv, no_headers, table, fmt, json_cols, param, load_extension):
     """
     Output all rows in the specified table.
 
@@ -399,14 +402,29 @@ def rows(ctx, table_name, column, order, **kwargs):
         scrobbledb sql rows tracks -c artist_name -c track_title --limit 10
     """
     path = ctx.obj['database']
-    # Ensure clean parameters to avoid TypeError when rows internally calls query
-    # (same issue as triggers/indexes - Click context parameter pollution)
-    if 'functions' in kwargs:
-        del kwargs['functions']
-    if 'functions' in ctx.params:
-        ctx.params['functions'] = None
-    # Simply pass through to sqlite_rows with the table name
-    ctx.invoke(sqlite_rows, path=path, table=table_name, column=column, order=order, **kwargs)
+
+    # Call sqlite_rows with all parameters explicitly set to avoid context pollution
+    # Note: sqlite-utils uses 'dbtable' for the table name, 'table' for formatting flag
+    ctx.invoke(
+        sqlite_rows,
+        path=path,
+        dbtable=table_name,
+        column=column,
+        where=where,
+        limit=limit,
+        offset=offset,
+        nl=nl,
+        arrays=arrays,
+        csv=csv,
+        tsv=tsv,
+        no_headers=no_headers,
+        table=table,
+        fmt=fmt,
+        json_cols=json_cols,
+        order=order,
+        param=param,
+        load_extension=load_extension,
+    )
 
 
 @sql.command()
