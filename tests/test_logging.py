@@ -306,18 +306,28 @@ def test_default_log_config_used_with_verbose(runner):
 
 def test_version_flag(runner):
     """Test that --version flag works."""
+    from importlib.metadata import version
+
     result = runner.invoke(cli, ['--version'])
     assert result.exit_code == 0
     assert 'version' in result.output.lower()
-    assert '1.0.0' in result.output
+
+    # Check that the version matches what's in package metadata
+    expected_version = version("scrobbledb")
+    assert expected_version in result.output
 
 
 def test_version_V_alias(runner):
     """Test that -V alias works for version."""
+    from importlib.metadata import version
+
     result = runner.invoke(cli, ['-V'])
     assert result.exit_code == 0
     assert 'version' in result.output.lower()
-    assert '1.0.0' in result.output
+
+    # Check that the version matches what's in package metadata
+    expected_version = version("scrobbledb")
+    assert expected_version in result.output
 
 
 def test_reset_command_help(runner):

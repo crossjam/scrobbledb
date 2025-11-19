@@ -4,6 +4,7 @@ import json
 import sqlite_utils
 from pathlib import Path
 from platformdirs import user_data_dir
+from importlib.metadata import version
 
 from loguru_config import LoguruConfig
 from rich.console import Console
@@ -32,7 +33,11 @@ def version_callback(ctx, param, value):
     """Callback to handle version option."""
     if not value or ctx.resilient_parsing:
         return
-    click.echo("scrobbledb, version 1.0.0")
+    try:
+        pkg_version = version("scrobbledb")
+    except Exception:
+        pkg_version = "unknown"
+    click.echo(f"scrobbledb, version {pkg_version}")
     ctx.exit()
 
 
