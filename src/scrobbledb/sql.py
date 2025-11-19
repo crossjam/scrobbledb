@@ -52,6 +52,12 @@ Default Database Location:
 To check if your database is initialized:
   scrobbledb init --dry-run
 
+Core Scrobble Data Tables:
+  artists - Artist information (id, name)
+  albums  - Album information (id, title, artist_id)
+  tracks  - Track information (id, title, album_id)
+  plays   - Play events (track_id, timestamp)
+
 Examples:
 
   # Query the database
