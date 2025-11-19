@@ -441,7 +441,7 @@ def rows(ctx, table, column, **kwargs):
     help="Path to SQLite extension, with optional :entrypoint",
 )
 @click.pass_context
-def indexes(ctx, tables, **kwargs):
+def indexes(ctx, tables, aux, nl, arrays, csv, tsv, no_headers, table, fmt, json_cols, load_extension):
     """
     Show indexes for the whole database or specific tables.
 
@@ -452,7 +452,21 @@ def indexes(ctx, tables, **kwargs):
         scrobbledb sql indexes tracks
     """
     path = ctx.obj['database']
-    ctx.invoke(sqlite_indexes, path=path, tables=tables, **kwargs)
+    ctx.invoke(
+        sqlite_indexes,
+        path=path,
+        tables=tables,
+        aux=aux,
+        nl=nl,
+        arrays=arrays,
+        csv=csv,
+        tsv=tsv,
+        no_headers=no_headers,
+        table=table,
+        fmt=fmt,
+        json_cols=json_cols,
+        load_extension=load_extension,
+    )
 
 
 @sql.command()
@@ -491,7 +505,7 @@ def indexes(ctx, tables, **kwargs):
     help="Path to SQLite extension, with optional :entrypoint",
 )
 @click.pass_context
-def triggers(ctx, tables, **kwargs):
+def triggers(ctx, tables, nl, arrays, csv, tsv, no_headers, table, fmt, json_cols, load_extension):
     """
     Show triggers configured in this database.
 
@@ -501,7 +515,20 @@ def triggers(ctx, tables, **kwargs):
         scrobbledb sql triggers
     """
     path = ctx.obj['database']
-    ctx.invoke(sqlite_triggers, path=path, tables=tables, **kwargs)
+    ctx.invoke(
+        sqlite_triggers,
+        path=path,
+        tables=tables,
+        nl=nl,
+        arrays=arrays,
+        csv=csv,
+        tsv=tsv,
+        no_headers=no_headers,
+        table=table,
+        fmt=fmt,
+        json_cols=json_cols,
+        load_extension=load_extension,
+    )
 
 
 @sql.command()
