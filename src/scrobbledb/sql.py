@@ -334,12 +334,15 @@ def schema(ctx, tables, **kwargs):
 
 
 @sql.command()
-@click.argument("table")
+@click.argument("table_name")
 @click.option(
     "-c", "--column", multiple=True, help="Columns to return"
 )
 @click.option(
     "--where", help="SQL where clause to filter rows"
+)
+@click.option(
+    "-o", "--order", help="Order by ('column' or 'column desc')"
 )
 @click.option(
     "--limit", type=int, help="Number of rows to return"
@@ -363,9 +366,6 @@ def schema(ctx, tables, **kwargs):
 @click.option("--tsv", is_flag=True, help="Output TSV")
 @click.option("--no-headers", is_flag=True, help="Omit CSV headers")
 @click.option(
-    "-t", "--table-format", "table", is_flag=True, help="Output as a formatted table"
-)
-@click.option(
     "--fmt",
     help="Table format - see tabulate documentation for available formats",
 )
@@ -388,7 +388,7 @@ def schema(ctx, tables, **kwargs):
     help="Path to SQLite extension, with optional :entrypoint",
 )
 @click.pass_context
-def rows(ctx, table, column, **kwargs):
+def rows(ctx, table_name, column, order, **kwargs):
     """
     Output all rows in the specified table.
 
@@ -399,7 +399,14 @@ def rows(ctx, table, column, **kwargs):
         scrobbledb sql rows tracks -c artist_name -c track_title --limit 10
     """
     path = ctx.obj['database']
-    ctx.invoke(sqlite_rows, path=path, table=table, column=column, **kwargs)
+    # Ensure clean parameters to avoid TypeError when rows internally calls query
+    # (same issue as triggers/indexes - Click context parameter pollution)
+    if 'functions' in kwargs:
+        del kwargs['functions']
+    if 'functions' in ctx.params:
+        ctx.params['functions'] = None
+    # Simply pass through to sqlite_rows with the table name
+    ctx.invoke(sqlite_rows, path=path, table=table_name, column=column, order=order, **kwargs)
 
 
 @sql.command()
@@ -451,26 +458,36 @@ def indexes(ctx, tables, aux, nl, arrays, csv, tsv, no_headers, table, fmt, json
         scrobbledb sql indexes
         scrobbledb sql indexes tracks
     """
+    import sqlite_utils
+
     path = ctx.obj['database']
 
-    # Ensure query parameters have safe defaults in context to avoid
-    # TypeError when indexes internally calls query
-    if 'attach' not in ctx.params:
-        ctx.params['attach'] = ()
-    if 'raw' not in ctx.params:
-        ctx.params['raw'] = False
-    if 'raw_lines' not in ctx.params:
-        ctx.params['raw_lines'] = False
-    if 'param' not in ctx.params:
-        ctx.params['param'] = ()
-    if 'functions' not in ctx.params:
-        ctx.params['functions'] = None
+    # Build the SQL query (copied from sqlite-utils indexes command)
+    sql = """
+    select
+      sqlite_master.name as "table",
+      indexes.name as index_name,
+      xinfo.*
+    from sqlite_master
+      join pragma_index_list(sqlite_master.name) indexes
+      join pragma_index_xinfo(index_name) xinfo
+    where
+      sqlite_master.type = 'table'
+    """
+    if tables:
+        quote = sqlite_utils.Database(memory=True).quote
+        sql += " and sqlite_master.name in ({})".format(
+            ", ".join(quote(t) for t in tables)
+        )
+    if not aux:
+        sql += " and xinfo.key = 1"
 
+    # Call query directly with ALL parameters explicitly set
     ctx.invoke(
-        sqlite_indexes,
+        sqlite_query,
         path=path,
-        tables=tables,
-        aux=aux,
+        sql=sql,
+        attach=(),
         nl=nl,
         arrays=arrays,
         csv=csv,
@@ -479,7 +496,11 @@ def indexes(ctx, tables, aux, nl, arrays, csv, tsv, no_headers, table, fmt, json
         table=table,
         fmt=fmt,
         json_cols=json_cols,
+        raw=False,
+        raw_lines=False,
+        param=(),
         load_extension=load_extension,
+        functions=None,
     )
 
 
@@ -528,25 +549,34 @@ def triggers(ctx, tables, nl, arrays, csv, tsv, no_headers, table, fmt, json_col
         \b
         scrobbledb sql triggers
     """
+    import sqlite_utils
+
     path = ctx.obj['database']
 
-    # Ensure query parameters have safe defaults in context to avoid
-    # TypeError when triggers internally calls query
-    if 'attach' not in ctx.params:
-        ctx.params['attach'] = ()
-    if 'raw' not in ctx.params:
-        ctx.params['raw'] = False
-    if 'raw_lines' not in ctx.params:
-        ctx.params['raw_lines'] = False
-    if 'param' not in ctx.params:
-        ctx.params['param'] = ()
-    if 'functions' not in ctx.params:
-        ctx.params['functions'] = None
+    # Build the SQL query (copied from sqlite-utils triggers command)
+    sql = """
+    select
+      name,
+      tbl_name as "table",
+      sql
+    from
+      sqlite_master
+    where
+      type = 'trigger'
+    """
+    if tables:
+        quote = sqlite_utils.Database(memory=True).quote
+        sql += " and tbl_name in ({})".format(
+            ", ".join(quote(t) for t in tables)
+        )
+    sql += " order by name"
 
+    # Call query directly with ALL parameters explicitly set
     ctx.invoke(
-        sqlite_triggers,
+        sqlite_query,
         path=path,
-        tables=tables,
+        sql=sql,
+        attach=(),
         nl=nl,
         arrays=arrays,
         csv=csv,
@@ -555,7 +585,11 @@ def triggers(ctx, tables, nl, arrays, csv, tsv, no_headers, table, fmt, json_col
         table=table,
         fmt=fmt,
         json_cols=json_cols,
+        raw=False,
+        raw_lines=False,
+        param=(),
         load_extension=load_extension,
+        functions=None,
     )
 
 
