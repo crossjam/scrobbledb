@@ -452,6 +452,20 @@ def indexes(ctx, tables, aux, nl, arrays, csv, tsv, no_headers, table, fmt, json
         scrobbledb sql indexes tracks
     """
     path = ctx.obj['database']
+
+    # Ensure query parameters have safe defaults in context to avoid
+    # TypeError when indexes internally calls query
+    if 'attach' not in ctx.params:
+        ctx.params['attach'] = ()
+    if 'raw' not in ctx.params:
+        ctx.params['raw'] = False
+    if 'raw_lines' not in ctx.params:
+        ctx.params['raw_lines'] = False
+    if 'param' not in ctx.params:
+        ctx.params['param'] = ()
+    if 'functions' not in ctx.params:
+        ctx.params['functions'] = None
+
     ctx.invoke(
         sqlite_indexes,
         path=path,
@@ -515,6 +529,20 @@ def triggers(ctx, tables, nl, arrays, csv, tsv, no_headers, table, fmt, json_col
         scrobbledb sql triggers
     """
     path = ctx.obj['database']
+
+    # Ensure query parameters have safe defaults in context to avoid
+    # TypeError when triggers internally calls query
+    if 'attach' not in ctx.params:
+        ctx.params['attach'] = ()
+    if 'raw' not in ctx.params:
+        ctx.params['raw'] = False
+    if 'raw_lines' not in ctx.params:
+        ctx.params['raw_lines'] = False
+    if 'param' not in ctx.params:
+        ctx.params['param'] = ()
+    if 'functions' not in ctx.params:
+        ctx.params['functions'] = None
+
     ctx.invoke(
         sqlite_triggers,
         path=path,
