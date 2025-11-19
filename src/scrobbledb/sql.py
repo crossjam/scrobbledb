@@ -403,16 +403,26 @@ def rows(ctx, table_name, column, where, order, limit, offset, nl, arrays, csv, 
     """
     path = ctx.obj['database']
 
-    # Call sqlite_rows with all parameters explicitly set to avoid context pollution
-    # Note: sqlite-utils uses 'dbtable' for the table name, 'table' for formatting flag
+    # Build the SQL query (copied from sqlite-utils rows command)
+    columns = "*"
+    if column:
+        columns = ", ".join("[{}]".format(c) for c in column)
+    sql = "select {} from [{}]".format(columns, table_name)
+    if where:
+        sql += " where " + where
+    if order:
+        sql += " order by " + order
+    if limit:
+        sql += " limit {}".format(limit)
+    if offset:
+        sql += " offset {}".format(offset)
+
+    # Call query directly with ALL parameters explicitly set
     ctx.invoke(
-        sqlite_rows,
+        sqlite_query,
         path=path,
-        dbtable=table_name,
-        column=column,
-        where=where,
-        limit=limit,
-        offset=offset,
+        sql=sql,
+        attach=(),
         nl=nl,
         arrays=arrays,
         csv=csv,
@@ -421,9 +431,11 @@ def rows(ctx, table_name, column, where, order, limit, offset, nl, arrays, csv, 
         table=table,
         fmt=fmt,
         json_cols=json_cols,
-        order=order,
+        raw=False,
+        raw_lines=False,
         param=param,
         load_extension=load_extension,
+        functions=None,
     )
 
 
