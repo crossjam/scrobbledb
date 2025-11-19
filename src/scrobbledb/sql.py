@@ -91,6 +91,12 @@ Examples:
 )
 @click.pass_context
 def sql(ctx, database):
+    """
+    SQLite database query and inspection commands.
+
+    Execute SQL queries, list tables, view schemas, and more using sqlite-utils.
+    All commands default to the scrobbledb database in your XDG data directory.
+    """
     # Import here to avoid circular import
     from .cli import get_default_db_path
 
