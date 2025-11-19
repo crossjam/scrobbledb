@@ -410,7 +410,7 @@ The database is now empty and ready to use.
 
 Next steps:
   • Run [bold cyan]scrobbledb ingest[/bold cyan] to import your listening history
-  • Run [bold cyan]scrobbledb add[/bold cyan] to manually add scrobbles
+  • Run [bold cyan]scrobbledb import[/bold cyan] to manually import scrobbles
 """
     console.print(Panel(summary, border_style="green"))
 
@@ -783,7 +783,7 @@ def search(query, database, limit, fields):
     console.print(f"\n[dim]Showing {len(results)} of {len(results)} results[/dim]")
 
 
-@cli.command()
+@cli.command(name="import")
 @click.argument(
     "database",
     required=False,
@@ -824,13 +824,13 @@ def search(query, database, limit, fields):
 @click.option(
     "--update-index/--no-update-index",
     default=None,
-    help="Update FTS5 search index after adding",
+    help="Update FTS5 search index after importing",
 )
 @click.option(
     "--limit",
     type=int,
     default=None,
-    help="Add at most N records",
+    help="Import at most N records",
 )
 @click.option(
     "--sample",
@@ -844,9 +844,9 @@ def search(query, database, limit, fields):
     default=None,
     help="Random seed for reproducible sampling (use with --sample)",
 )
-def add(database, file, format, skip_errors, dry_run, no_duplicates, update_index, limit, sample, seed):
+def import_data(database, file, format, skip_errors, dry_run, no_duplicates, update_index, limit, sample, seed):
     """
-    Add scrobbles to the database from a file or stdin.
+    Import scrobbles to the database from a file or stdin.
 
     Supports JSONL (JSON Lines) and CSV/TSV formats with automatic detection.
     Each scrobble requires: artist, track, and timestamp.
@@ -854,20 +854,20 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
 
     \b
     Examples:
-        # Add from file
-        scrobbledb add --file scrobbles.jsonl
+        # Import from file
+        scrobbledb import --file scrobbles.jsonl
 
-        # Add from stdin
-        cat scrobbles.jsonl | scrobbledb add
+        # Import from stdin
+        cat scrobbles.jsonl | scrobbledb import
 
         # Limit to first 100 records
-        scrobbledb add --file data.jsonl --limit 100
+        scrobbledb import --file data.jsonl --limit 100
 
         # Sample 10% of records
-        scrobbledb add --file data.jsonl --sample 0.1
+        scrobbledb import --file data.jsonl --sample 0.1
 
-        # Validate without adding
-        scrobbledb add --file data.csv --dry-run
+        # Validate without importing
+        scrobbledb import --file data.csv --dry-run
     """
     import sys
 
@@ -879,13 +879,13 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
         # Warn for edge cases
         if sample == 0.0:
             console.print(
-                "[yellow]Warning:[/yellow] --sample=0.0 means NO records will be added.\n"
-                "This will process the input but add nothing to the database.\n"
+                "[yellow]Warning:[/yellow] --sample=0.0 means NO records will be imported.\n"
+                "This will process the input but import nothing to the database.\n"
                 "Did you mean to use a higher probability?\n"
             )
         elif sample == 1.0:
             console.print(
-                "[yellow]Warning:[/yellow] --sample=1.0 means ALL records will be added.\n"
+                "[yellow]Warning:[/yellow] --sample=1.0 means ALL records will be imported.\n"
                 "This is equivalent to not using --sample at all.\n"
                 "Consider removing --sample for better performance.\n"
             )
@@ -912,7 +912,7 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
     else:
         raise click.UsageError(
             "No input provided. Use --file to specify a file, or pipe data to stdin.\n"
-            "Example: cat scrobbles.jsonl | scrobbledb add"
+            "Example: cat scrobbles.jsonl | scrobbledb import"
         )
 
     # Get database path
@@ -1019,7 +1019,7 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
             for scrobble in parse_input():
                 stats['total_processed'] += 1
 
-                # Apply sampling logic (but don't actually add)
+                # Apply sampling logic (but don't actually import)
                 if sample is not None:
                     import random
                     if seed is not None:
@@ -1060,9 +1060,9 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
             )
 
         if dry_run:
-            table.add_row("Would add", str(stats['added']))
+            table.add_row("Would import", str(stats['added']))
         else:
-            table.add_row("Successfully added", str(stats['added']))
+            table.add_row("Successfully imported", str(stats['added']))
 
         if stats['skipped'] > 0:
             table.add_row("Skipped (duplicates)", str(stats['skipped']))
