@@ -20,6 +20,7 @@ from rich.progress import (
 from rich.panel import Panel
 from rich.table import Table
 from . import lastfm
+from . import sql as sql_commands
 import dateutil.parser
 
 APP_NAME = "dev.pirateninja.scrobbledb"
@@ -105,6 +106,10 @@ def cli(ctx, log_config):
     # Store log_config in context for subcommands to use
     ctx.ensure_object(dict)
     ctx.obj['log_config'] = log_config
+
+
+# Register sql subcommand group
+cli.add_command(sql_commands.sql)
 
 
 @cli.command()
