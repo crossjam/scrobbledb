@@ -486,7 +486,7 @@ def auth(auth, network):
     help="Path to read auth token from (default: XDG data directory)",
 )
 @click.option(
-    "--since",
+    "--newest",
     is_flag=True,
     default=False,
     help="Pull new posts since last saved post in DB",
@@ -506,7 +506,7 @@ def auth(auth, network):
     help="Enable verbose logging output",
 )
 @click.pass_context
-def ingest(ctx, database, auth, since, since_date, limit, verbose):
+def ingest(ctx, database, auth, newest, since_date, limit, verbose):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -525,8 +525,8 @@ def ingest(ctx, database, auth, since, since_date, limit, verbose):
             default_config = ensure_default_log_config()
             LoguruConfig.load(default_config)
 
-    if since and since_date:
-        raise click.UsageError("use either --since or --since-date, not both")
+    if newest and since_date:
+        raise click.UsageError("use either --newest or --since-date, not both")
 
     if database is None:
         database = get_default_db_path()
@@ -536,7 +536,7 @@ def ingest(ctx, database, auth, since, since_date, limit, verbose):
 
     db = sqlite_utils.Database(database)
 
-    if since and db["plays"].exists:
+    if newest and db["plays"].exists:
         since_date = db.conn.execute("select max(timestamp) from plays").fetchone()[0]
     if since_date:
         since_date = dateutil.parser.parse(since_date)
