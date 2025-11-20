@@ -8,3 +8,4 @@ __pycache__/
 .venv/
 uv.lock
 sys.stderr
+/.claude/
