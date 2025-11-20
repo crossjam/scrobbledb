@@ -42,7 +42,7 @@ dev = [
     "pytest-cov>=4.0.0",
     "poethepoet>=0.24.0",
     "ruff>=0.1.0",
-    "mypy>=1.0.0",
+    "ty",
     "types-python-dateutil>=2.8.0",
 ]
 
@@ -52,26 +52,18 @@ scrobbledb = ["default_loguru_config.toml"]
 [tool.uv.sources]
 loguru-config = { git = "https://github.com/crossjam/loguru-config" }
 
-[tool.mypy]
-python_version = "3.11"
-warn_unused_configs = true
-disallow_untyped_defs = false
-disallow_incomplete_defs = false
-check_untyped_defs = false
-# Enable these gradually as type annotations are added
-no_implicit_optional = false
-warn_return_any = false
-warn_redundant_casts = false
-warn_unused_ignores = false
-warn_no_return = false
-warn_unreachable = false
-strict_equality = false
-# Allow untyped calls for now
-disallow_untyped_calls = false
+[tool.ty]
+# Ty configuration - lenient settings for existing codebase
+# Enable stricter checks gradually as type annotations are added
 
-[[tool.mypy.overrides]]
-module = ["pylast.*", "sqlite_utils.*", "loguru_config.*", "platformdirs.*", "pkg_resources.*"]
-ignore_missing_imports = true
+[tool.ty.rules]
+# Ignore certain rules for now to allow gradual type annotation adoption
+unresolved-import = "ignore"           # Allow unresolved imports (e.g., pkg_resources)
+possibly-missing-attribute = "ignore"  # Allow potentially missing attributes
+unsupported-operator = "ignore"        # Allow operators on Unknown types
+invalid-parameter-default = "ignore"   # Allow None defaults for typed parameters
+invalid-argument-type = "ignore"       # Allow arguments with Unknown types
+unresolved-attribute = "ignore"        # Allow attributes on Unknown types
 
 [tool.poe.tasks]
 # Linting
@@ -85,8 +77,8 @@ cmd = "ruff check --fix src/ tests/"
 
 # Type checking
 [tool.poe.tasks.type]
-help = "Run mypy type checker on source files"
-cmd = "mypy src/"
+help = "Run ty type checker on source files"
+cmd = "ty check src/"
 
 # Testing
 [tool.poe.tasks.test]
