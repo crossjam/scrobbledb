@@ -330,6 +330,19 @@ def test_version_V_alias(runner):
     assert expected_version in result.output
 
 
+def test_version_subcommand(runner):
+    """Test that version subcommand works."""
+    from importlib.metadata import version
+
+    result = runner.invoke(cli, ['version'])
+    assert result.exit_code == 0
+    assert 'version' in result.output.lower()
+
+    # Check that the version matches what's in package metadata
+    expected_version = version("scrobbledb")
+    assert expected_version in result.output
+
+
 def test_reset_command_help(runner):
     """Test that reset command help is available."""
     result = runner.invoke(cli, ['config', 'reset', '--help'])

@@ -4,7 +4,7 @@ import json
 import sqlite_utils
 from pathlib import Path
 from platformdirs import user_data_dir, user_config_dir
-from importlib.metadata import version
+from importlib.metadata import version as get_version
 
 from loguru_config import LoguruConfig
 from rich.console import Console
@@ -34,7 +34,7 @@ def version_callback(ctx, param, value):
     if not value or ctx.resilient_parsing:
         return
     try:
-        pkg_version = version("scrobbledb")
+        pkg_version = get_version("scrobbledb")
     except Exception:
         pkg_version = "unknown"
     click.echo(f"scrobbledb, version {pkg_version}")
@@ -476,6 +476,20 @@ def location():
     if not data_dir.exists():
         console.print("[dim]Run [cyan]scrobbledb config init[/cyan] to initialize the data directory.[/dim]")
         console.print()
+
+
+@cli.command()
+def version():
+    """
+    Display the scrobbledb version.
+
+    Shows the currently installed version of scrobbledb.
+    """
+    try:
+        pkg_version = get_version("scrobbledb")
+    except Exception:
+        pkg_version = "unknown"
+    click.echo(f"scrobbledb, version {pkg_version}")
 
 
 @cli.command()
