@@ -240,7 +240,6 @@ def test_ensure_default_log_config():
     """Test that default log config is created in user directory."""
     from scrobbledb.cli import ensure_default_log_config
     import tempfile
-    import shutil
 
     # Create a temporary directory to use as the data dir
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -294,7 +293,7 @@ def test_default_log_config_used_with_verbose(runner):
 
         try:
             # The command will fail without auth, but we're testing that config is created
-            result = runner.invoke(cli.cli, ['ingest', '--verbose', '--limit', '1'])
+            runner.invoke(cli.cli, ['ingest', '--verbose', '--limit', '1'])
 
             # Check that the default config file was created
             config_path = Path(tmpdir) / "loguru_config.toml"

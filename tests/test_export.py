@@ -3,7 +3,6 @@ import pytest
 import tempfile
 import os
 import json
-import csv
 from pathlib import Path
 from click.testing import CliRunner
 from scrobbledb import cli, lastfm

@@ -375,8 +375,6 @@ def test_sql_rows_parameterized_where_clause(populated_db):
     runner = CliRunner()
 
     # Create additional test data
-    import datetime as dt
-    from datetime import timezone
 
     artist2 = {"id": "artist-2", "name": "Pink Floyd"}
     lastfm.save_artist(db, artist2)
