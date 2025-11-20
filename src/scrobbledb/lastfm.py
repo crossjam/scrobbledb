@@ -3,8 +3,7 @@ from datetime import timezone
 import hashlib
 import json
 import random
-import csv
-from typing import Dict, List, Optional, Iterator, Tuple
+from typing import Dict, Optional, Iterator, Tuple
 from xml.dom.minidom import Node
 
 import pylast

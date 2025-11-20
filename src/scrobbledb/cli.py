@@ -204,9 +204,9 @@ def init(dry_run, no_index):
 
                 # Check if FTS5 exists
                 if "tracks_fts" in db.table_names():
-                    console.print(f"[green]✓[/green] FTS5 search index is initialized")
+                    console.print("[green]✓[/green] FTS5 search index is initialized")
                 else:
-                    console.print(f"[yellow]○[/yellow] FTS5 search index is not initialized")
+                    console.print("[yellow]○[/yellow] FTS5 search index is not initialized")
                     if not no_index:
                         actions_needed.append("Initialize FTS5 search index")
             else:
@@ -238,7 +238,7 @@ Run [bold cyan]scrobbledb config init[/bold cyan] (without --dry-run) to perform
 """
             console.print(Panel(summary, border_style="yellow"))
         else:
-            summary = f"""[bold green]✓ Scrobbledb is already initialized![/bold green]
+            summary = """[bold green]✓ Scrobbledb is already initialized![/bold green]
 
 All required components are in place.
 
@@ -296,9 +296,9 @@ Next steps:
             if "tracks_fts" not in db.table_names():
                 console.print("[cyan]Initializing FTS5 search index...[/cyan]")
                 lastfm.setup_fts5(db)
-                console.print(f"[green]✓[/green] FTS5 search index initialized")
+                console.print("[green]✓[/green] FTS5 search index initialized")
             else:
-                console.print(f"[green]✓[/green] FTS5 search index already exists")
+                console.print("[green]✓[/green] FTS5 search index already exists")
 
         # Show summary in a panel
         fts5_status = "initialized and ready" if not no_index else "skipped (use 'scrobbledb index' to set up later)"
@@ -408,7 +408,7 @@ def reset(database, no_index, force):
     if not no_index:
         console.print("[cyan]Initializing FTS5 search index...[/cyan]")
         lastfm.setup_fts5(db)
-        console.print(f"[green]✓[/green] FTS5 search index initialized")
+        console.print("[green]✓[/green] FTS5 search index initialized")
     else:
         console.print("[yellow]○[/yellow] FTS5 search index skipped (use 'scrobbledb index' to set up later)")
 
@@ -550,7 +550,7 @@ def auth(auth, network):
         )
         json.dump(auth_data, open(auth, "w"))
 
-        console.print(f"\n[green]✓[/green] Authentication successful!")
+        console.print("\n[green]✓[/green] Authentication successful!")
         console.print(f"[green]✓[/green] Credentials saved to: [cyan]{auth}[/cyan]")
     except Exception as e:
         console.print(f"\n[red]✗[/red] Authentication failed: {e}")
@@ -729,7 +729,6 @@ def index(database):
         progress.update(task, description="[green]✓ FTS5 index ready!")
 
     # Show index statistics
-    track_count = db["tracks"].count
     fts_count = db.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0]
 
     console.print(f"[green]✓[/green] Indexed {fts_count} tracks from database")
@@ -978,14 +977,11 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
     # Determine input source
     if file == "-":
         input_file = sys.stdin
-        filename = "stdin"
     elif file:
         input_file = open(file, 'r', encoding='utf-8')
-        filename = file
     elif not sys.stdin.isatty():
         # Data is being piped
         input_file = sys.stdin
-        filename = "stdin"
     else:
         raise click.UsageError(
             "No input provided. Use --file to specify a file, or pipe data to stdin.\n"
@@ -1116,11 +1112,11 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
         console.print()
 
         if dry_run:
-            console.print(f"[green]✓[/green] Validation complete (dry-run mode)\n")
+            console.print("[green]✓[/green] Validation complete (dry-run mode)\n")
         elif stats['added'] > 0:
-            console.print(f"[green]✓[/green] Successfully added scrobbles to database!\n")
+            console.print("[green]✓[/green] Successfully added scrobbles to database!\n")
         else:
-            console.print(f"[yellow]![/yellow] No scrobbles were added\n")
+            console.print("[yellow]![/yellow] No scrobbles were added\n")
 
         # Show statistics
         table = Table(title="Statistics")

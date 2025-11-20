@@ -6,9 +6,7 @@ automatically defaulting to the scrobbledb database in the XDG data directory.
 """
 
 import click
-import sys
 import re
-from pathlib import Path
 
 # Import sqlite-utils CLI commands
 from sqlite_utils.cli import (
@@ -16,9 +14,6 @@ from sqlite_utils.cli import (
     tables as sqlite_tables,
     views as sqlite_views,
     schema as sqlite_schema,
-    rows as sqlite_rows,
-    indexes as sqlite_indexes,
-    triggers as sqlite_triggers,
     search as sqlite_search,
     dump as sqlite_dump,
     analyze_tables as sqlite_analyze_tables,

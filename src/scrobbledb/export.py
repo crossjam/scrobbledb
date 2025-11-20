@@ -11,7 +11,6 @@ This module provides export functionality for scrobbledb with support for:
 """
 
 import click
-import sys
 import random
 import sqlite_utils
 from pathlib import Path
