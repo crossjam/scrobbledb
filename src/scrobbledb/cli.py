@@ -3,7 +3,7 @@ import os
 import json
 import sqlite_utils
 from pathlib import Path
-from platformdirs import user_data_dir
+from platformdirs import user_data_dir, user_config_dir
 from importlib.metadata import version
 
 from loguru_config import LoguruConfig
@@ -121,7 +121,21 @@ cli.add_command(sql_commands.sql)
 cli.add_command(export_command.export)
 
 
-@cli.command()
+@click.group()
+def config():
+    """
+    Configuration and database management commands.
+
+    Manage scrobbledb initialization, database resets, and view configuration locations.
+    """
+    pass
+
+
+# Register config subcommand group
+cli.add_command(config)
+
+
+@config.command()
 @click.option(
     "--dry-run",
     is_flag=True,
@@ -220,7 +234,7 @@ def init(dry_run, no_index):
             summary = f"""[bold yellow]Actions needed for initialization:[/bold yellow]
 
 {actions_list}
-Run [bold cyan]scrobbledb init[/bold cyan] (without --dry-run) to perform these actions.
+Run [bold cyan]scrobbledb config init[/bold cyan] (without --dry-run) to perform these actions.
 """
             console.print(Panel(summary, border_style="yellow"))
         else:
@@ -304,7 +318,7 @@ Next steps:
         console.print(Panel(summary, border_style="green"))
 
 
-@cli.command()
+@config.command()
 @click.argument(
     "database",
     required=False,
@@ -343,7 +357,7 @@ def reset(database, no_index, force):
     # Check if database exists
     if not db_path.exists():
         console.print(f"[yellow]![/yellow] Database does not exist: [cyan]{db_path}[/cyan]")
-        console.print("[dim]Nothing to reset. Use 'scrobbledb init' to create a new database.[/dim]")
+        console.print("[dim]Nothing to reset. Use 'scrobbledb config init' to create a new database.[/dim]")
         return
 
     # Get database info before deletion
@@ -413,6 +427,55 @@ Next steps:
   • Run [bold cyan]scrobbledb import[/bold cyan] to manually import scrobbles
 """
     console.print(Panel(summary, border_style="green"))
+
+
+@config.command()
+def location():
+    """
+    Display scrobbledb configuration and data directory locations.
+
+    Shows the OS-specific directories used by scrobbledb for configuration
+    and data storage, based on XDG Base Directory specifications.
+    """
+    # Get directories
+    data_dir = get_data_dir()
+    config_dir_path = Path(user_config_dir(APP_NAME))
+
+    # Create table
+    table = Table(title="Scrobbledb Directory Locations", show_header=True, header_style="bold cyan")
+    table.add_column("Type", style="cyan", width=12)
+    table.add_column("Path", style="white")
+    table.add_column("Status", style="magenta", width=12)
+
+    # Add data directory
+    data_status = "✓ Exists" if data_dir.exists() else "Not created"
+    table.add_row("Data", str(data_dir), data_status)
+
+    # Add config directory
+    config_status = "✓ Exists" if config_dir_path.exists() else "Not created"
+    table.add_row("Config", str(config_dir_path), config_status)
+
+    console.print()
+    console.print(table)
+    console.print()
+
+    # Show what's in each directory if they exist
+    if data_dir.exists():
+        console.print(Panel(
+            f"[bold]Data Directory Contents:[/bold]\n\n"
+            f"Database: [cyan]{data_dir / 'scrobbledb.db'}[/cyan] "
+            f"({'✓ Exists' if (data_dir / 'scrobbledb.db').exists() else 'Not created'})\n"
+            f"Auth file: [cyan]{data_dir / 'auth.json'}[/cyan] "
+            f"({'✓ Exists' if (data_dir / 'auth.json').exists() else 'Not created'})",
+            border_style="blue",
+            title="📁 Data Directory"
+        ))
+        console.print()
+
+    # Show initialization hint if data directory doesn't exist
+    if not data_dir.exists():
+        console.print("[dim]Run [cyan]scrobbledb config init[/cyan] to initialize the data directory.[/dim]")
+        console.print()
 
 
 @cli.command()
@@ -627,7 +690,7 @@ def index(database):
 
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print("[yellow]Run 'scrobbledb init' to create a new database.[/yellow]")
+        console.print("[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]")
         raise click.Abort()
 
     db = sqlite_utils.Database(database)
@@ -703,7 +766,7 @@ def search(query, database, limit, fields):
 
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print("[yellow]Run 'scrobbledb init' to create a new database.[/yellow]")
+        console.print("[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]")
         raise click.Abort()
 
     db = sqlite_utils.Database(database)

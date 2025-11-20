@@ -163,7 +163,7 @@ def test_log_config_passed_through_context(runner, log_config_file):
     """Test that log config is passed through Click context."""
     # Test that both --log-config and a command work together
     # The context passing is tested implicitly - if it fails, ingest would error
-    result = runner.invoke(cli, ['--log-config', log_config_file, 'init', '--help'])
+    result = runner.invoke(cli, ['--log-config', log_config_file, 'config', 'init', '--help'])
     assert result.exit_code == 0
     # If context wasn't working, we'd get an error about log_config not being available
 
@@ -332,7 +332,7 @@ def test_version_V_alias(runner):
 
 def test_reset_command_help(runner):
     """Test that reset command help is available."""
-    result = runner.invoke(cli, ['reset', '--help'])
+    result = runner.invoke(cli, ['config', 'reset', '--help'])
     assert result.exit_code == 0
     assert 'reset' in result.output.lower()
     assert 'destructive' in result.output.lower()
@@ -344,7 +344,7 @@ def test_reset_nonexistent_database(runner):
     with tempfile.NamedTemporaryFile(delete=True) as f:
         nonexistent_path = f.name  # File will be deleted immediately
 
-    result = runner.invoke(cli, ['reset', nonexistent_path, '--force'])
+    result = runner.invoke(cli, ['config', 'reset', nonexistent_path, '--force'])
     assert result.exit_code == 0
     assert 'does not exist' in result.output.lower()
 
@@ -364,7 +364,7 @@ def test_reset_with_force(runner):
         assert 'test_table' in db.table_names()
 
         # Reset with --force
-        result = runner.invoke(cli, ['reset', db_path, '--force'])
+        result = runner.invoke(cli, ['config', 'reset', db_path, '--force'])
         assert result.exit_code == 0
         assert 'deleted' in result.output.lower()
         assert 'reset complete' in result.output.lower()
@@ -392,7 +392,7 @@ def test_reset_with_no_index(runner):
         db['test_table'].insert({'id': 1, 'name': 'test'})
 
         # Reset with --no-index
-        result = runner.invoke(cli, ['reset', db_path, '--force', '--no-index'])
+        result = runner.invoke(cli, ['config', 'reset', db_path, '--force', '--no-index'])
         assert result.exit_code == 0
         assert 'reset complete' in result.output.lower()
 
