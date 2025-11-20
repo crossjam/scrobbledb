@@ -3,7 +3,8 @@ import os
 import json
 import sqlite_utils
 from pathlib import Path
-from platformdirs import user_data_dir
+from platformdirs import user_data_dir, user_config_dir
+from importlib.metadata import version as get_version
 
 from loguru_config import LoguruConfig
 from rich.console import Console
@@ -20,6 +21,8 @@ from rich.progress import (
 from rich.panel import Panel
 from rich.table import Table
 from . import lastfm
+from . import sql as sql_commands
+from . import export as export_command
 import dateutil.parser
 
 APP_NAME = "dev.pirateninja.scrobbledb"
@@ -30,7 +33,11 @@ def version_callback(ctx, param, value):
     """Callback to handle version option."""
     if not value or ctx.resilient_parsing:
         return
-    click.echo("scrobbledb, version 1.0.0")
+    try:
+        pkg_version = get_version("scrobbledb")
+    except Exception:
+        pkg_version = "unknown"
+    click.echo(f"scrobbledb, version {pkg_version}")
     ctx.exit()
 
 
@@ -107,7 +114,28 @@ def cli(ctx, log_config):
     ctx.obj['log_config'] = log_config
 
 
-@cli.command()
+# Register sql subcommand group
+cli.add_command(sql_commands.sql)
+
+# Register export command
+cli.add_command(export_command.export)
+
+
+@click.group()
+def config():
+    """
+    Configuration and database management commands.
+
+    Manage scrobbledb initialization, database resets, and view configuration locations.
+    """
+    pass
+
+
+# Register config subcommand group
+cli.add_command(config)
+
+
+@config.command()
 @click.option(
     "--dry-run",
     is_flag=True,
@@ -176,9 +204,9 @@ def init(dry_run, no_index):
 
                 # Check if FTS5 exists
                 if "tracks_fts" in db.table_names():
-                    console.print(f"[green]✓[/green] FTS5 search index is initialized")
+                    console.print("[green]✓[/green] FTS5 search index is initialized")
                 else:
-                    console.print(f"[yellow]○[/yellow] FTS5 search index is not initialized")
+                    console.print("[yellow]○[/yellow] FTS5 search index is not initialized")
                     if not no_index:
                         actions_needed.append("Initialize FTS5 search index")
             else:
@@ -206,11 +234,11 @@ def init(dry_run, no_index):
             summary = f"""[bold yellow]Actions needed for initialization:[/bold yellow]
 
 {actions_list}
-Run [bold cyan]scrobbledb init[/bold cyan] (without --dry-run) to perform these actions.
+Run [bold cyan]scrobbledb config init[/bold cyan] (without --dry-run) to perform these actions.
 """
             console.print(Panel(summary, border_style="yellow"))
         else:
-            summary = f"""[bold green]✓ Scrobbledb is already initialized![/bold green]
+            summary = """[bold green]✓ Scrobbledb is already initialized![/bold green]
 
 All required components are in place.
 
@@ -268,9 +296,9 @@ Next steps:
             if "tracks_fts" not in db.table_names():
                 console.print("[cyan]Initializing FTS5 search index...[/cyan]")
                 lastfm.setup_fts5(db)
-                console.print(f"[green]✓[/green] FTS5 search index initialized")
+                console.print("[green]✓[/green] FTS5 search index initialized")
             else:
-                console.print(f"[green]✓[/green] FTS5 search index already exists")
+                console.print("[green]✓[/green] FTS5 search index already exists")
 
         # Show summary in a panel
         fts5_status = "initialized and ready" if not no_index else "skipped (use 'scrobbledb index' to set up later)"
@@ -290,7 +318,7 @@ Next steps:
         console.print(Panel(summary, border_style="green"))
 
 
-@cli.command()
+@config.command()
 @click.argument(
     "database",
     required=False,
@@ -329,7 +357,7 @@ def reset(database, no_index, force):
     # Check if database exists
     if not db_path.exists():
         console.print(f"[yellow]![/yellow] Database does not exist: [cyan]{db_path}[/cyan]")
-        console.print("[dim]Nothing to reset. Use 'scrobbledb init' to create a new database.[/dim]")
+        console.print("[dim]Nothing to reset. Use 'scrobbledb config init' to create a new database.[/dim]")
         return
 
     # Get database info before deletion
@@ -380,7 +408,7 @@ def reset(database, no_index, force):
     if not no_index:
         console.print("[cyan]Initializing FTS5 search index...[/cyan]")
         lastfm.setup_fts5(db)
-        console.print(f"[green]✓[/green] FTS5 search index initialized")
+        console.print("[green]✓[/green] FTS5 search index initialized")
     else:
         console.print("[yellow]○[/yellow] FTS5 search index skipped (use 'scrobbledb index' to set up later)")
 
@@ -396,9 +424,72 @@ The database is now empty and ready to use.
 
 Next steps:
   • Run [bold cyan]scrobbledb ingest[/bold cyan] to import your listening history
-  • Run [bold cyan]scrobbledb add[/bold cyan] to manually add scrobbles
+  • Run [bold cyan]scrobbledb import[/bold cyan] to manually import scrobbles
 """
     console.print(Panel(summary, border_style="green"))
+
+
+@config.command()
+def location():
+    """
+    Display scrobbledb configuration and data directory locations.
+
+    Shows the OS-specific directories used by scrobbledb for configuration
+    and data storage, based on XDG Base Directory specifications.
+    """
+    # Get directories
+    data_dir = get_data_dir()
+    config_dir_path = Path(user_config_dir(APP_NAME))
+
+    # Create table
+    table = Table(title="Scrobbledb Directory Locations", show_header=True, header_style="bold cyan")
+    table.add_column("Type", style="cyan", width=12)
+    table.add_column("Path", style="white")
+    table.add_column("Status", style="magenta", width=12)
+
+    # Add data directory
+    data_status = "✓ Exists" if data_dir.exists() else "Not created"
+    table.add_row("Data", str(data_dir), data_status)
+
+    # Add config directory
+    config_status = "✓ Exists" if config_dir_path.exists() else "Not created"
+    table.add_row("Config", str(config_dir_path), config_status)
+
+    console.print()
+    console.print(table)
+    console.print()
+
+    # Show what's in each directory if they exist
+    if data_dir.exists():
+        console.print(Panel(
+            f"[bold]Data Directory Contents:[/bold]\n\n"
+            f"Database: [cyan]{data_dir / 'scrobbledb.db'}[/cyan] "
+            f"({'✓ Exists' if (data_dir / 'scrobbledb.db').exists() else 'Not created'})\n"
+            f"Auth file: [cyan]{data_dir / 'auth.json'}[/cyan] "
+            f"({'✓ Exists' if (data_dir / 'auth.json').exists() else 'Not created'})",
+            border_style="blue",
+            title="📁 Data Directory"
+        ))
+        console.print()
+
+    # Show initialization hint if data directory doesn't exist
+    if not data_dir.exists():
+        console.print("[dim]Run [cyan]scrobbledb config init[/cyan] to initialize the data directory.[/dim]")
+        console.print()
+
+
+@cli.command()
+def version():
+    """
+    Display the scrobbledb version.
+
+    Shows the currently installed version of scrobbledb.
+    """
+    try:
+        pkg_version = get_version("scrobbledb")
+    except Exception:
+        pkg_version = "unknown"
+    click.echo(f"scrobbledb, version {pkg_version}")
 
 
 @cli.command()
@@ -459,7 +550,7 @@ def auth(auth, network):
         )
         json.dump(auth_data, open(auth, "w"))
 
-        console.print(f"\n[green]✓[/green] Authentication successful!")
+        console.print("\n[green]✓[/green] Authentication successful!")
         console.print(f"[green]✓[/green] Credentials saved to: [cyan]{auth}[/cyan]")
     except Exception as e:
         console.print(f"\n[red]✗[/red] Authentication failed: {e}")
@@ -481,7 +572,7 @@ def auth(auth, network):
     help="Path to read auth token from (default: XDG data directory)",
 )
 @click.option(
-    "--since",
+    "--newest",
     is_flag=True,
     default=False,
     help="Pull new posts since last saved post in DB",
@@ -501,7 +592,7 @@ def auth(auth, network):
     help="Enable verbose logging output",
 )
 @click.pass_context
-def ingest(ctx, database, auth, since, since_date, limit, verbose):
+def ingest(ctx, database, auth, newest, since_date, limit, verbose):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -520,8 +611,8 @@ def ingest(ctx, database, auth, since, since_date, limit, verbose):
             default_config = ensure_default_log_config()
             LoguruConfig.load(default_config)
 
-    if since and since_date:
-        raise click.UsageError("use either --since or --since-date, not both")
+    if newest and since_date:
+        raise click.UsageError("use either --newest or --since-date, not both")
 
     if database is None:
         database = get_default_db_path()
@@ -531,7 +622,7 @@ def ingest(ctx, database, auth, since, since_date, limit, verbose):
 
     db = sqlite_utils.Database(database)
 
-    if since and db["plays"].exists:
+    if newest and db["plays"].exists:
         since_date = db.conn.execute("select max(timestamp) from plays").fetchone()[0]
     if since_date:
         since_date = dateutil.parser.parse(since_date)
@@ -613,7 +704,7 @@ def index(database):
 
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print("[yellow]Run 'scrobbledb init' to create a new database.[/yellow]")
+        console.print("[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]")
         raise click.Abort()
 
     db = sqlite_utils.Database(database)
@@ -638,7 +729,6 @@ def index(database):
         progress.update(task, description="[green]✓ FTS5 index ready!")
 
     # Show index statistics
-    track_count = db["tracks"].count
     fts_count = db.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0]
 
     console.print(f"[green]✓[/green] Indexed {fts_count} tracks from database")
@@ -689,7 +779,7 @@ def search(query, database, limit, fields):
 
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print("[yellow]Run 'scrobbledb init' to create a new database.[/yellow]")
+        console.print("[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]")
         raise click.Abort()
 
     db = sqlite_utils.Database(database)
@@ -769,7 +859,7 @@ def search(query, database, limit, fields):
     console.print(f"\n[dim]Showing {len(results)} of {len(results)} results[/dim]")
 
 
-@cli.command()
+@cli.command(name="import")
 @click.argument(
     "database",
     required=False,
@@ -810,13 +900,13 @@ def search(query, database, limit, fields):
 @click.option(
     "--update-index/--no-update-index",
     default=None,
-    help="Update FTS5 search index after adding",
+    help="Update FTS5 search index after importing",
 )
 @click.option(
     "--limit",
     type=int,
     default=None,
-    help="Add at most N records",
+    help="Import at most N records",
 )
 @click.option(
     "--sample",
@@ -830,9 +920,9 @@ def search(query, database, limit, fields):
     default=None,
     help="Random seed for reproducible sampling (use with --sample)",
 )
-def add(database, file, format, skip_errors, dry_run, no_duplicates, update_index, limit, sample, seed):
+def import_data(database, file, format, skip_errors, dry_run, no_duplicates, update_index, limit, sample, seed):
     """
-    Add scrobbles to the database from a file or stdin.
+    Import scrobbles to the database from a file or stdin.
 
     Supports JSONL (JSON Lines) and CSV/TSV formats with automatic detection.
     Each scrobble requires: artist, track, and timestamp.
@@ -840,20 +930,20 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
 
     \b
     Examples:
-        # Add from file
-        scrobbledb add --file scrobbles.jsonl
+        # Import from file
+        scrobbledb import --file scrobbles.jsonl
 
-        # Add from stdin
-        cat scrobbles.jsonl | scrobbledb add
+        # Import from stdin
+        cat scrobbles.jsonl | scrobbledb import
 
         # Limit to first 100 records
-        scrobbledb add --file data.jsonl --limit 100
+        scrobbledb import --file data.jsonl --limit 100
 
         # Sample 10% of records
-        scrobbledb add --file data.jsonl --sample 0.1
+        scrobbledb import --file data.jsonl --sample 0.1
 
-        # Validate without adding
-        scrobbledb add --file data.csv --dry-run
+        # Validate without importing
+        scrobbledb import --file data.csv --dry-run
     """
     import sys
 
@@ -865,13 +955,13 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
         # Warn for edge cases
         if sample == 0.0:
             console.print(
-                "[yellow]Warning:[/yellow] --sample=0.0 means NO records will be added.\n"
-                "This will process the input but add nothing to the database.\n"
+                "[yellow]Warning:[/yellow] --sample=0.0 means NO records will be imported.\n"
+                "This will process the input but import nothing to the database.\n"
                 "Did you mean to use a higher probability?\n"
             )
         elif sample == 1.0:
             console.print(
-                "[yellow]Warning:[/yellow] --sample=1.0 means ALL records will be added.\n"
+                "[yellow]Warning:[/yellow] --sample=1.0 means ALL records will be imported.\n"
                 "This is equivalent to not using --sample at all.\n"
                 "Consider removing --sample for better performance.\n"
             )
@@ -887,18 +977,15 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
     # Determine input source
     if file == "-":
         input_file = sys.stdin
-        filename = "stdin"
     elif file:
         input_file = open(file, 'r', encoding='utf-8')
-        filename = file
     elif not sys.stdin.isatty():
         # Data is being piped
         input_file = sys.stdin
-        filename = "stdin"
     else:
         raise click.UsageError(
             "No input provided. Use --file to specify a file, or pipe data to stdin.\n"
-            "Example: cat scrobbles.jsonl | scrobbledb add"
+            "Example: cat scrobbles.jsonl | scrobbledb import"
         )
 
     # Get database path
@@ -1005,7 +1092,7 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
             for scrobble in parse_input():
                 stats['total_processed'] += 1
 
-                # Apply sampling logic (but don't actually add)
+                # Apply sampling logic (but don't actually import)
                 if sample is not None:
                     import random
                     if seed is not None:
@@ -1025,11 +1112,11 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
         console.print()
 
         if dry_run:
-            console.print(f"[green]✓[/green] Validation complete (dry-run mode)\n")
+            console.print("[green]✓[/green] Validation complete (dry-run mode)\n")
         elif stats['added'] > 0:
-            console.print(f"[green]✓[/green] Successfully added scrobbles to database!\n")
+            console.print("[green]✓[/green] Successfully added scrobbles to database!\n")
         else:
-            console.print(f"[yellow]![/yellow] No scrobbles were added\n")
+            console.print("[yellow]![/yellow] No scrobbles were added\n")
 
         # Show statistics
         table = Table(title="Statistics")
@@ -1046,9 +1133,9 @@ def add(database, file, format, skip_errors, dry_run, no_duplicates, update_inde
             )
 
         if dry_run:
-            table.add_row("Would add", str(stats['added']))
+            table.add_row("Would import", str(stats['added']))
         else:
-            table.add_row("Successfully added", str(stats['added']))
+            table.add_row("Successfully imported", str(stats['added']))
 
         if stats['skipped'] > 0:
             table.add_row("Skipped (duplicates)", str(stats['skipped']))
