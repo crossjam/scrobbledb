@@ -34,7 +34,7 @@ dev = [
 scrobbledb = "scrobbledb.cli:cli"
 
 [project.urls]
-Repository = "https://github.com/jacobian/lastfm-to-sqlite/"
+Repository = "https://github.com/crossjam/scrobbledb"
 
 [dependency-groups]
 dev = [
