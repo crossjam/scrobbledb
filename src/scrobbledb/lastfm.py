@@ -12,6 +12,34 @@ from loguru import logger
 from sqlite_utils import Database
 
 
+def recent_tracks_count(user: pylast.User, since: dt.datetime):
+    """
+    Return the number of tracks recorded since a given datetime
+    """
+
+    logger.info("Checking for tracks since {}", since.isoformat())
+    params = dict(user._get_params(), limit=200)
+    params["from"] = int(since.timestamp())
+    params["page"] = 1
+    params["limit"] = 1
+    doc = user._request("user.getRecentTracks", cacheable=True, params=params)
+
+    main = pylast.cleanup_nodes(doc).documentElement.childNodes[0]
+
+    total_pages = int(main.getAttribute("totalPages"))
+    plays_per_page = int(main.getAttribute("perPage"))
+
+    max_tracks = total_pages * plays_per_page
+    logger.info(
+        "Total pages: {}, plays per page: {}, max total plays: {}",
+        total_pages,
+        plays_per_page,
+        max_tracks,
+    )
+
+    return max_tracks
+
+
 def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
     """
     This is similar to pylast.User.get_recent_tracks
@@ -48,7 +76,9 @@ def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
 
     while True:
         params["page"] = page
-        logger.info(f"Fetching page {page}" + (f" of {total_pages}" if total_pages else ""))
+        logger.info(
+            f"Fetching page {page}" + (f" of {total_pages}" if total_pages else "")
+        )
         doc = user._request("user.getRecentTracks", cacheable=True, params=params)
         main = pylast.cleanup_nodes(doc).documentElement.childNodes[0]
 
@@ -67,7 +97,9 @@ def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
                     logger.info(f"Reached limit of {limit} tracks")
                     return
 
-        logger.info(f"Yielded {tracks_in_page} tracks from page {page} (total: {tracks_yielded})")
+        logger.info(
+            f"Yielded {tracks_in_page} tracks from page {page} (total: {tracks_yielded})"
+        )
 
         page += 1
         if page > total_pages:
@@ -79,8 +111,7 @@ def _extract_track_data(track: Node):
     track_mbid = pylast._extract(track, "mbid")
     track_title = pylast._extract(track, "name")
     timestamp = dt.datetime.fromtimestamp(
-        int(track.getElementsByTagName("date")[0].getAttribute("uts")),
-        tz=timezone.utc
+        int(track.getElementsByTagName("date")[0].getAttribute("uts")), tz=timezone.utc
     )
     artist_name = pylast._extract(track, "artist")
     artist_mbid = track.getElementsByTagName("artist")[0].getAttribute("mbid")
@@ -148,13 +179,21 @@ def save_play(db: Database, data: Dict):
 
 # Field name aliases for flexible input parsing
 FIELD_ALIASES = {
-    'timestamp': ['timestamp', 'time', 'played_at', 'date', 'datetime', 'when'],
-    'artist': ['artist', 'artist_name', 'artistname'],
-    'album': ['album', 'album_title', 'albumtitle', 'album_name'],
-    'track': ['track', 'track_title', 'tracktitle', 'song', 'title', 'track_name', 'name'],
-    'artist_mbid': ['artist_mbid', 'artist_id'],
-    'album_mbid': ['album_mbid', 'album_id'],
-    'track_mbid': ['track_mbid', 'track_id'],
+    "timestamp": ["timestamp", "time", "played_at", "date", "datetime", "when"],
+    "artist": ["artist", "artist_name", "artistname"],
+    "album": ["album", "album_title", "albumtitle", "album_name"],
+    "track": [
+        "track",
+        "track_title",
+        "tracktitle",
+        "song",
+        "title",
+        "track_name",
+        "name",
+    ],
+    "artist_mbid": ["artist_mbid", "artist_id"],
+    "album_mbid": ["album_mbid", "album_id"],
+    "track_mbid": ["track_mbid", "track_id"],
 }
 
 # Timestamp formats to try when parsing
@@ -224,7 +263,9 @@ def parse_timestamp(timestamp_str: str) -> dt.datetime:
         raise ValueError(f"Unable to parse timestamp: {timestamp_str}")
 
 
-def synthesize_mbids(artist_name: str, album_title: str, track_title: str) -> Tuple[str, str, str]:
+def synthesize_mbids(
+    artist_name: str, album_title: str, track_title: str
+) -> Tuple[str, str, str]:
     """
     Generate MD5-based MBIDs for artist, album, and track.
 
@@ -275,28 +316,28 @@ def parse_scrobble_dict(data: Dict, line_num: int = None) -> Dict:
     error_prefix = f"Line {line_num}: " if line_num else ""
 
     # Check required fields
-    required_fields = ['timestamp', 'artist', 'track']
+    required_fields = ["timestamp", "artist", "track"]
     for field in required_fields:
         if field not in normalized or not normalized[field]:
             raise ValueError(f"{error_prefix}Missing required field: {field}")
 
     # Extract and parse fields
     try:
-        timestamp = parse_timestamp(str(normalized['timestamp']))
+        timestamp = parse_timestamp(str(normalized["timestamp"]))
     except ValueError as e:
         raise ValueError(f"{error_prefix}Invalid timestamp: {e}")
 
-    artist_name = str(normalized['artist']).strip()
-    track_title = str(normalized['track']).strip()
-    album_title = str(normalized.get('album', '(unknown album)')).strip()
+    artist_name = str(normalized["artist"]).strip()
+    track_title = str(normalized["track"]).strip()
+    album_title = str(normalized.get("album", "(unknown album)")).strip()
 
     if not album_title:
         album_title = "(unknown album)"
 
     # Get or synthesize MBIDs
-    artist_mbid = normalized.get('artist_mbid', '')
-    album_mbid = normalized.get('album_mbid', '')
-    track_mbid = normalized.get('track_mbid', '')
+    artist_mbid = normalized.get("artist_mbid", "")
+    album_mbid = normalized.get("album_mbid", "")
+    track_mbid = normalized.get("track_mbid", "")
 
     if not artist_mbid or not album_mbid or not track_mbid:
         synth_artist_mbid, synth_album_mbid, synth_track_mbid = synthesize_mbids(
@@ -337,7 +378,9 @@ def parse_scrobble_jsonl(line: str, line_num: int = None) -> Dict:
         raise ValueError(f"{error_prefix}Invalid JSON: {e}")
 
     if not isinstance(data, dict):
-        raise ValueError(f"{error_prefix}Expected JSON object, got {type(data).__name__}")
+        raise ValueError(
+            f"{error_prefix}Expected JSON object, got {type(data).__name__}"
+        )
 
     return parse_scrobble_dict(data, line_num)
 
@@ -352,23 +395,23 @@ def detect_format(first_line: str) -> str:
     stripped = first_line.strip()
 
     # Try JSON
-    if stripped.startswith('{'):
+    if stripped.startswith("{"):
         try:
             json.loads(stripped)
-            return 'jsonl'
+            return "jsonl"
         except (json.JSONDecodeError, ValueError):
             pass
 
     # Check for TSV (has tabs)
-    if '\t' in stripped:
-        return 'tsv'
+    if "\t" in stripped:
+        return "tsv"
 
     # Check for CSV (has commas)
-    if ',' in stripped:
-        return 'csv'
+    if "," in stripped:
+        return "csv"
 
     # Default to JSONL
-    return 'jsonl'
+    return "jsonl"
 
 
 def add_scrobbles(
@@ -406,12 +449,12 @@ def add_scrobbles(
         random.seed(seed)
 
     stats = {
-        'total_processed': 0,
-        'sampled': 0,
-        'added': 0,
-        'skipped': 0,
-        'errors': [],
-        'limit_reached': False,
+        "total_processed": 0,
+        "sampled": 0,
+        "added": 0,
+        "skipped": 0,
+        "errors": [],
+        "limit_reached": False,
     }
 
     # Get existing plays for duplicate detection
@@ -421,27 +464,31 @@ def add_scrobbles(
             existing_plays.add((str(row["timestamp"]), row["track_id"]))
 
     for scrobble in scrobbles_iter:
-        stats['total_processed'] += 1
+        stats["total_processed"] += 1
 
         # Apply sampling if enabled
         if sample is not None:
             if random.random() >= sample:
                 continue  # Skip this record
-            stats['sampled'] += 1
+            stats["sampled"] += 1
 
         # Check limit
-        if limit is not None and stats['added'] >= limit:
-            stats['limit_reached'] = True
+        if limit is not None and stats["added"] >= limit:
+            stats["limit_reached"] = True
             break
 
         try:
             # Check for duplicate
             # Use isoformat() to match database storage format
-            timestamp_str = scrobble["play"]["timestamp"].isoformat() if isinstance(scrobble["play"]["timestamp"], dt.datetime) else str(scrobble["play"]["timestamp"])
+            timestamp_str = (
+                scrobble["play"]["timestamp"].isoformat()
+                if isinstance(scrobble["play"]["timestamp"], dt.datetime)
+                else str(scrobble["play"]["timestamp"])
+            )
             track_id = scrobble["track"]["id"]
 
             if no_duplicates and (timestamp_str, track_id) in existing_plays:
-                stats['skipped'] += 1
+                stats["skipped"] += 1
                 continue
 
             # Add to database
@@ -454,11 +501,11 @@ def add_scrobbles(
             if no_duplicates:
                 existing_plays.add((timestamp_str, track_id))
 
-            stats['added'] += 1
+            stats["added"] += 1
 
         except Exception as e:
             error_msg = str(e)
-            stats['errors'].append(error_msg)
+            stats["errors"].append(error_msg)
 
             if not skip_errors:
                 raise
@@ -474,7 +521,8 @@ def setup_fts5(db: Database):
     the main tables. This should be called after the database schema is created.
     """
     # Create FTS5 virtual table - stores its own copy of the indexed content
-    db.execute("""
+    db.execute(
+        """
         CREATE VIRTUAL TABLE IF NOT EXISTS tracks_fts USING fts5(
             artist_name,
             album_title,
@@ -483,7 +531,8 @@ def setup_fts5(db: Database):
             album_id UNINDEXED,
             track_id UNINDEXED
         )
-    """)
+    """
+    )
 
     # Create triggers to keep FTS5 index in sync when data is inserted
     # Only create triggers if the source tables exist
@@ -491,7 +540,8 @@ def setup_fts5(db: Database):
 
     if "artists" in table_names:
         # Trigger for artist inserts/updates
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS artists_ai AFTER INSERT ON artists BEGIN
                 DELETE FROM tracks_fts WHERE artist_id = new.id;
                 INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id)
@@ -499,9 +549,11 @@ def setup_fts5(db: Database):
                 FROM albums JOIN tracks ON albums.id = tracks.album_id
                 WHERE albums.artist_id = new.id;
             END;
-        """)
+        """
+        )
 
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS artists_au AFTER UPDATE ON artists BEGIN
                 DELETE FROM tracks_fts WHERE artist_id = new.id;
                 INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id)
@@ -509,17 +561,21 @@ def setup_fts5(db: Database):
                 FROM albums JOIN tracks ON albums.id = tracks.album_id
                 WHERE albums.artist_id = new.id;
             END;
-        """)
+        """
+        )
 
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS artists_ad AFTER DELETE ON artists BEGIN
                 DELETE FROM tracks_fts WHERE artist_id = old.id;
             END;
-        """)
+        """
+        )
 
     if "albums" in table_names:
         # Trigger for album inserts/updates
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS albums_ai AFTER INSERT ON albums BEGIN
                 DELETE FROM tracks_fts WHERE album_id = new.id;
                 INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id)
@@ -527,9 +583,11 @@ def setup_fts5(db: Database):
                 FROM artists JOIN tracks ON tracks.album_id = new.id
                 WHERE artists.id = new.artist_id;
             END;
-        """)
+        """
+        )
 
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS albums_au AFTER UPDATE ON albums BEGIN
                 DELETE FROM tracks_fts WHERE album_id = new.id;
                 INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id)
@@ -537,26 +595,32 @@ def setup_fts5(db: Database):
                 FROM artists JOIN tracks ON tracks.album_id = new.id
                 WHERE artists.id = new.artist_id;
             END;
-        """)
+        """
+        )
 
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS albums_ad AFTER DELETE ON albums BEGIN
                 DELETE FROM tracks_fts WHERE album_id = old.id;
             END;
-        """)
+        """
+        )
 
     if "tracks" in table_names:
         # Trigger for track inserts/updates
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS tracks_ai AFTER INSERT ON tracks BEGIN
                 INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id)
                 SELECT artists.name, albums.title, new.title, artists.id, albums.id, new.id
                 FROM albums JOIN artists ON albums.artist_id = artists.id
                 WHERE albums.id = new.album_id;
             END;
-        """)
+        """
+        )
 
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS tracks_au AFTER UPDATE ON tracks BEGIN
                 DELETE FROM tracks_fts WHERE track_id = new.id;
                 INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id)
@@ -564,13 +628,16 @@ def setup_fts5(db: Database):
                 FROM albums JOIN artists ON albums.artist_id = artists.id
                 WHERE albums.id = new.album_id;
             END;
-        """)
+        """
+        )
 
-        db.execute("""
+        db.execute(
+            """
             CREATE TRIGGER IF NOT EXISTS tracks_ad AFTER DELETE ON tracks BEGIN
                 DELETE FROM tracks_fts WHERE track_id = old.id;
             END;
-        """)
+        """
+        )
 
 
 def rebuild_fts5(db: Database):
@@ -584,13 +651,15 @@ def rebuild_fts5(db: Database):
     db.execute("DELETE FROM tracks_fts")
 
     # Populate FTS5 table with existing data
-    db.execute("""
+    db.execute(
+        """
         INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id)
         SELECT artists.name, albums.title, tracks.title, artists.id, albums.id, tracks.id
         FROM tracks
         JOIN albums ON tracks.album_id = albums.id
         JOIN artists ON albums.artist_id = artists.id
-    """)
+    """
+    )
 
 
 def search_tracks(db: Database, query: str, limit: int = None):

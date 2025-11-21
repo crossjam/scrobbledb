@@ -78,13 +78,21 @@ def ensure_default_log_config():
     if not config_path.exists():
         # Copy the default config from the package
         import importlib.resources
+
         try:
             # Python 3.9+
-            default_config = importlib.resources.files('scrobbledb').joinpath('default_loguru_config.toml').read_text()
+            default_config = (
+                importlib.resources.files("scrobbledb")
+                .joinpath("default_loguru_config.toml")
+                .read_text()
+            )
         except AttributeError:
             # Python 3.7-3.8 fallback
             import pkg_resources
-            default_config = pkg_resources.resource_string('scrobbledb', 'default_loguru_config.toml').decode('utf-8')
+
+            default_config = pkg_resources.resource_string(
+                "scrobbledb", "default_loguru_config.toml"
+            ).decode("utf-8")
 
         config_path.write_text(default_config)
 
@@ -99,19 +107,20 @@ def ensure_default_log_config():
     help="Path to loguru configuration file (JSON, YAML, or TOML)",
 )
 @click.option(
-    "-V", "--version",
+    "-V",
+    "--version",
     is_flag=True,
     callback=version_callback,
     expose_value=False,
     is_eager=True,
-    help="Show the version and exit."
+    help="Show the version and exit.",
 )
 @click.pass_context
 def cli(ctx, log_config):
     "Save data from last.fm/libre.fm to a SQLite database"
     # Store log_config in context for subcommands to use
     ctx.ensure_object(dict)
-    ctx.obj['log_config'] = log_config
+    ctx.obj["log_config"] = log_config
 
 
 # Register sql subcommand group
@@ -166,16 +175,25 @@ def init(dry_run, no_index):
         db_path = data_dir / "scrobbledb.db"
         auth_path = data_dir / "auth.json"
         # Dry-run mode: just report status without making changes
-        console.print(Panel("[bold]Dry-run mode:[/bold] Checking initialization state...", border_style="blue"))
+        console.print(
+            Panel(
+                "[bold]Dry-run mode:[/bold] Checking initialization state...",
+                border_style="blue",
+            )
+        )
         console.print()
 
         actions_needed = []
 
         # Check directory
         if data_dir.exists():
-            console.print(f"[green]✓[/green] Data directory exists: [cyan]{data_dir}[/cyan]")
+            console.print(
+                f"[green]✓[/green] Data directory exists: [cyan]{data_dir}[/cyan]"
+            )
         else:
-            console.print(f"[yellow]○[/yellow] Data directory does not exist: [cyan]{data_dir}[/cyan]")
+            console.print(
+                f"[yellow]○[/yellow] Data directory does not exist: [cyan]{data_dir}[/cyan]"
+            )
             actions_needed.append("Create data directory")
 
         # Check database
@@ -194,9 +212,15 @@ def init(dry_run, no_index):
                 # Check if it's a virtual table
                 is_virtual = db.execute(
                     "SELECT sql FROM sqlite_master WHERE name=? AND type='table'",
-                    [table_name]
+                    [table_name],
                 ).fetchone()
-                table_type = "FTS5" if is_virtual and is_virtual[0] and "fts5" in str(is_virtual[0]).lower() else "Normal"
+                table_type = (
+                    "FTS5"
+                    if is_virtual
+                    and is_virtual[0]
+                    and "fts5" in str(is_virtual[0]).lower()
+                    else "Normal"
+                )
                 table.add_row(table_name, str(count), table_type)
 
             if table.row_count > 0:
@@ -206,7 +230,9 @@ def init(dry_run, no_index):
                 if "tracks_fts" in db.table_names():
                     console.print("[green]✓[/green] FTS5 search index is initialized")
                 else:
-                    console.print("[yellow]○[/yellow] FTS5 search index is not initialized")
+                    console.print(
+                        "[yellow]○[/yellow] FTS5 search index is not initialized"
+                    )
                     if not no_index:
                         actions_needed.append("Initialize FTS5 search index")
             else:
@@ -214,17 +240,25 @@ def init(dry_run, no_index):
                 if not no_index:
                     actions_needed.append("Initialize FTS5 search index")
         else:
-            console.print(f"[yellow]○[/yellow] Database does not exist: [cyan]{db_path}[/cyan]")
+            console.print(
+                f"[yellow]○[/yellow] Database does not exist: [cyan]{db_path}[/cyan]"
+            )
             actions_needed.append("Create database")
             if not no_index:
                 actions_needed.append("Initialize FTS5 search index")
 
         # Check auth file
         if auth_path.exists():
-            console.print(f"[green]✓[/green] Auth file exists: [cyan]{auth_path}[/cyan]")
+            console.print(
+                f"[green]✓[/green] Auth file exists: [cyan]{auth_path}[/cyan]"
+            )
         else:
-            console.print(f"[yellow]○[/yellow] Auth file does not exist: [cyan]{auth_path}[/cyan]")
-            console.print("[dim]  (Auth file will be created when you run 'scrobbledb auth')[/dim]")
+            console.print(
+                f"[yellow]○[/yellow] Auth file does not exist: [cyan]{auth_path}[/cyan]"
+            )
+            console.print(
+                "[dim]  (Auth file will be created when you run 'scrobbledb auth')[/dim]"
+            )
 
         console.print()
 
@@ -256,17 +290,23 @@ Next steps:
 
         # Check if directory exists
         if data_dir.exists():
-            console.print(f"[green]✓[/green] Data directory already exists: [cyan]{data_dir}[/cyan]")
+            console.print(
+                f"[green]✓[/green] Data directory already exists: [cyan]{data_dir}[/cyan]"
+            )
         else:
             data_dir.mkdir(parents=True, exist_ok=True)
-            console.print(f"[green]✓[/green] Created data directory: [cyan]{data_dir}[/cyan]")
+            console.print(
+                f"[green]✓[/green] Created data directory: [cyan]{data_dir}[/cyan]"
+            )
 
         # Check if database exists
         db_existed = db_path.exists()
         db = sqlite_utils.Database(str(db_path))
 
         if db_existed:
-            console.print(f"[yellow]![/yellow] Database already exists: [cyan]{db_path}[/cyan]")
+            console.print(
+                f"[yellow]![/yellow] Database already exists: [cyan]{db_path}[/cyan]"
+            )
 
             # Show database info
             table = Table(title="Database Tables")
@@ -278,9 +318,15 @@ Next steps:
                 count = db[table_name].count
                 is_virtual = db.execute(
                     "SELECT sql FROM sqlite_master WHERE name=? AND type='table'",
-                    [table_name]
+                    [table_name],
                 ).fetchone()
-                table_type = "FTS5" if is_virtual and is_virtual[0] and "fts5" in str(is_virtual[0]).lower() else "Normal"
+                table_type = (
+                    "FTS5"
+                    if is_virtual
+                    and is_virtual[0]
+                    and "fts5" in str(is_virtual[0]).lower()
+                    else "Normal"
+                )
                 table.add_row(table_name, str(count), table_type)
 
             if table.row_count > 0:
@@ -301,7 +347,11 @@ Next steps:
                 console.print("[green]✓[/green] FTS5 search index already exists")
 
         # Show summary in a panel
-        fts5_status = "initialized and ready" if not no_index else "skipped (use 'scrobbledb index' to set up later)"
+        fts5_status = (
+            "initialized and ready"
+            if not no_index
+            else "skipped (use 'scrobbledb index' to set up later)"
+        )
 
         summary = f"""[bold]Scrobbledb initialized successfully![/bold]
 
@@ -356,35 +406,42 @@ def reset(database, no_index, force):
 
     # Check if database exists
     if not db_path.exists():
-        console.print(f"[yellow]![/yellow] Database does not exist: [cyan]{db_path}[/cyan]")
-        console.print("[dim]Nothing to reset. Use 'scrobbledb config init' to create a new database.[/dim]")
+        console.print(
+            f"[yellow]![/yellow] Database does not exist: [cyan]{db_path}[/cyan]"
+        )
+        console.print(
+            "[dim]Nothing to reset. Use 'scrobbledb config init' to create a new database.[/dim]"
+        )
         return
 
     # Get database info before deletion
     db = sqlite_utils.Database(str(db_path))
     table_names = list(db.table_names())
-    total_rows = sum(db[table].count for table in table_names if table != "sqlite_sequence")
+    total_rows = sum(
+        db[table].count for table in table_names if table != "sqlite_sequence"
+    )
 
     # Show what will be deleted
     console.print()
-    console.print(Panel(
-        f"[bold red]⚠️  WARNING: DESTRUCTIVE OPERATION[/bold red]\n\n"
-        f"This will DELETE the database at:\n"
-        f"[cyan]{db_path}[/cyan]\n\n"
-        f"Current database contains:\n"
-        f"  • {len(table_names)} table(s)\n"
-        f"  • {total_rows} total row(s)\n\n"
-        f"[bold]This action CANNOT be undone![/bold]",
-        border_style="red",
-        title="[bold red]⚠️  RESET DATABASE ⚠️[/bold red]"
-    ))
+    console.print(
+        Panel(
+            f"[bold red]⚠️  WARNING: DESTRUCTIVE OPERATION[/bold red]\n\n"
+            f"This will DELETE the database at:\n"
+            f"[cyan]{db_path}[/cyan]\n\n"
+            f"Current database contains:\n"
+            f"  • {len(table_names)} table(s)\n"
+            f"  • {total_rows} total row(s)\n\n"
+            f"[bold]This action CANNOT be undone![/bold]",
+            border_style="red",
+            title="[bold red]⚠️  RESET DATABASE ⚠️[/bold red]",
+        )
+    )
     console.print()
 
     # Prompt for confirmation unless --force is used
     if not force:
         confirmation = Prompt.ask(
-            "[bold yellow]Type 'yes' to confirm deletion[/bold yellow]",
-            default="no"
+            "[bold yellow]Type 'yes' to confirm deletion[/bold yellow]", default="no"
         )
 
         if confirmation.lower() != "yes":
@@ -410,7 +467,9 @@ def reset(database, no_index, force):
         lastfm.setup_fts5(db)
         console.print("[green]✓[/green] FTS5 search index initialized")
     else:
-        console.print("[yellow]○[/yellow] FTS5 search index skipped (use 'scrobbledb index' to set up later)")
+        console.print(
+            "[yellow]○[/yellow] FTS5 search index skipped (use 'scrobbledb index' to set up later)"
+        )
 
     # Show success summary
     fts5_status = "initialized and ready" if not no_index else "not initialized"
@@ -442,7 +501,11 @@ def location():
     config_dir_path = Path(user_config_dir(APP_NAME))
 
     # Create table
-    table = Table(title="Scrobbledb Directory Locations", show_header=True, header_style="bold cyan")
+    table = Table(
+        title="Scrobbledb Directory Locations",
+        show_header=True,
+        header_style="bold cyan",
+    )
     table.add_column("Type", style="cyan", width=12)
     table.add_column("Path", style="white")
     table.add_column("Status", style="magenta", width=12)
@@ -461,20 +524,24 @@ def location():
 
     # Show what's in each directory if they exist
     if data_dir.exists():
-        console.print(Panel(
-            f"[bold]Data Directory Contents:[/bold]\n\n"
-            f"Database: [cyan]{data_dir / 'scrobbledb.db'}[/cyan] "
-            f"({'✓ Exists' if (data_dir / 'scrobbledb.db').exists() else 'Not created'})\n"
-            f"Auth file: [cyan]{data_dir / 'auth.json'}[/cyan] "
-            f"({'✓ Exists' if (data_dir / 'auth.json').exists() else 'Not created'})",
-            border_style="blue",
-            title="📁 Data Directory"
-        ))
+        console.print(
+            Panel(
+                f"[bold]Data Directory Contents:[/bold]\n\n"
+                f"Database: [cyan]{data_dir / 'scrobbledb.db'}[/cyan] "
+                f"({'✓ Exists' if (data_dir / 'scrobbledb.db').exists() else 'Not created'})\n"
+                f"Auth file: [cyan]{data_dir / 'auth.json'}[/cyan] "
+                f"({'✓ Exists' if (data_dir / 'auth.json').exists() else 'Not created'})",
+                border_style="blue",
+                title="📁 Data Directory",
+            )
+        )
         console.print()
 
     # Show initialization hint if data directory doesn't exist
     if not data_dir.exists():
-        console.print("[dim]Run [cyan]scrobbledb config init[/cyan] to initialize the data directory.[/dim]")
+        console.print(
+            "[dim]Run [cyan]scrobbledb config init[/cyan] to initialize the data directory.[/dim]"
+        )
         console.print()
 
 
@@ -514,7 +581,12 @@ def auth(auth, network):
     if auth is None:
         auth = get_default_auth_path()
 
-    console.print(Panel(f"[bold]Configure {network.upper()} API Credentials[/bold]", border_style="blue"))
+    console.print(
+        Panel(
+            f"[bold]Configure {network.upper()} API Credentials[/bold]",
+            border_style="blue",
+        )
+    )
 
     if network == "lastfm":
         console.print(
@@ -533,6 +605,7 @@ def auth(auth, network):
     console.print("\n[cyan]Authenticating...[/cyan]")
     try:
         import pylast
+
         temp_network = lastfm.get_network(network, key=api_key, secret=shared_secret)
         password_hash = pylast.md5(password)
         sg = pylast.SessionKeyGenerator(temp_network)
@@ -591,8 +664,14 @@ def auth(auth, network):
     default=False,
     help="Enable verbose logging output",
 )
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Disable actual execution of ingest and db mods",
+)
 @click.pass_context
-def ingest(ctx, database, auth, newest, since_date, limit, verbose):
+def ingest(ctx, database, auth, newest, since_date, limit, verbose, dry_run):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -602,7 +681,7 @@ def ingest(ctx, database, auth, newest, since_date, limit, verbose):
     """
     # Configure logging if verbose mode is enabled
     if verbose:
-        log_config = ctx.obj.get('log_config') if ctx.obj else None
+        log_config = ctx.obj.get("log_config") if ctx.obj else None
         if log_config:
             # Use user-specified config file
             LoguruConfig.load(log_config)
@@ -633,7 +712,9 @@ def ingest(ctx, database, auth, newest, since_date, limit, verbose):
     session_key = auth_data.get("lastfm_session_key")
     if not session_key:
         console.print("[red]✗[/red] No session key found in authentication file.")
-        console.print("[yellow]Please run 'scrobbledb auth' to re-authenticate.[/yellow]")
+        console.print(
+            "[yellow]Please run 'scrobbledb auth' to re-authenticate.[/yellow]"
+        )
         raise click.Abort()
 
     network = lastfm.get_network(
@@ -644,10 +725,17 @@ def ingest(ctx, database, auth, newest, since_date, limit, verbose):
     )
 
     user = network.get_user(auth_data["lastfm_username"])
-    playcount = user.get_playcount()
+    # playcount = user.get_playcount()
+
+    playcount = lastfm.recent_tracks_count(user, since_date)
 
     # Use limit if specified, otherwise use total playcount
+
     expected_count = min(limit, playcount) if limit else playcount
+
+    if dry_run:
+        console.print("[green]dry run indicated, ingest complete[/green]")
+        return
 
     history = lastfm.recent_tracks(user, since_date, limit=limit)
 
@@ -657,9 +745,13 @@ def ingest(ctx, database, auth, newest, since_date, limit, verbose):
         lastfm.setup_fts5(db)
 
     if limit:
-        console.print(f"[cyan]Ingesting up to {limit} tracks from {auth_data['lastfm_username']}...[/cyan]")
+        console.print(
+            f"[cyan]Ingesting up to {limit} tracks from {auth_data['lastfm_username']}...[/cyan]"
+        )
     else:
-        console.print(f"[cyan]Ingesting tracks from {auth_data['lastfm_username']}...[/cyan]")
+        console.print(
+            f"[cyan]Ingesting tracks from {auth_data['lastfm_username']}...[/cyan]"
+        )
 
     # Enhanced progress display with percentage and counts
     with Progress(
@@ -679,8 +771,12 @@ def ingest(ctx, database, auth, newest, since_date, limit, verbose):
             lastfm.save_play(db, track["play"])
             progress.advance(task)
 
-    console.print(f"[green]✓[/green] Successfully ingested tracks to: [cyan]{database}[/cyan]")
-    console.print("[dim]Search index is automatically maintained and ready to use.[/dim]")
+    console.print(
+        f"[green]✓[/green] Successfully ingested tracks to: [cyan]{database}[/cyan]"
+    )
+    console.print(
+        "[dim]Search index is automatically maintained and ready to use.[/dim]"
+    )
 
 
 @cli.command()
@@ -704,7 +800,9 @@ def index(database):
 
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print("[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]")
+        console.print(
+            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+        )
         raise click.Abort()
 
     db = sqlite_utils.Database(database)
@@ -712,7 +810,9 @@ def index(database):
     # Check if we have data to index
     if not db["tracks"].exists:
         console.print("[yellow]![/yellow] No tracks found in database.")
-        console.print("[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]")
+        console.print(
+            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+        )
         raise click.Abort()
 
     console.print("[cyan]Setting up FTS5 search index...[/cyan]")
@@ -722,9 +822,13 @@ def index(database):
         TextColumn("[progress.description]{task.description}"),
         console=console,
     ) as progress:
-        task = progress.add_task("[cyan]Creating FTS5 virtual table and triggers...", total=None)
+        task = progress.add_task(
+            "[cyan]Creating FTS5 virtual table and triggers...", total=None
+        )
         lastfm.setup_fts5(db)
-        progress.update(task, description="[cyan]Rebuilding search index from existing data...")
+        progress.update(
+            task, description="[cyan]Rebuilding search index from existing data..."
+        )
         lastfm.rebuild_fts5(db)
         progress.update(task, description="[green]✓ FTS5 index ready!")
 
@@ -733,7 +837,9 @@ def index(database):
 
     console.print(f"[green]✓[/green] Indexed {fts_count} tracks from database")
     console.print(f"[cyan]Database:[/cyan] {database}")
-    console.print("\n[dim]You can now use 'scrobbledb search <query>' to search your music![/dim]")
+    console.print(
+        "\n[dim]You can now use 'scrobbledb search <query>' to search your music![/dim]"
+    )
 
 
 @cli.command()
@@ -779,7 +885,9 @@ def search(query, database, limit, fields):
 
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print("[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]")
+        console.print(
+            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+        )
         raise click.Abort()
 
     db = sqlite_utils.Database(database)
@@ -787,7 +895,9 @@ def search(query, database, limit, fields):
     # Check if FTS5 index exists
     if "tracks_fts" not in db.table_names():
         console.print("[red]✗[/red] Search index not found.")
-        console.print("[yellow]Run 'scrobbledb index' to set up the search index first.[/yellow]")
+        console.print(
+            "[yellow]Run 'scrobbledb index' to set up the search index first.[/yellow]"
+        )
         raise click.Abort()
 
     # Parse fields option
@@ -797,7 +907,9 @@ def search(query, database, limit, fields):
 
     if invalid_fields:
         console.print(f"[red]✗[/red] Invalid fields: {', '.join(invalid_fields)}")
-        console.print(f"[yellow]Valid fields are: {', '.join(sorted(valid_fields))}[/yellow]")
+        console.print(
+            f"[yellow]Valid fields are: {', '.join(sorted(valid_fields))}[/yellow]"
+        )
         raise click.Abort()
 
     # Perform search
@@ -807,12 +919,16 @@ def search(query, database, limit, fields):
         results = lastfm.search_tracks(db, query, limit=limit)
     except Exception as e:
         console.print(f"[red]✗[/red] Search failed: {e}")
-        console.print("[yellow]Make sure the FTS5 index is up to date by running 'scrobbledb index'.[/yellow]")
+        console.print(
+            "[yellow]Make sure the FTS5 index is up to date by running 'scrobbledb index'.[/yellow]"
+        )
         raise click.Abort()
 
     if not results:
         console.print("[yellow]No results found.[/yellow]")
-        console.print("\n[dim]Try a different search query or check your database has data.[/dim]")
+        console.print(
+            "\n[dim]Try a different search query or check your database has data.[/dim]"
+        )
         return
 
     # Create results table
@@ -920,7 +1036,18 @@ def search(query, database, limit, fields):
     default=None,
     help="Random seed for reproducible sampling (use with --sample)",
 )
-def import_data(database, file, format, skip_errors, dry_run, no_duplicates, update_index, limit, sample, seed):
+def import_data(
+    database,
+    file,
+    format,
+    skip_errors,
+    dry_run,
+    no_duplicates,
+    update_index,
+    limit,
+    sample,
+    seed,
+):
     """
     Import scrobbles to the database from a file or stdin.
 
@@ -950,7 +1077,9 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
     # Validate --sample
     if sample is not None:
         if not 0.0 <= sample <= 1.0:
-            raise click.BadParameter("must be between 0.0 and 1.0", param_hint="--sample")
+            raise click.BadParameter(
+                "must be between 0.0 and 1.0", param_hint="--sample"
+            )
 
         # Warn for edge cases
         if sample == 0.0:
@@ -968,7 +1097,9 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
 
     # Validate --seed (only valid with --sample)
     if seed is not None and sample is None:
-        raise click.BadParameter("--seed can only be used with --sample", param_hint="--seed")
+        raise click.BadParameter(
+            "--seed can only be used with --sample", param_hint="--seed"
+        )
 
     # Validate --limit
     if limit is not None and limit < 1:
@@ -978,7 +1109,7 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
     if file == "-":
         input_file = sys.stdin
     elif file:
-        input_file = open(file, 'r', encoding='utf-8')
+        input_file = open(file, "r", encoding="utf-8")
     elif not sys.stdin.isatty():
         # Data is being piped
         input_file = sys.stdin
@@ -1040,14 +1171,13 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
 
                 # Combine first line with rest of file
                 full_content = first_line + input_file.read()
-                delimiter = '\t' if format == 'tsv' else ','
+                delimiter = "\t" if format == "tsv" else ","
 
-                reader = csv.DictReader(
-                    io.StringIO(full_content),
-                    delimiter=delimiter
-                )
+                reader = csv.DictReader(io.StringIO(full_content), delimiter=delimiter)
 
-                for line_num, row in enumerate(reader, start=2):  # Line 2 because of header
+                for line_num, row in enumerate(
+                    reader, start=2
+                ):  # Line 2 because of header
                     try:
                         yield lastfm.parse_scrobble_dict(row, line_num)
                     except ValueError as e:
@@ -1065,7 +1195,9 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
             mode_parts.append(f"limit: {limit}")
 
         mode_str = f" ({', '.join(mode_parts)})" if mode_parts else ""
-        console.print(f"[cyan]{'Validating' if dry_run else 'Adding'} scrobbles{mode_str}...[/cyan]\n")
+        console.print(
+            f"[cyan]{'Validating' if dry_run else 'Adding'} scrobbles{mode_str}...[/cyan]\n"
+        )
 
         # Process scrobbles
         if not dry_run:
@@ -1081,40 +1213,43 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
         else:
             # Dry run: just parse and count
             stats = {
-                'total_processed': 0,
-                'sampled': 0,
-                'added': 0,
-                'skipped': 0,
-                'errors': [],
-                'limit_reached': False,
+                "total_processed": 0,
+                "sampled": 0,
+                "added": 0,
+                "skipped": 0,
+                "errors": [],
+                "limit_reached": False,
             }
 
             for scrobble in parse_input():
-                stats['total_processed'] += 1
+                stats["total_processed"] += 1
 
                 # Apply sampling logic (but don't actually import)
                 if sample is not None:
                     import random
+
                     if seed is not None:
-                        random.seed(seed + stats['total_processed'])  # Vary seed
+                        random.seed(seed + stats["total_processed"])  # Vary seed
                     if random.random() >= sample:
                         continue
-                    stats['sampled'] += 1
+                    stats["sampled"] += 1
 
                 # Check limit
-                if limit is not None and stats['added'] >= limit:
-                    stats['limit_reached'] = True
+                if limit is not None and stats["added"] >= limit:
+                    stats["limit_reached"] = True
                     break
 
-                stats['added'] += 1
+                stats["added"] += 1
 
         # Display results
         console.print()
 
         if dry_run:
             console.print("[green]✓[/green] Validation complete (dry-run mode)\n")
-        elif stats['added'] > 0:
-            console.print("[green]✓[/green] Successfully added scrobbles to database!\n")
+        elif stats["added"] > 0:
+            console.print(
+                "[green]✓[/green] Successfully added scrobbles to database!\n"
+            )
         else:
             console.print("[yellow]![/yellow] No scrobbles were added\n")
 
@@ -1123,41 +1258,45 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
         table.add_column("Metric", style="cyan")
         table.add_column("Count", style="magenta", justify="right")
 
-        table.add_row("Total processed", str(stats['total_processed']))
+        table.add_row("Total processed", str(stats["total_processed"]))
 
         if sample is not None:
-            actual_rate = (stats['sampled'] / stats['total_processed'] * 100) if stats['total_processed'] > 0 else 0
+            actual_rate = (
+                (stats["sampled"] / stats["total_processed"] * 100)
+                if stats["total_processed"] > 0
+                else 0
+            )
             table.add_row(
                 f"Sampled ({sample*100:.1f}%)",
-                f"{stats['sampled']} ({actual_rate:.1f}%)"
+                f"{stats['sampled']} ({actual_rate:.1f}%)",
             )
 
         if dry_run:
-            table.add_row("Would import", str(stats['added']))
+            table.add_row("Would import", str(stats["added"]))
         else:
-            table.add_row("Successfully imported", str(stats['added']))
+            table.add_row("Successfully imported", str(stats["added"]))
 
-        if stats['skipped'] > 0:
-            table.add_row("Skipped (duplicates)", str(stats['skipped']))
+        if stats["skipped"] > 0:
+            table.add_row("Skipped (duplicates)", str(stats["skipped"]))
 
-        if stats['errors']:
-            table.add_row("Errors", str(len(stats['errors'])))
+        if stats["errors"]:
+            table.add_row("Errors", str(len(stats["errors"])))
 
         console.print(table)
 
         # Show limit reached message
-        if stats['limit_reached']:
+        if stats["limit_reached"]:
             console.print(
                 f"\n[yellow]Note:[/yellow] Processing stopped after reaching --limit of {limit} records.\n"
                 "      Input may contain more records."
             )
 
         # Show errors if any
-        if stats['errors']:
+        if stats["errors"]:
             console.print("\n[red]Errors:[/red]")
-            for i, error in enumerate(stats['errors'][:10], 1):  # Show first 10
+            for i, error in enumerate(stats["errors"][:10], 1):  # Show first 10
                 console.print(f"  {i}. {error}")
-            if len(stats['errors']) > 10:
+            if len(stats["errors"]) > 10:
                 console.print(f"  ... and {len(stats['errors']) - 10} more errors")
 
         # Show database info
@@ -1170,7 +1309,7 @@ def import_data(database, file, format, skip_errors, dry_run, no_duplicates, upd
                 # Auto: update if index exists
                 should_update_index = "tracks_fts" in db.table_names()
 
-            if should_update_index and stats['added'] > 0:
+            if should_update_index and stats["added"] > 0:
                 console.print("[cyan]Updating search index...[/cyan]")
                 if "tracks_fts" not in db.table_names():
                     lastfm.setup_fts5(db)
