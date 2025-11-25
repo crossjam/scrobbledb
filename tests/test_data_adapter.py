@@ -74,6 +74,45 @@ class TestScrobbleDataAdapter:
         count = adapter.get_total_count(filter_text="Stairway")
         assert count == 1
 
+    def test_get_total_count_with_filter_column(self, sample_db):
+        """Test getting filtered track count with specific column."""
+        adapter = ScrobbleDataAdapter(sample_db)
+
+        # Filter by artist column only - "Beatles" should match 3 tracks
+        count = adapter.get_total_count(filter_text="Beatles", filter_column="artist")
+        assert count == 3
+
+        # Filter by album column only - "Beatles" shouldn't match any albums
+        count = adapter.get_total_count(filter_text="Beatles", filter_column="album")
+        assert count == 0
+
+        # Filter by track column only - "Come" should match "Come Together"
+        count = adapter.get_total_count(filter_text="Come", filter_column="track")
+        assert count == 1
+
+        # Filter all columns - "Moon" matches "The Dark Side of the Moon" album
+        count = adapter.get_total_count(filter_text="Moon", filter_column="all")
+        assert count == 2  # Time, Money
+
+    def test_get_tracks_with_filter_column(self, sample_db):
+        """Test getting tracks with specific filter column."""
+        adapter = ScrobbleDataAdapter(sample_db)
+
+        # Filter by artist column
+        tracks = adapter.get_tracks(filter_text="Zeppelin", filter_column="artist")
+        assert len(tracks) == 1
+        assert all("Led Zeppelin" in t["artist_name"] for t in tracks)
+
+        # Filter by album column
+        tracks = adapter.get_tracks(filter_text="Abbey", filter_column="album")
+        assert len(tracks) == 2  # Come Together, Something
+        assert all("Abbey Road" in t["album_title"] for t in tracks)
+
+        # Filter by track column
+        tracks = adapter.get_tracks(filter_text="Time", filter_column="track")
+        assert len(tracks) == 1
+        assert tracks[0]["track_title"] == "Time"
+
     def test_get_tracks_basic(self, sample_db):
         """Test basic track retrieval."""
         adapter = ScrobbleDataAdapter(sample_db)

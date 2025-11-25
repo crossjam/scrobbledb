@@ -45,13 +45,18 @@ class ScrobbleBrowser(App):
         align: left middle;
     }
 
+    #filter-column-select {
+        width: 18;
+        margin-right: 1;
+    }
+
     #filter-input {
-        width: 40;
+        width: 35;
         margin-right: 2;
     }
 
     #sort-select {
-        width: 30;
+        width: 25;
         margin-right: 2;
     }
 
@@ -99,6 +104,13 @@ class ScrobbleBrowser(App):
         ("Album Z-A", "album_desc"),
     ]
 
+    FILTER_COLUMN_OPTIONS = [
+        ("All", "all"),
+        ("Artist", "artist"),
+        ("Album", "album"),
+        ("Track", "track"),
+    ]
+
     def __init__(self, db_path: str):
         """Initialize the browser with a database path."""
         super().__init__()
@@ -108,6 +120,7 @@ class ScrobbleBrowser(App):
         self.current_page = 0
         self.page_size = 50
         self.filter_text = ""
+        self.filter_column = "all"
         self.sort_by = "plays_desc"
         self.total_count = 0
 
@@ -117,8 +130,14 @@ class ScrobbleBrowser(App):
 
         with Container(id="controls"):
             with Horizontal(id="controls-row"):
+                yield Select(
+                    options=self.FILTER_COLUMN_OPTIONS,
+                    value="all",
+                    id="filter-column-select",
+                    allow_blank=False,
+                )
                 yield Input(
-                    placeholder="Filter by artist, album, or track...",
+                    placeholder="Filter...",
                     id="filter-input",
                 )
                 yield Select(
@@ -157,7 +176,8 @@ class ScrobbleBrowser(App):
 
         # Get total count
         self.total_count = self.adapter.get_total_count(
-            filter_text=self.filter_text if self.filter_text else None
+            filter_text=self.filter_text if self.filter_text else None,
+            filter_column=self.filter_column,
         )
 
         # Get tracks for current page
@@ -166,6 +186,7 @@ class ScrobbleBrowser(App):
             offset=offset,
             limit=self.page_size,
             filter_text=self.filter_text if self.filter_text else None,
+            filter_column=self.filter_column,
             sort_by=self.sort_by,
         )
 
@@ -234,6 +255,15 @@ class ScrobbleBrowser(App):
         if new_filter == "" or len(new_filter) >= 3:
             self.filter_text = new_filter
             self.current_page = 0
+            self.load_data()
+
+    @on(Select.Changed, "#filter-column-select")
+    def on_filter_column_changed(self, event: Select.Changed) -> None:
+        """Handle filter column selection change."""
+        self.filter_column = str(event.value)
+        self.current_page = 0
+        # Only reload if there's an active filter
+        if self.filter_text:
             self.load_data()
 
     @on(Select.Changed, "#sort-select")

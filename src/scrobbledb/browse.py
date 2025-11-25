@@ -27,6 +27,14 @@ class ScrobbleDataAdapter:
         "last_played": "Last Played",
     }
 
+    # Available filter column options
+    FILTER_COLUMNS = {
+        "all": ("All", ["artists.name", "albums.title", "tracks.title"]),
+        "artist": ("Artist", ["artists.name"]),
+        "album": ("Album", ["albums.title"]),
+        "track": ("Track", ["tracks.title"]),
+    }
+
     # Available sort options
     SORT_OPTIONS = {
         "plays_desc": ("play_count", "DESC"),
@@ -50,27 +58,53 @@ class ScrobbleDataAdapter:
         """
         self.db = db
 
-    def get_total_count(self, filter_text: Optional[str] = None) -> int:
+    def _build_filter_where_clause(
+        self, filter_text: str, filter_column: str = "all"
+    ) -> tuple:
+        """
+        Build WHERE clause for filtering.
+
+        Args:
+            filter_text: Filter string to search for
+            filter_column: Column(s) to filter on ('all', 'artist', 'album', 'track')
+
+        Returns:
+            Tuple of (where_clause_sql, params_list)
+        """
+        _, columns = self.FILTER_COLUMNS.get(filter_column, self.FILTER_COLUMNS["all"])
+        like_pattern = f"%{filter_text}%"
+
+        conditions = [f"{col} LIKE ?" for col in columns]
+        where_clause = " OR ".join(conditions)
+        params = [like_pattern] * len(columns)
+
+        return where_clause, params
+
+    def get_total_count(
+        self, filter_text: Optional[str] = None, filter_column: str = "all"
+    ) -> int:
         """
         Get total count of tracks, optionally filtered.
 
         Args:
-            filter_text: Optional filter string to match against artist, album, or track
+            filter_text: Optional filter string to match against specified column(s)
+            filter_column: Column to filter on ('all', 'artist', 'album', 'track')
 
         Returns:
             Total count of matching tracks
         """
         if filter_text:
-            # Use LIKE for filtering across multiple columns
-            sql = """
+            where_clause, params = self._build_filter_where_clause(
+                filter_text, filter_column
+            )
+            sql = f"""
                 SELECT COUNT(DISTINCT tracks.id)
                 FROM tracks
                 JOIN albums ON tracks.album_id = albums.id
                 JOIN artists ON albums.artist_id = artists.id
-                WHERE artists.name LIKE ? OR albums.title LIKE ? OR tracks.title LIKE ?
+                WHERE {where_clause}
             """
-            like_pattern = f"%{filter_text}%"
-            result = self.db.execute(sql, [like_pattern, like_pattern, like_pattern]).fetchone()
+            result = self.db.execute(sql, params).fetchone()
         else:
             sql = "SELECT COUNT(*) FROM tracks"
             result = self.db.execute(sql).fetchone()
@@ -82,6 +116,7 @@ class ScrobbleDataAdapter:
         offset: int = 0,
         limit: int = 50,
         filter_text: Optional[str] = None,
+        filter_column: str = "all",
         sort_by: str = "plays_desc",
     ) -> List[Dict[str, Any]]:
         """
@@ -90,7 +125,8 @@ class ScrobbleDataAdapter:
         Args:
             offset: Number of records to skip (must be non-negative integer)
             limit: Maximum number of records to return (must be positive integer)
-            filter_text: Optional filter string to match against artist, album, or track
+            filter_text: Optional filter string to match against specified column(s)
+            filter_column: Column to filter on ('all', 'artist', 'album', 'track')
             sort_by: Sort option key from SORT_OPTIONS
 
         Returns:
@@ -154,13 +190,15 @@ class ScrobbleDataAdapter:
 
         params = []
 
-        # Add filter condition
+        # Add filter condition using the helper method
         if filter_text:
-            like_pattern = f"%{filter_text}%"
-            base_sql += """
-                WHERE artists.name LIKE ? OR albums.title LIKE ? OR tracks.title LIKE ?
+            where_clause, filter_params = self._build_filter_where_clause(
+                filter_text, filter_column
+            )
+            base_sql += f"""
+                WHERE {where_clause}
             """
-            params.extend([like_pattern, like_pattern, like_pattern])
+            params.extend(filter_params)
 
         # Add GROUP BY for play statistics
         base_sql += """
