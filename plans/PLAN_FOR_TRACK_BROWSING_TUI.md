@@ -128,11 +128,18 @@ The Track Browsing TUI has been implemented with the following components:
 ### New Files
 - `src/scrobbledb/browse.py` - ScrobbleDataAdapter for database queries with filtering, sorting, and pagination
 - `src/scrobbledb/tui.py` - Textual-based TUI application (ScrobbleBrowser)
-- `tests/test_data_adapter.py` - Comprehensive tests for the data adapter
+- `tests/test_data_adapter.py` - Comprehensive tests for the data adapter (14 tests)
 
 ### Changes
 - `pyproject.toml` - Added `textual>=0.85.0` as a dependency
 - `src/scrobbledb/cli.py` - Added `browse` command to launch the TUI
+
+### Features
+- **Paginated track display** - Browse tracks with play counts and last played timestamps (50 per page)
+- **Customizable filter column** - Dropdown selector to filter by All, Artist, Album, or Track only
+- **Live filtering** - Auto-filters after 3+ characters, or press Enter for immediate filtering
+- **Multiple sort options** - Sort by plays (most/least), last played (recent/oldest), or alphabetically by artist/album/track
+- **Keyboard navigation** - Full keyboard support for efficient browsing
 
 ### Usage
 ```bash
