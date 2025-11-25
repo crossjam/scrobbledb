@@ -215,17 +215,23 @@ class ScrobbleBrowser(App):
 
     @on(Input.Submitted, "#filter-input")
     def on_filter_submitted(self, event: Input.Submitted) -> None:
-        """Handle filter input submission."""
+        """Handle filter input submission (press Enter to filter)."""
         self.filter_text = event.value.strip()
         self.current_page = 0
         self.load_data()
 
     @on(Input.Changed, "#filter-input")
     def on_filter_changed(self, event: Input.Changed) -> None:
-        """Handle filter input changes (live filtering)."""
-        # Only filter on change if the input has at least 2 characters or is empty
+        """Handle filter input changes.
+
+        Only filters on empty input (clearing the filter) or after 3+ characters
+        to reduce database queries during typing. For immediate filtering,
+        press Enter.
+        """
         new_filter = event.value.strip()
-        if len(new_filter) >= 2 or new_filter == "":
+        # Only auto-filter when clearing (empty) or when we have enough characters
+        # to make a meaningful filter. This reduces database load during typing.
+        if new_filter == "" or len(new_filter) >= 3:
             self.filter_text = new_filter
             self.current_page = 0
             self.load_data()

@@ -88,8 +88,8 @@ class ScrobbleDataAdapter:
         Get paginated list of tracks with play statistics.
 
         Args:
-            offset: Number of records to skip
-            limit: Maximum number of records to return
+            offset: Number of records to skip (must be non-negative integer)
+            limit: Maximum number of records to return (must be positive integer)
             filter_text: Optional filter string to match against artist, album, or track
             sort_by: Sort option key from SORT_OPTIONS
 
@@ -99,10 +99,23 @@ class ScrobbleDataAdapter:
             - play_count, last_played
             - track_id, album_id, artist_id
         """
-        # Get sort column and direction
+        # Validate and sanitize offset and limit to prevent SQL injection
+        # These are typed as int, but ensure they are valid integers
+        try:
+            offset = max(0, int(offset))  # Ensure non-negative
+            limit = max(1, min(int(limit), 1000))  # Ensure 1-1000 range
+        except (ValueError, TypeError):
+            offset = 0
+            limit = 50
+
+        # Get sort column and direction from whitelist only
+        # This prevents SQL injection since values come from predefined dict
         sort_column, sort_direction = self.SORT_OPTIONS.get(
             sort_by, ("play_count", "DESC")
         )
+        # Extra validation: ensure values are in expected set
+        if sort_direction not in ("ASC", "DESC"):
+            sort_direction = "DESC"
 
         # Check if plays table exists
         has_plays = "plays" in self.db.table_names()
@@ -154,7 +167,8 @@ class ScrobbleDataAdapter:
             GROUP BY tracks.id, albums.id, artists.id
         """
 
-        # Add ORDER BY
+        # Add ORDER BY - sort_column and sort_direction are from SORT_OPTIONS whitelist
+        # and validated above, so they are safe to interpolate
         base_sql += f" ORDER BY {sort_column} {sort_direction}"
 
         # Handle NULL values in sorting (put them at the end for DESC, beginning for ASC)
@@ -170,7 +184,7 @@ class ScrobbleDataAdapter:
                     f"ORDER BY {sort_column} IS NOT NULL, {sort_column} {sort_direction}"
                 )
 
-        # Add pagination
+        # Add pagination - limit and offset are validated integers above
         base_sql += f" LIMIT {limit} OFFSET {offset}"
 
         results = self.db.execute(base_sql, params).fetchall()
