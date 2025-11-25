@@ -70,10 +70,21 @@ class ScrobbleDataAdapter:
 
         Returns:
             Tuple of (where_clause_sql, params_list)
+
+        Security:
+            - filter_column is validated against FILTER_COLUMNS whitelist
+            - filter_text is passed as a parameterized query value (never interpolated)
+            - Column names come from predefined constants, not user input
         """
-        _, columns = self.FILTER_COLUMNS.get(filter_column, self.FILTER_COLUMNS["all"])
+        # Validate filter_column against whitelist to prevent SQL injection
+        if filter_column not in self.FILTER_COLUMNS:
+            filter_column = "all"
+
+        _, columns = self.FILTER_COLUMNS[filter_column]
         like_pattern = f"%{filter_text}%"
 
+        # Column names are from FILTER_COLUMNS whitelist, safe to interpolate
+        # filter_text is passed as parameter (?) to prevent injection
         conditions = [f"{col} LIKE ?" for col in columns]
         where_clause = " OR ".join(conditions)
         params = [like_pattern] * len(columns)
@@ -134,6 +145,12 @@ class ScrobbleDataAdapter:
             - artist_name, album_title, track_title
             - play_count, last_played
             - track_id, album_id, artist_id
+
+        Security:
+            - offset/limit: Validated and constrained to safe integer ranges
+            - filter_text: Passed as parameterized query value
+            - filter_column: Validated against FILTER_COLUMNS whitelist
+            - sort_by: Validated against SORT_OPTIONS whitelist
         """
         # Validate and sanitize offset and limit to prevent SQL injection
         # These are typed as int, but ensure they are valid integers
