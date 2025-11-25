@@ -1314,3 +1314,59 @@ def import_data(
         # Close file if we opened it
         if file and file != "-":
             input_file.close()
+
+
+@cli.command()
+@click.argument(
+    "database",
+    required=False,
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+)
+def browse(database):
+    """
+    Browse tracks in an interactive TUI.
+
+    Opens an interactive terminal user interface for exploring your
+    scrobble history. Features include:
+
+    \b
+    - View all tracks with play counts and last played dates
+    - Filter by artist, album, or track name
+    - Sort by various criteria (plays, date, name)
+    - Navigate with keyboard shortcuts
+
+    \b
+    Keyboard shortcuts:
+        /       Focus the filter input
+        Escape  Clear the filter
+        n       Next page
+        p       Previous page
+        r       Refresh data
+        q       Quit
+
+    If DATABASE is not specified, uses the default location in the XDG data directory.
+    """
+    if database is None:
+        database = get_default_db_path()
+
+    if not Path(database).exists():
+        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
+        console.print(
+            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+        )
+        raise click.Abort()
+
+    db = sqlite_utils.Database(database)
+
+    # Check if we have any tracks
+    if "tracks" not in db.table_names() or db["tracks"].count == 0:
+        console.print("[yellow]![/yellow] No tracks found in database.")
+        console.print(
+            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+        )
+        raise click.Abort()
+
+    # Import and run the TUI
+    from .tui import run_browser
+
+    run_browser(database)
