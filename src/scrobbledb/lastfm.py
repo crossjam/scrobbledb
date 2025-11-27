@@ -14,30 +14,67 @@ from sqlite_utils import Database
 
 def recent_tracks_count(user: pylast.User, since: dt.datetime):
     """
-    Return the number of tracks recorded since a given datetime
+    Return the number of tracks recorded since a given datetime.
+
+    Returns 0 if the API call fails or returns malformed data.
     """
 
     logger.info("Checking for tracks since {}", since.isoformat())
-    params = dict(user._get_params(), limit=200)
-    params["from"] = int(since.timestamp())
-    params["page"] = 1
-    params["limit"] = 1
-    doc = user._request("user.getRecentTracks", cacheable=True, params=params)
+    try:
+        params = dict(user._get_params(), limit=200)
+        params["from"] = int(since.timestamp())
+        params["page"] = 1
+        params["limit"] = 1
+        doc = user._request("user.getRecentTracks", cacheable=True, params=params)
 
-    main = pylast.cleanup_nodes(doc).documentElement.childNodes[0]
+        # Safely navigate XML response structure
+        cleaned_doc = pylast.cleanup_nodes(doc)
+        if not cleaned_doc or not cleaned_doc.documentElement:
+            logger.warning("Empty or invalid XML response from Last.fm API")
+            return 0
 
-    total_pages = int(main.getAttribute("totalPages"))
-    plays_per_page = int(main.getAttribute("perPage"))
+        child_nodes = cleaned_doc.documentElement.childNodes
+        if not child_nodes or len(child_nodes) == 0:
+            logger.warning("No child nodes in Last.fm API response")
+            return 0
 
-    max_tracks = total_pages * plays_per_page
-    logger.info(
-        "Total pages: {}, plays per page: {}, max total plays: {}",
-        total_pages,
-        plays_per_page,
-        max_tracks,
-    )
+        main = child_nodes[0]
 
-    return max_tracks
+        # Safely get and validate attributes
+        total_pages_str = main.getAttribute("totalPages")
+        plays_per_page_str = main.getAttribute("perPage")
+
+        if not total_pages_str or not plays_per_page_str:
+            logger.warning("Missing totalPages or perPage attributes in API response")
+            return 0
+
+        try:
+            total_pages = int(total_pages_str)
+            plays_per_page = int(plays_per_page_str)
+        except (ValueError, TypeError) as e:
+            logger.warning("Invalid totalPages or perPage values: {}", e)
+            return 0
+
+        if total_pages < 0 or plays_per_page < 0:
+            logger.warning("Negative totalPages ({}) or perPage ({})", total_pages, plays_per_page)
+            return 0
+
+        max_tracks = total_pages * plays_per_page
+        logger.info(
+            "Total pages: {}, plays per page: {}, max total plays: {}",
+            total_pages,
+            plays_per_page,
+            max_tracks,
+        )
+
+        return max_tracks
+
+    except (IndexError, AttributeError, KeyError) as e:
+        logger.warning("Error parsing Last.fm API response: {}", e)
+        return 0
+    except Exception as e:
+        logger.error("Unexpected error fetching track count from Last.fm: {}", e)
+        return 0
 
 
 def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):

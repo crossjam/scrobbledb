@@ -765,6 +765,12 @@ def ingest(ctx, database, auth, since_date, limit, verbose, dry_run):
             lastfm.save_play(db, track["play"])
             progress.advance(task)
 
+    # Ensure FTS5 triggers are set up now that tables exist
+    # This handles the case where setup_fts5() was called during init before tables existed
+    console.print("[cyan]Updating search index...[/cyan]")
+    lastfm.setup_fts5(db)  # Idempotent: creates missing triggers
+    lastfm.rebuild_fts5(db)  # Populate index with ingested data
+
     console.print(
         f"[green]✓[/green] Successfully ingested tracks to: [cyan]{database}[/cyan]"
     )
@@ -1305,8 +1311,9 @@ def import_data(
 
             if should_update_index and stats["added"] > 0:
                 console.print("[cyan]Updating search index...[/cyan]")
-                if "tracks_fts" not in db.table_names():
-                    lastfm.setup_fts5(db)
+                # Always call setup_fts5 to ensure triggers exist
+                # This is idempotent and will create any missing triggers
+                lastfm.setup_fts5(db)
                 lastfm.rebuild_fts5(db)
                 console.print("[green]✓[/green] Search index updated")
 

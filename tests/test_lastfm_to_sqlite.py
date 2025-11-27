@@ -907,3 +907,83 @@ def test_extract_track_data_timezone_aware(track_node):
     assert timestamp.tzinfo == timezone.utc
 
 
+def test_config_init_then_ingest_workflow(temp_db):
+    """Test that FTS5 works correctly after config init → ingest workflow.
+
+    This test reproduces the bug where:
+    1. User runs `config init` on empty database (creates FTS5 table, no triggers)
+    2. User runs `ingest` to add data (skips FTS5 setup because table exists)
+    3. Result: FTS5 table exists but has no triggers, so it never gets populated
+    """
+    # Step 1: Simulate config init (empty database with FTS5 table)
+    lastfm.setup_fts5(temp_db)
+
+    assert "tracks_fts" in temp_db.table_names()
+    # FTS5 table exists but no triggers should be created yet (no main tables)
+    triggers = [row[0] for row in temp_db.execute(
+        'SELECT name FROM sqlite_master WHERE type="trigger"'
+    ).fetchall()]
+    assert len(triggers) == 0  # No triggers because main tables don't exist
+
+    # Step 2: Simulate ingest (add data)
+    artist = {"id": "artist-1", "name": "The Beatles"}
+    album = {"id": "album-1", "title": "Abbey Road", "artist_id": "artist-1"}
+    track = {"id": "track-1", "title": "Come Together", "album_id": "album-1"}
+    play = {"track_id": "track-1", "timestamp": dt.datetime(2024, 1, 15, 14, 30, tzinfo=timezone.utc)}
+
+    lastfm.save_artist(temp_db, artist)
+    lastfm.save_album(temp_db, album)
+    lastfm.save_track(temp_db, track)
+    lastfm.save_play(temp_db, play)
+
+    # Step 3: Call setup_fts5 again (this is what the fix does)
+    # In the buggy version, this wouldn't be called because tracks_fts already exists
+    lastfm.setup_fts5(temp_db)
+    lastfm.rebuild_fts5(temp_db)
+
+    # Step 4: Verify triggers exist
+    triggers = [row[0] for row in temp_db.execute(
+        'SELECT name FROM sqlite_master WHERE type="trigger"'
+    ).fetchall()]
+
+    assert len(triggers) == 9  # 3 triggers per table × 3 tables
+    assert "artists_ai" in triggers
+    assert "artists_au" in triggers
+    assert "artists_ad" in triggers
+    assert "albums_ai" in triggers
+    assert "albums_au" in triggers
+    assert "albums_ad" in triggers
+    assert "tracks_ai" in triggers
+    assert "tracks_au" in triggers
+    assert "tracks_ad" in triggers
+
+    # Step 5: Verify FTS5 is populated
+    fts_count = temp_db.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0]
+    assert fts_count == 1
+
+    # Step 6: Verify search works
+    results = lastfm.search_tracks(temp_db, "Beatles")
+    assert len(results) == 1
+    assert results[0]["artist_name"] == "The Beatles"
+    assert results[0]["track_title"] == "Come Together"
+
+    # Step 7: Verify triggers work (add another track)
+    artist2 = {"id": "artist-2", "name": "The Rolling Stones"}
+    album2 = {"id": "album-2", "title": "Let It Bleed", "artist_id": "artist-2"}
+    track2 = {"id": "track-2", "title": "Gimme Shelter", "album_id": "album-2"}
+
+    lastfm.save_artist(temp_db, artist2)
+    lastfm.save_album(temp_db, album2)
+    lastfm.save_track(temp_db, track2)
+
+    # FTS5 should auto-update via triggers
+    fts_count = temp_db.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0]
+    assert fts_count == 2
+
+    # Verify second track is searchable
+    results = lastfm.search_tracks(temp_db, "Stones")
+    assert len(results) == 1
+    assert results[0]["artist_name"] == "The Rolling Stones"
+    assert results[0]["track_title"] == "Gimme Shelter"
+
+
