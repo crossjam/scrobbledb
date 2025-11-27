@@ -694,7 +694,7 @@ def ingest(ctx, database, auth, since_date, limit, verbose, dry_run):
 
     db = sqlite_utils.Database(database)
 
-    if not since_date and db["plays"].exists:
+    if not since_date and db["plays"].exists():
         since_date = db.conn.execute("select max(timestamp) from plays").fetchone()[0]
     if since_date:
         since_date = dateutil.parser.parse(since_date)
@@ -808,7 +808,7 @@ def index(database):
     db = sqlite_utils.Database(database)
 
     # Check if we have data to index
-    if not db["tracks"].exists:
+    if not db["tracks"].exists():
         console.print("[yellow]![/yellow] No tracks found in database.")
         console.print(
             "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
