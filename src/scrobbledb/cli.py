@@ -699,7 +699,11 @@ def ingest(ctx, database, auth, since_date, limit, verbose, dry_run):
     if since_date:
         since_date = dateutil.parser.parse(since_date)
 
-    console.print(f"[green]Fetching scrobbles since: {since_date.isoformat()}[/green]")
+    if since_date:
+        console.print(f"[green]Fetching scrobbles since: {since_date.isoformat()}[/green]")
+    else:
+        console.print("[green]Fetching all scrobbles[/green]")
+
     auth_data = json.load(open(auth))
 
     # Check if session key exists in auth data
