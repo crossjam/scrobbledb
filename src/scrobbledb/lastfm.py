@@ -19,10 +19,11 @@ def recent_tracks_count(user: pylast.User, since: dt.datetime):
     Returns 0 if the API call fails or returns malformed data.
     """
 
-    logger.info("Checking for tracks since {}", since.isoformat())
+    logger.info("Checking for tracks since {}", since.isoformat() if since else None)
     try:
         params = dict(user._get_params(), limit=200)
-        params["from"] = int(since.timestamp())
+        if since:
+            params["from"] = int(since.timestamp())
         params["page"] = 1
         params["limit"] = 1
         doc = user._request("user.getRecentTracks", cacheable=True, params=params)
@@ -56,7 +57,9 @@ def recent_tracks_count(user: pylast.User, since: dt.datetime):
             return 0
 
         if total_pages < 0 or plays_per_page < 0:
-            logger.warning("Negative totalPages ({}) or perPage ({})", total_pages, plays_per_page)
+            logger.warning(
+                "Negative totalPages ({}) or perPage ({})", total_pages, plays_per_page
+            )
             return 0
 
         max_tracks = total_pages * plays_per_page
