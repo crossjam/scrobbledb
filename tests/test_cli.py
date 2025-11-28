@@ -282,6 +282,71 @@ class TestSinceDateIsofixFormat:
                     assert "Fetching scrobbles since:" in result.output
                     assert "2024-01-15" in result.output
 
+    def test_ingest_with_until_date(self, runner, temp_db, temp_auth):
+        """Test ingest with explicit --until-date flag.
+
+        Should display the provided until date in the output.
+        """
+        db_path, db = temp_db
+
+        mock_user = Mock()
+        mock_network = Mock()
+        mock_network.get_user.return_value = mock_user
+
+        with patch("scrobbledb.lastfm.get_network", return_value=mock_network):
+            with patch("scrobbledb.lastfm.recent_tracks_count", return_value=0):
+                with patch("scrobbledb.lastfm.recent_tracks", return_value=[]):
+                    result = runner.invoke(
+                        cli.cli,
+                        [
+                            "ingest",
+                            db_path,
+                            "-a",
+                            temp_auth,
+                            "--until-date",
+                            "2024-12-31",
+                            "--dry-run",
+                        ],
+                    )
+
+                    assert result.exit_code == 0, f"Command failed: {result.output}"
+                    assert "Fetching scrobbles until:" in result.output
+                    assert "2024-12-31" in result.output
+
+    def test_ingest_with_since_and_until_dates(self, runner, temp_db, temp_auth):
+        """Test ingest with both --since-date and --until-date flags.
+
+        Should display both dates in the output.
+        """
+        db_path, db = temp_db
+
+        mock_user = Mock()
+        mock_network = Mock()
+        mock_network.get_user.return_value = mock_user
+
+        with patch("scrobbledb.lastfm.get_network", return_value=mock_network):
+            with patch("scrobbledb.lastfm.recent_tracks_count", return_value=0):
+                with patch("scrobbledb.lastfm.recent_tracks", return_value=[]):
+                    result = runner.invoke(
+                        cli.cli,
+                        [
+                            "ingest",
+                            db_path,
+                            "-a",
+                            temp_auth,
+                            "--since-date",
+                            "2024-01-01",
+                            "--until-date",
+                            "2024-12-31",
+                            "--dry-run",
+                        ],
+                    )
+
+                    assert result.exit_code == 0, f"Command failed: {result.output}"
+                    assert "Fetching scrobbles from" in result.output
+                    assert "2024-01-01" in result.output
+                    assert "2024-12-31" in result.output
+
 
 class TestCombinedFixes:
     """Integration tests combining both fixes."""
