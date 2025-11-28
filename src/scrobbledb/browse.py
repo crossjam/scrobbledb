@@ -102,23 +102,43 @@ class ScrobbleDataAdapter:
             filter_column: Column to filter on ('all', 'artist', 'album', 'track')
 
         Returns:
-            Total count of matching tracks
+            Total count of matching tracks, or 0 if database is empty/uninitialized
         """
+        # Check if required tables exist
+        table_names = self.db.table_names()
+
         if filter_text:
-            where_clause, params = self._build_filter_where_clause(
-                filter_text, filter_column
-            )
-            sql = f"""
-                SELECT COUNT(DISTINCT tracks.id)
-                FROM tracks
-                JOIN albums ON tracks.album_id = albums.id
-                JOIN artists ON albums.artist_id = artists.id
-                WHERE {where_clause}
-            """
-            result = self.db.execute(sql, params).fetchone()
+            # For filtered queries, we need tracks, albums, and artists tables
+            required_tables = ["tracks", "albums", "artists"]
+            if not all(table in table_names for table in required_tables):
+                return 0
+
+            try:
+                where_clause, params = self._build_filter_where_clause(
+                    filter_text, filter_column
+                )
+                sql = f"""
+                    SELECT COUNT(DISTINCT tracks.id)
+                    FROM tracks
+                    JOIN albums ON tracks.album_id = albums.id
+                    JOIN artists ON albums.artist_id = artists.id
+                    WHERE {where_clause}
+                """
+                result = self.db.execute(sql, params).fetchone()
+            except Exception:
+                # Handle any SQL errors gracefully
+                return 0
         else:
-            sql = "SELECT COUNT(*) FROM tracks"
-            result = self.db.execute(sql).fetchone()
+            # For simple count, we only need tracks table
+            if "tracks" not in table_names:
+                return 0
+
+            try:
+                sql = "SELECT COUNT(*) FROM tracks"
+                result = self.db.execute(sql).fetchone()
+            except Exception:
+                # Handle any SQL errors gracefully
+                return 0
 
         return result[0] if result else 0
 
