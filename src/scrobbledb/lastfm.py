@@ -8,8 +8,54 @@ from xml.dom.minidom import Node
 
 import pylast
 import dateutil.parser
+import stamina
 from loguru import logger
 from sqlite_utils import Database
+
+
+def _api_request_with_retry(user: pylast.User, method: str, cacheable: bool = True, params: dict = None):
+    """
+    Make a Last.fm API request with automatic retry on transient failures.
+
+    Uses exponential backoff with up to 5 retry attempts to handle intermittent
+    HTTP 500 errors from the Last.fm API.
+
+    Args:
+        user: pylast.User instance
+        method: API method name (e.g., "user.getRecentTracks")
+        cacheable: Whether the request should be cached
+        params: Request parameters dictionary
+
+    Returns:
+        XML response document from the API
+
+    Raises:
+        pylast.WSError: If all retry attempts are exhausted
+    """
+    params = params or {}
+
+    # Configure retry behavior: 5 attempts with exponential backoff
+    # Delays: 1s, 2s, 4s, 8s, 16s (total ~31s max)
+    for attempt in stamina.retry_context(
+        on=pylast.WSError,
+        attempts=5,
+        wait_initial=1.0,
+        wait_max=16.0,
+        wait_jitter=1.0,
+    ):
+        with attempt:
+            logger.debug(f"Attempting API request: {method} (attempt {attempt.num})")
+            try:
+                doc = user._request(method, cacheable=cacheable, params=params)
+                if attempt.num > 1:
+                    logger.info(f"API request succeeded after {attempt.num} attempts: {method}")
+                return doc
+            except pylast.WSError as e:
+                # Log the error - stamina will automatically retry if attempts remain
+                logger.warning(
+                    f"API request failed (attempt {attempt.num}/5): {method} - Error: {e}"
+                )
+                raise
 
 
 def recent_tracks_count(user: pylast.User, since: dt.datetime):
@@ -26,7 +72,7 @@ def recent_tracks_count(user: pylast.User, since: dt.datetime):
             params["from"] = int(since.timestamp())
         params["page"] = 1
         params["limit"] = 1
-        doc = user._request("user.getRecentTracks", cacheable=True, params=params)
+        doc = _api_request_with_retry(user, "user.getRecentTracks", cacheable=True, params=params)
 
         # Safely navigate XML response structure
         cleaned_doc = pylast.cleanup_nodes(doc)
@@ -119,7 +165,7 @@ def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
         logger.info(
             f"Fetching page {page}" + (f" of {total_pages}" if total_pages else "")
         )
-        doc = user._request("user.getRecentTracks", cacheable=True, params=params)
+        doc = _api_request_with_retry(user, "user.getRecentTracks", cacheable=True, params=params)
         main = pylast.cleanup_nodes(doc).documentElement.childNodes[0]
 
         # Get total pages on first request

@@ -23,6 +23,7 @@ dependencies = [
     "loguru>=0.7.3",
     "loguru-config",
     "textual>=0.85.0",
+    "stamina>=24.2.0",
 ]
 
 [project.optional-dependencies]

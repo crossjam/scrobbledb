@@ -1,11 +1,13 @@
 from xml.dom import minidom
 import pytest
+from unittest.mock import Mock, patch, MagicMock
 from scrobbledb import lastfm
 import datetime as dt
 from datetime import timezone
 import sqlite_utils
 import tempfile
 import os
+import pylast
 
 
 @pytest.fixture
@@ -985,5 +987,181 @@ def test_config_init_then_ingest_workflow(temp_db):
     assert len(results) == 1
     assert results[0]["artist_name"] == "The Rolling Stones"
     assert results[0]["track_title"] == "Gimme Shelter"
+
+
+# Tests for retry functionality
+
+def test_api_request_with_retry_success_on_first_attempt():
+    """Test that successful API calls don't retry."""
+    mock_user = Mock()
+    mock_doc = Mock()
+    mock_user._request.return_value = mock_doc
+
+    result = lastfm._api_request_with_retry(
+        mock_user,
+        "user.getRecentTracks",
+        cacheable=True,
+        params={"page": 1}
+    )
+
+    # Should call once and return the result
+    assert result == mock_doc
+    assert mock_user._request.call_count == 1
+
+
+def test_api_request_with_retry_success_after_transient_failure():
+    """Test that API calls retry after transient failures."""
+    mock_user = Mock()
+    mock_doc = Mock()
+
+    # First call fails, second call succeeds
+    mock_user._request.side_effect = [
+        pylast.WSError("network", "status", "HTTP code 500"),
+        mock_doc
+    ]
+
+    result = lastfm._api_request_with_retry(
+        mock_user,
+        "user.getRecentTracks",
+        cacheable=True,
+        params={"page": 1}
+    )
+
+    # Should retry and eventually succeed
+    assert result == mock_doc
+    assert mock_user._request.call_count == 2
+
+
+def test_api_request_with_retry_multiple_failures_then_success():
+    """Test that API calls retry multiple times before succeeding."""
+    mock_user = Mock()
+    mock_doc = Mock()
+
+    # Fail 3 times, then succeed on 4th attempt
+    mock_user._request.side_effect = [
+        pylast.WSError("network", "status", "HTTP code 500"),
+        pylast.WSError("network", "status", "HTTP code 500"),
+        pylast.WSError("network", "status", "HTTP code 500"),
+        mock_doc
+    ]
+
+    result = lastfm._api_request_with_retry(
+        mock_user,
+        "user.getRecentTracks",
+        cacheable=True,
+        params={"page": 1}
+    )
+
+    # Should retry 3 times and succeed on 4th attempt
+    assert result == mock_doc
+    assert mock_user._request.call_count == 4
+
+
+def test_api_request_with_retry_exhausts_all_attempts():
+    """Test that retry gives up after max attempts."""
+    mock_user = Mock()
+
+    # Always fail
+    mock_user._request.side_effect = pylast.WSError("network", "status", "HTTP code 500")
+
+    # Should raise exception after all retries exhausted
+    with pytest.raises(pylast.WSError):
+        lastfm._api_request_with_retry(
+            mock_user,
+            "user.getRecentTracks",
+            cacheable=True,
+            params={"page": 1}
+        )
+
+    # Should have attempted 5 times (initial + 4 retries)
+    assert mock_user._request.call_count == 5
+
+
+def test_api_request_with_retry_propagates_non_wserror():
+    """Test that non-WSError exceptions are propagated immediately."""
+    mock_user = Mock()
+
+    # Raise a different type of exception
+    mock_user._request.side_effect = ValueError("Invalid parameter")
+
+    # Should raise ValueError immediately without retry
+    with pytest.raises(ValueError, match="Invalid parameter"):
+        lastfm._api_request_with_retry(
+            mock_user,
+            "user.getRecentTracks",
+            cacheable=True,
+            params={"page": 1}
+        )
+
+    # Should only call once (no retries for non-WSError)
+    assert mock_user._request.call_count == 1
+
+
+def test_recent_tracks_count_uses_retry():
+    """Test that recent_tracks_count uses retry logic."""
+    mock_user = Mock()
+
+    # Create a minimal valid XML response
+    xml_response = """<?xml version="1.0" encoding="utf-8"?>
+    <lfm status="ok">
+        <recenttracks user="testuser" page="1" perPage="1" totalPages="10" total="100">
+        </recenttracks>
+    </lfm>"""
+
+    mock_doc = minidom.parseString(xml_response)
+
+    # Fail once, then succeed
+    mock_user._request.side_effect = [
+        pylast.WSError("network", "status", "HTTP code 500"),
+        mock_doc
+    ]
+    mock_user._get_params.return_value = {}
+
+    # Should retry and succeed
+    count = lastfm.recent_tracks_count(mock_user, None)
+
+    # Should have retried once
+    assert mock_user._request.call_count == 2
+    # Should return the calculated count (10 pages * 1 per page)
+    assert count == 10
+
+
+def test_recent_tracks_uses_retry():
+    """Test that recent_tracks generator uses retry logic."""
+    mock_user = Mock()
+
+    # Create a valid XML response with one track
+    xml_response = """<?xml version="1.0" encoding="utf-8"?>
+    <lfm status="ok">
+        <recenttracks user="testuser" page="1" perPage="200" totalPages="1" total="1">
+            <track>
+                <artist mbid="artist-123">Test Artist</artist>
+                <name>Test Track</name>
+                <mbid>track-123</mbid>
+                <album mbid="album-123">Test Album</album>
+                <url>http://example.com</url>
+                <date uts="1213031819">9 Jun 2008, 17:16</date>
+            </track>
+        </recenttracks>
+    </lfm>"""
+
+    mock_doc = minidom.parseString(xml_response)
+
+    # Fail once, then succeed
+    mock_user._request.side_effect = [
+        pylast.WSError("network", "status", "HTTP code 500"),
+        mock_doc
+    ]
+    mock_user._get_params.return_value = {}
+
+    # Consume the generator
+    tracks = list(lastfm.recent_tracks(mock_user, None))
+
+    # Should have retried once
+    assert mock_user._request.call_count == 2
+    # Should return one track
+    assert len(tracks) == 1
+    assert tracks[0]["artist"]["name"] == "Test Artist"
+    assert tracks[0]["track"]["title"] == "Test Track"
 
 
