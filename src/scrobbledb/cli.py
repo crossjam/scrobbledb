@@ -2,6 +2,7 @@ import click
 import os
 import json
 import sqlite_utils
+import time
 from pathlib import Path
 from platformdirs import user_data_dir, user_config_dir
 from importlib.metadata import version as get_version
@@ -631,6 +632,120 @@ def auth(auth, network):
         raise click.Abort()
 
 
+def _ingest_no_batch(db, history, expected_count):
+    """
+    Ingest tracks one at a time (original behavior).
+    
+    Args:
+        db: sqlite_utils.Database instance
+        history: Iterator of track data dictionaries
+        expected_count: Expected number of tracks for progress bar
+        
+    Returns:
+        Tuple of (min_timestamp, max_timestamp, track_count)
+    """
+    min_timestamp = None
+    max_timestamp = None
+    track_count = 0
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("[cyan]Ingesting tracks", total=expected_count)
+        for track in history:
+            lastfm.save_artist(db, track["artist"])
+            lastfm.save_album(db, track["album"])
+            lastfm.save_track(db, track["track"])
+            lastfm.save_play(db, track["play"])
+            
+            # Track timestamp range
+            timestamp = track["play"]["timestamp"]
+            if min_timestamp is None or timestamp < min_timestamp:
+                min_timestamp = timestamp
+            if max_timestamp is None or timestamp > max_timestamp:
+                max_timestamp = timestamp
+            track_count += 1
+            
+            progress.advance(task)
+    
+    return min_timestamp, max_timestamp, track_count
+
+
+def _ingest_batch(db, history, expected_count, batch_size):
+    """
+    Ingest tracks in batches for improved performance.
+    
+    Args:
+        db: sqlite_utils.Database instance
+        history: Iterator of track data dictionaries
+        expected_count: Expected number of tracks for progress bar
+        batch_size: Number of records to buffer before flushing
+        
+    Returns:
+        Tuple of (min_timestamp, max_timestamp, track_count)
+    """
+    min_timestamp = None
+    max_timestamp = None
+    track_count = 0
+    
+    # Batch buffers
+    batch = {"artists": [], "albums": [], "tracks": [], "plays": []}
+    
+    def flush_batch():
+        """Flush the current batch to the database."""
+        if batch["artists"]:
+            lastfm.save_artists_batch(db, batch["artists"])
+            lastfm.save_albums_batch(db, batch["albums"])
+            lastfm.save_tracks_batch(db, batch["tracks"])
+            lastfm.save_plays_batch(db, batch["plays"])
+            batch["artists"].clear()
+            batch["albums"].clear()
+            batch["tracks"].clear()
+            batch["plays"].clear()
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TaskProgressColumn(),
+        MofNCompleteColumn(),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("[cyan]Ingesting tracks", total=expected_count)
+        for track in history:
+            # Collect records into batch
+            batch["artists"].append(track["artist"])
+            batch["albums"].append(track["album"])
+            batch["tracks"].append(track["track"])
+            batch["plays"].append(track["play"])
+            
+            # Track timestamp range
+            timestamp = track["play"]["timestamp"]
+            if min_timestamp is None or timestamp < min_timestamp:
+                min_timestamp = timestamp
+            if max_timestamp is None or timestamp > max_timestamp:
+                max_timestamp = timestamp
+            track_count += 1
+            
+            # Flush batch when it reaches the batch size
+            if len(batch["plays"]) >= batch_size:
+                flush_batch()
+            
+            progress.advance(task)
+        
+        # Flush any remaining records
+        flush_batch()
+    
+    return min_timestamp, max_timestamp, track_count
+
+
 @cli.command()
 @click.argument(
     "database",
@@ -657,6 +772,19 @@ def auth(auth, network):
     help="Maximum number of tracks to import",
 )
 @click.option(
+    "--batch-size",
+    type=int,
+    default=100,
+    help="Number of records to insert in each batch (default: 100)",
+    show_default=True,
+)
+@click.option(
+    "--no-batch",
+    is_flag=True,
+    default=False,
+    help="Disable batch inserts and insert records one at a time",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -670,7 +798,7 @@ def auth(auth, network):
     help="Disable actual execution of ingest and db mods",
 )
 @click.pass_context
-def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run):
+def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_batch, verbose, dry_run):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -761,37 +889,17 @@ def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run)
             f"[cyan]Ingesting tracks from {auth_data['lastfm_username']}...[/cyan]"
         )
 
-    # Enhanced progress display with percentage and counts
-    # Track min and max timestamps for reporting
-    min_timestamp = None
-    max_timestamp = None
-    track_count = 0
-    
-    with Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TaskProgressColumn(),
-        MofNCompleteColumn(),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
-        task = progress.add_task("[cyan]Ingesting tracks", total=expected_count)
-        for track in history:
-            lastfm.save_artist(db, track["artist"])
-            lastfm.save_album(db, track["album"])
-            lastfm.save_track(db, track["track"])
-            lastfm.save_play(db, track["play"])
-            
-            # Track timestamp range
-            timestamp = track["play"]["timestamp"]
-            if min_timestamp is None or timestamp < min_timestamp:
-                min_timestamp = timestamp
-            if max_timestamp is None or timestamp > max_timestamp:
-                max_timestamp = timestamp
-            track_count += 1
-            
-            progress.advance(task)
+    # Start timing the ingest operation
+    start_time = time.time()
+
+    # Ingest tracks using the appropriate mode
+    if no_batch:
+        min_timestamp, max_timestamp, track_count = _ingest_no_batch(db, history, expected_count)
+    else:
+        min_timestamp, max_timestamp, track_count = _ingest_batch(db, history, expected_count, batch_size)
+
+    # Calculate elapsed time
+    elapsed_time = time.time() - start_time
 
     # Ensure FTS5 triggers are set up now that tables exist
     # This handles the case where setup_fts5() was called during init before tables existed
@@ -810,6 +918,14 @@ def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run)
             f"[yellow]{min_timestamp.strftime('%Y-%m-%d %H:%M:%S')}[/yellow] to "
             f"[yellow]{max_timestamp.strftime('%Y-%m-%d %H:%M:%S')}[/yellow]"
         )
+    
+    # Report elapsed time
+    if elapsed_time >= 60:
+        minutes = int(elapsed_time // 60)
+        seconds = elapsed_time % 60
+        console.print(f"[cyan]Total time:[/cyan] [yellow]{minutes}m {seconds:.1f}s[/yellow]")
+    else:
+        console.print(f"[cyan]Total time:[/cyan] [yellow]{elapsed_time:.1f}s[/yellow]")
     
     console.print(
         "[dim]Search index is automatically maintained and ready to use.[/dim]"

@@ -275,6 +275,46 @@ def save_play(db: Database, data: Dict):
     db["plays"].upsert(data, pk=["timestamp", "track_id"], foreign_keys=["track_id"])
 
 
+def save_artists_batch(db: Database, artists: list):
+    """Save a batch of artists to the database using upsert_all."""
+    if not artists:
+        return
+    logger.debug("Saving batch of {} artists", len(artists))
+    db["artists"].upsert_all(
+        artists, pk="id", column_order=["id", "name"], not_null=["name"]
+    )
+
+
+def save_albums_batch(db: Database, albums: list):
+    """Save a batch of albums to the database using upsert_all."""
+    if not albums:
+        return
+    logger.debug("Saving batch of {} albums", len(albums))
+    db["albums"].upsert_all(
+        albums, pk="id", foreign_keys=["artist_id"], not_null=["id", "artist_id", "title"]
+    )
+
+
+def save_tracks_batch(db: Database, tracks: list):
+    """Save a batch of tracks to the database using upsert_all."""
+    if not tracks:
+        return
+    logger.debug("Saving batch of {} tracks", len(tracks))
+    db["tracks"].upsert_all(
+        tracks, pk="id", foreign_keys=["album_id"], not_null=["id", "album_id", "title"]
+    )
+
+
+def save_plays_batch(db: Database, plays: list):
+    """Save a batch of plays to the database using upsert_all."""
+    if not plays:
+        return
+    logger.debug("Saving batch of {} plays", len(plays))
+    db["plays"].upsert_all(
+        plays, pk=["timestamp", "track_id"], foreign_keys=["track_id"]
+    )
+
+
 # Field name aliases for flexible input parsing
 FIELD_ALIASES = {
     "timestamp": ["timestamp", "time", "played_at", "date", "datetime", "when"],

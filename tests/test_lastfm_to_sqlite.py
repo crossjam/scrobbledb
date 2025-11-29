@@ -1231,3 +1231,198 @@ def test_save_play_logs_debug(temp_db, sample_artist_data, sample_album_data, sa
     play_logged = any("track-123" in msg and "timestamp" in msg.lower() for msg in log_messages)
     assert play_logged, f"Expected play logging but got: {log_messages}"
 
+
+# Tests for batch insert functions
+
+
+def test_save_artists_batch(temp_db):
+    """Test saving a batch of artists."""
+    artists = [
+        {"id": f"artist-{i}", "name": f"Artist {i}"}
+        for i in range(5)
+    ]
+    
+    lastfm.save_artists_batch(temp_db, artists)
+    
+    # Verify all artists were inserted
+    assert temp_db["artists"].count == 5
+    for i in range(5):
+        row = temp_db["artists"].get(f"artist-{i}")
+        assert row["name"] == f"Artist {i}"
+
+
+def test_save_artists_batch_empty(temp_db):
+    """Test that save_artists_batch handles empty list gracefully."""
+    lastfm.save_artists_batch(temp_db, [])
+    
+    # Should not create the table
+    assert "artists" not in temp_db.table_names()
+
+
+def test_save_albums_batch(temp_db):
+    """Test saving a batch of albums."""
+    # First save artists
+    artists = [
+        {"id": f"artist-{i}", "name": f"Artist {i}"}
+        for i in range(3)
+    ]
+    lastfm.save_artists_batch(temp_db, artists)
+    
+    # Save albums
+    albums = [
+        {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i % 3}"}
+        for i in range(5)
+    ]
+    
+    lastfm.save_albums_batch(temp_db, albums)
+    
+    # Verify all albums were inserted
+    assert temp_db["albums"].count == 5
+    for i in range(5):
+        row = temp_db["albums"].get(f"album-{i}")
+        assert row["title"] == f"Album {i}"
+
+
+def test_save_albums_batch_empty(temp_db):
+    """Test that save_albums_batch handles empty list gracefully."""
+    lastfm.save_albums_batch(temp_db, [])
+    
+    # Should not create the table
+    assert "albums" not in temp_db.table_names()
+
+
+def test_save_tracks_batch(temp_db):
+    """Test saving a batch of tracks."""
+    # First save artists and albums
+    artists = [{"id": "artist-1", "name": "Artist 1"}]
+    lastfm.save_artists_batch(temp_db, artists)
+    
+    albums = [{"id": "album-1", "title": "Album 1", "artist_id": "artist-1"}]
+    lastfm.save_albums_batch(temp_db, albums)
+    
+    # Save tracks
+    tracks = [
+        {"id": f"track-{i}", "title": f"Track {i}", "album_id": "album-1"}
+        for i in range(5)
+    ]
+    
+    lastfm.save_tracks_batch(temp_db, tracks)
+    
+    # Verify all tracks were inserted
+    assert temp_db["tracks"].count == 5
+    for i in range(5):
+        row = temp_db["tracks"].get(f"track-{i}")
+        assert row["title"] == f"Track {i}"
+
+
+def test_save_tracks_batch_empty(temp_db):
+    """Test that save_tracks_batch handles empty list gracefully."""
+    lastfm.save_tracks_batch(temp_db, [])
+    
+    # Should not create the table
+    assert "tracks" not in temp_db.table_names()
+
+
+def test_save_plays_batch(temp_db):
+    """Test saving a batch of plays."""
+    # First save artists, albums, and tracks
+    artists = [{"id": "artist-1", "name": "Artist 1"}]
+    lastfm.save_artists_batch(temp_db, artists)
+    
+    albums = [{"id": "album-1", "title": "Album 1", "artist_id": "artist-1"}]
+    lastfm.save_albums_batch(temp_db, albums)
+    
+    tracks = [{"id": f"track-{i}", "title": f"Track {i}", "album_id": "album-1"} for i in range(3)]
+    lastfm.save_tracks_batch(temp_db, tracks)
+    
+    # Save plays
+    plays = [
+        {"track_id": f"track-{i % 3}", "timestamp": dt.datetime(2024, 1, 15, 12, i, 0, tzinfo=timezone.utc)}
+        for i in range(5)
+    ]
+    
+    lastfm.save_plays_batch(temp_db, plays)
+    
+    # Verify all plays were inserted
+    assert temp_db["plays"].count == 5
+
+
+def test_save_plays_batch_empty(temp_db):
+    """Test that save_plays_batch handles empty list gracefully."""
+    lastfm.save_plays_batch(temp_db, [])
+    
+    # Should not create the table
+    assert "plays" not in temp_db.table_names()
+
+
+def test_save_batch_upsert_behavior(temp_db):
+    """Test that batch functions correctly upsert (update existing records)."""
+    # Insert initial data
+    artists = [{"id": "artist-1", "name": "Original Name"}]
+    lastfm.save_artists_batch(temp_db, artists)
+    
+    # Verify initial data
+    assert temp_db["artists"].get("artist-1")["name"] == "Original Name"
+    
+    # Upsert with updated name
+    updated_artists = [{"id": "artist-1", "name": "Updated Name"}]
+    lastfm.save_artists_batch(temp_db, updated_artists)
+    
+    # Verify upsert worked
+    assert temp_db["artists"].count == 1
+    assert temp_db["artists"].get("artist-1")["name"] == "Updated Name"
+
+
+def test_save_complete_batch(temp_db):
+    """Test saving complete scrobble data in batch."""
+    # Create batch data
+    artists = [
+        {"id": f"artist-{i}", "name": f"Artist {i}"}
+        for i in range(3)
+    ]
+    albums = [
+        {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"}
+        for i in range(3)
+    ]
+    tracks = [
+        {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"}
+        for i in range(3)
+    ]
+    plays = [
+        {"track_id": f"track-{i}", "timestamp": dt.datetime(2024, 1, 15, 12, i, 0, tzinfo=timezone.utc)}
+        for i in range(3)
+    ]
+    
+    # Save all batches
+    lastfm.save_artists_batch(temp_db, artists)
+    lastfm.save_albums_batch(temp_db, albums)
+    lastfm.save_tracks_batch(temp_db, tracks)
+    lastfm.save_plays_batch(temp_db, plays)
+    
+    # Verify all data was inserted
+    assert temp_db["artists"].count == 3
+    assert temp_db["albums"].count == 3
+    assert temp_db["tracks"].count == 3
+    assert temp_db["plays"].count == 3
+    
+    # Verify relationships through joins
+    result = temp_db.execute("""
+        SELECT
+            plays.timestamp,
+            tracks.title as track_title,
+            albums.title as album_title,
+            artists.name as artist_name
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        ORDER BY plays.timestamp
+    """).fetchall()
+    
+    assert len(result) == 3
+    for i, row in enumerate(result):
+        assert row[1] == f"Track {i}"
+        assert row[2] == f"Album {i}"
+        assert row[3] == f"Artist {i}"
+
+
