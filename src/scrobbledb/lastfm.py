@@ -252,22 +252,26 @@ def get_network(name: str, key: str, secret: str, session_key: str = None):
 
 
 def save_artist(db: Database, data: Dict):
+    logger.debug("Saving artist: id={}, name={}", data.get("id"), data.get("name"))
     db["artists"].upsert(data, pk="id", column_order=["id", "name"], not_null=["name"])
 
 
 def save_album(db: Database, data: Dict):
+    logger.debug("Saving album: id={}, title={}, artist_id={}", data.get("id"), data.get("title"), data.get("artist_id"))
     db["albums"].upsert(
         data, pk="id", foreign_keys=["artist_id"], not_null=["id", "artist_id", "title"]
     )
 
 
 def save_track(db: Database, data: Dict):
+    logger.debug("Saving track: id={}, title={}, album_id={}", data.get("id"), data.get("title"), data.get("album_id"))
     db["tracks"].upsert(
         data, pk="id", foreign_keys=["album_id"], not_null=["id", "album_id", "title"]
     )
 
 
 def save_play(db: Database, data: Dict):
+    logger.debug("Saving play: track_id={}, timestamp={}", data.get("track_id"), data.get("timestamp"))
     db["plays"].upsert(data, pk=["timestamp", "track_id"], foreign_keys=["track_id"])
 
 

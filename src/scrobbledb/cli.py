@@ -762,6 +762,11 @@ def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run)
         )
 
     # Enhanced progress display with percentage and counts
+    # Track min and max timestamps for reporting
+    min_timestamp = None
+    max_timestamp = None
+    track_count = 0
+    
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -777,6 +782,15 @@ def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run)
             lastfm.save_album(db, track["album"])
             lastfm.save_track(db, track["track"])
             lastfm.save_play(db, track["play"])
+            
+            # Track timestamp range
+            timestamp = track["play"]["timestamp"]
+            if min_timestamp is None or timestamp < min_timestamp:
+                min_timestamp = timestamp
+            if max_timestamp is None or timestamp > max_timestamp:
+                max_timestamp = timestamp
+            track_count += 1
+            
             progress.advance(task)
 
     # Ensure FTS5 triggers are set up now that tables exist
@@ -788,6 +802,15 @@ def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run)
     console.print(
         f"[green]✓[/green] Successfully ingested tracks to: [cyan]{database}[/cyan]"
     )
+    
+    # Report timestamp range if any tracks were ingested
+    if track_count > 0 and min_timestamp and max_timestamp:
+        console.print(
+            f"[cyan]Ingested {track_count} plays:[/cyan] "
+            f"[yellow]{min_timestamp.strftime('%Y-%m-%d %H:%M:%S')}[/yellow] to "
+            f"[yellow]{max_timestamp.strftime('%Y-%m-%d %H:%M:%S')}[/yellow]"
+        )
+    
     console.print(
         "[dim]Search index is automatically maintained and ready to use.[/dim]"
     )
