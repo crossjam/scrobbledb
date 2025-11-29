@@ -517,3 +517,76 @@ class TestBatchInsert:
                             assert db["albums"].count == 3
                             assert db["tracks"].count == 3
                             assert db["plays"].count == 3
+
+    def test_ingest_no_batch_mode(self, runner, temp_db, temp_auth):
+        """Test ingest with --no-batch flag uses individual inserts."""
+        db_path, db = temp_db
+
+        # Create mock data
+        mock_tracks = []
+        for i in range(5):
+            mock_tracks.append({
+                "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
+                "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
+                "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
+                "play": {
+                    "track_id": f"track-{i}",
+                    "timestamp": dt.datetime(2024, 1, 15, 12, i, 0, tzinfo=timezone.utc),
+                },
+            })
+
+        mock_user = Mock()
+        mock_network = Mock()
+        mock_network.get_user.return_value = mock_user
+
+        with patch("scrobbledb.lastfm.get_network", return_value=mock_network):
+            with patch("scrobbledb.lastfm.recent_tracks_count", return_value=5):
+                with patch("scrobbledb.lastfm.recent_tracks", return_value=mock_tracks):
+                    with patch("scrobbledb.lastfm.setup_fts5"):
+                        with patch("scrobbledb.lastfm.rebuild_fts5"):
+                            result = runner.invoke(
+                                cli.cli, ["ingest", db_path, "-a", temp_auth, "--no-batch"]
+                            )
+
+                            assert result.exit_code == 0, f"Command failed: {result.output}"
+                            assert "Successfully ingested" in result.output
+
+                            # Verify all records were inserted
+                            assert db["artists"].count == 5
+                            assert db["albums"].count == 5
+                            assert db["tracks"].count == 5
+                            assert db["plays"].count == 5
+
+    def test_ingest_reports_elapsed_time(self, runner, temp_db, temp_auth):
+        """Test that ingest reports elapsed time."""
+        db_path, db = temp_db
+
+        # Create mock data
+        mock_tracks = []
+        for i in range(3):
+            mock_tracks.append({
+                "artist": {"id": f"artist-{i}", "name": f"Artist {i}"},
+                "album": {"id": f"album-{i}", "title": f"Album {i}", "artist_id": f"artist-{i}"},
+                "track": {"id": f"track-{i}", "title": f"Track {i}", "album_id": f"album-{i}"},
+                "play": {
+                    "track_id": f"track-{i}",
+                    "timestamp": dt.datetime(2024, 1, 15, 12, i, 0, tzinfo=timezone.utc),
+                },
+            })
+
+        mock_user = Mock()
+        mock_network = Mock()
+        mock_network.get_user.return_value = mock_user
+
+        with patch("scrobbledb.lastfm.get_network", return_value=mock_network):
+            with patch("scrobbledb.lastfm.recent_tracks_count", return_value=3):
+                with patch("scrobbledb.lastfm.recent_tracks", return_value=mock_tracks):
+                    with patch("scrobbledb.lastfm.setup_fts5"):
+                        with patch("scrobbledb.lastfm.rebuild_fts5"):
+                            result = runner.invoke(
+                                cli.cli, ["ingest", db_path, "-a", temp_auth]
+                            )
+
+                            assert result.exit_code == 0, f"Command failed: {result.output}"
+                            # Should show elapsed time in the output
+                            assert "Total time:" in result.output

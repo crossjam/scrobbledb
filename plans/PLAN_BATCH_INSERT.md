@@ -13,6 +13,7 @@ The `ingest` command in `cli.py` currently inserts track information individuall
 ### 1. Add Command Line Option
 - [x] Add `--batch-size` option to `ingest` command in `cli.py`
 - [x] Default value: 100
+- [x] Add `--no-batch` option to disable batching and use original behavior
 
 ### 2. Create Batch Save Functions in `lastfm.py`
 - [x] Add `save_artists_batch(db, artists)` function using `upsert_all`
@@ -24,10 +25,17 @@ The `ingest` command in `cli.py` currently inserts track information individuall
 - [x] Collect records into batches
 - [x] Call batch save functions when batch is full
 - [x] Flush remaining records after loop completes
+- [x] Support `--no-batch` mode for individual inserts
 
-### 4. Testing
+### 4. Time Tracking
+- [x] Track overall time for ingest operation
+- [x] Report elapsed time to console when command completes
+
+### 5. Testing
 - [x] Add tests for batch functions
 - [x] Add tests for batch size option
+- [x] Add tests for `--no-batch` option
+- [x] Add tests for elapsed time reporting
 - [x] Verify existing tests still pass
 
 ## Technical Details
