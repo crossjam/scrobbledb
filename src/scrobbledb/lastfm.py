@@ -58,7 +58,7 @@ def _api_request_with_retry(user: pylast.User, method: str, cacheable: bool = Tr
                 raise
 
 
-def recent_tracks_count(user: pylast.User, since: dt.datetime):
+def recent_tracks_count(user: pylast.User, since: dt.datetime, until: dt.datetime = None):
     """
     Return the number of tracks recorded since a given datetime.
 
@@ -66,10 +66,14 @@ def recent_tracks_count(user: pylast.User, since: dt.datetime):
     """
 
     logger.info("Checking for tracks since {}", since.isoformat() if since else None)
+    if until:
+        logger.info("Checking for tracks until {}", until.isoformat())
     try:
         params = dict(user._get_params(), limit=200)
         if since:
             params["from"] = int(since.timestamp())
+        if until:
+            params["to"] = int(until.timestamp())
         params["page"] = 1
         params["limit"] = 1
         doc = _api_request_with_retry(user, "user.getRecentTracks", cacheable=True, params=params)
@@ -126,7 +130,7 @@ def recent_tracks_count(user: pylast.User, since: dt.datetime):
         return 0
 
 
-def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
+def recent_tracks(user: pylast.User, since: dt.datetime, until: dt.datetime = None, limit: int = None):
     """
     This is similar to pylast.User.get_recent_tracks
     (https://github.com/pylast/pylast/blob/master/src/pylast/__init__.py#L2362),
@@ -153,6 +157,10 @@ def recent_tracks(user: pylast.User, since: dt.datetime, limit: int = None):
         logger.info(f"Fetching tracks since {since.isoformat()}")
     else:
         logger.info("Fetching all available tracks")
+
+    if until:
+        params["to"] = int(until.timestamp())
+        logger.info(f"Fetching tracks until {until.isoformat()}")
 
     if limit:
         logger.info(f"Limiting to {limit} tracks")

@@ -648,6 +648,9 @@ def auth(auth, network):
     "--since-date", default=None, metavar="DATE", help="Pull new posts since DATE"
 )
 @click.option(
+    "--until-date", default=None, metavar="DATE", help="Pull new posts until DATE"
+)
+@click.option(
     "--limit",
     type=int,
     default=None,
@@ -667,7 +670,7 @@ def auth(auth, network):
     help="Disable actual execution of ingest and db mods",
 )
 @click.pass_context
-def ingest(ctx, database, auth, since_date, limit, verbose, dry_run):
+def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -699,8 +702,15 @@ def ingest(ctx, database, auth, since_date, limit, verbose, dry_run):
     if since_date:
         since_date = dateutil.parser.parse(since_date)
 
-    if since_date:
+    if until_date:
+        until_date = dateutil.parser.parse(until_date)
+
+    if since_date and until_date:
+        console.print(f"[green]Fetching scrobbles from {since_date.isoformat()} to {until_date.isoformat()}[/green]")
+    elif since_date:
         console.print(f"[green]Fetching scrobbles since: {since_date.isoformat()}[/green]")
+    elif until_date:
+        console.print(f"[green]Fetching scrobbles until: {until_date.isoformat()}[/green]")
     else:
         console.print("[green]Fetching all scrobbles[/green]")
 
@@ -725,7 +735,7 @@ def ingest(ctx, database, auth, since_date, limit, verbose, dry_run):
     user = network.get_user(auth_data["lastfm_username"])
     # playcount = user.get_playcount()
 
-    playcount = lastfm.recent_tracks_count(user, since_date)
+    playcount = lastfm.recent_tracks_count(user, since_date, until_date)
 
     # Use limit if specified, otherwise use total playcount
 
@@ -735,7 +745,7 @@ def ingest(ctx, database, auth, since_date, limit, verbose, dry_run):
         console.print("[green]dry run indicated, ingest complete[/green]")
         return
 
-    history = lastfm.recent_tracks(user, since_date, limit=limit)
+    history = lastfm.recent_tracks(user, since_date, until_date, limit=limit)
 
     # Set up FTS5 index if it doesn't exist
     if "tracks_fts" not in db.table_names():
