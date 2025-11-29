@@ -1,6 +1,7 @@
 from xml.dom import minidom
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+import logging
+from unittest.mock import Mock
 from scrobbledb import lastfm
 import datetime as dt
 from datetime import timezone
@@ -8,6 +9,7 @@ import sqlite_utils
 import tempfile
 import os
 import pylast
+from loguru import logger
 
 
 @pytest.fixture
@@ -69,6 +71,16 @@ def sample_play_data():
         "track_id": "track-123",
         "timestamp": dt.datetime(2008, 6, 9, 17, 16, 59, tzinfo=timezone.utc),
     }
+
+
+@pytest.fixture
+def setup_loguru_for_caplog():
+    """Configure loguru to propagate to standard logging for caplog capture."""
+    logger.remove()
+    logger.add(lambda msg: logging.getLogger("loguru").info(msg), format="{message}", level="DEBUG")
+    yield
+    # Reset logger after test
+    logger.remove()
 
 
 def test_extract_track_data(track_node: minidom.Node):
@@ -1164,4 +1176,58 @@ def test_recent_tracks_uses_retry():
     assert tracks[0]["artist"]["name"] == "Test Artist"
     assert tracks[0]["track"]["title"] == "Test Track"
 
+
+# Tests for logging functionality
+
+def test_save_artist_logs_debug(temp_db, sample_artist_data, caplog, setup_loguru_for_caplog):
+    """Test that save_artist logs a debug message."""
+    with caplog.at_level(logging.INFO, logger="loguru"):
+        lastfm.save_artist(temp_db, sample_artist_data)
+    
+    # Verify logging occurred - check that artist info is logged
+    log_messages = [record.message for record in caplog.records]
+    artist_logged = any("artist-123" in msg and "Aretha Franklin" in msg for msg in log_messages)
+    assert artist_logged, f"Expected artist logging but got: {log_messages}"
+
+
+def test_save_album_logs_debug(temp_db, sample_artist_data, sample_album_data, caplog, setup_loguru_for_caplog):
+    """Test that save_album logs a debug message."""
+    lastfm.save_artist(temp_db, sample_artist_data)
+    
+    with caplog.at_level(logging.INFO, logger="loguru"):
+        lastfm.save_album(temp_db, sample_album_data)
+    
+    # Verify logging occurred - check that album info is logged
+    log_messages = [record.message for record in caplog.records]
+    album_logged = any("album-123" in msg and "Who's Zoomin' Who?" in msg for msg in log_messages)
+    assert album_logged, f"Expected album logging but got: {log_messages}"
+
+
+def test_save_track_logs_debug(temp_db, sample_artist_data, sample_album_data, sample_track_data, caplog, setup_loguru_for_caplog):
+    """Test that save_track logs a debug message."""
+    lastfm.save_artist(temp_db, sample_artist_data)
+    lastfm.save_album(temp_db, sample_album_data)
+    
+    with caplog.at_level(logging.INFO, logger="loguru"):
+        lastfm.save_track(temp_db, sample_track_data)
+    
+    # Verify logging occurred - check that track info is logged
+    log_messages = [record.message for record in caplog.records]
+    track_logged = any("track-123" in msg and "Sisters Are Doing It For Themselves" in msg for msg in log_messages)
+    assert track_logged, f"Expected track logging but got: {log_messages}"
+
+
+def test_save_play_logs_debug(temp_db, sample_artist_data, sample_album_data, sample_track_data, sample_play_data, caplog, setup_loguru_for_caplog):
+    """Test that save_play logs a debug message."""
+    lastfm.save_artist(temp_db, sample_artist_data)
+    lastfm.save_album(temp_db, sample_album_data)
+    lastfm.save_track(temp_db, sample_track_data)
+    
+    with caplog.at_level(logging.INFO, logger="loguru"):
+        lastfm.save_play(temp_db, sample_play_data)
+    
+    # Verify logging occurred - check that play info is logged
+    log_messages = [record.message for record in caplog.records]
+    play_logged = any("track-123" in msg and "timestamp" in msg.lower() for msg in log_messages)
+    assert play_logged, f"Expected play logging but got: {log_messages}"
 
