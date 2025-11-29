@@ -657,6 +657,13 @@ def auth(auth, network):
     help="Maximum number of tracks to import",
 )
 @click.option(
+    "--batch-size",
+    type=int,
+    default=100,
+    help="Number of records to insert in each batch (default: 100)",
+    show_default=True,
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -670,7 +677,7 @@ def auth(auth, network):
     help="Disable actual execution of ingest and db mods",
 )
 @click.pass_context
-def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run):
+def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, verbose, dry_run):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -767,6 +774,21 @@ def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run)
     max_timestamp = None
     track_count = 0
     
+    # Batch buffers
+    batch = {"artists": [], "albums": [], "tracks": [], "plays": []}
+    
+    def flush_batch():
+        """Flush the current batch to the database."""
+        if batch["artists"]:
+            lastfm.save_artists_batch(db, batch["artists"])
+            lastfm.save_albums_batch(db, batch["albums"])
+            lastfm.save_tracks_batch(db, batch["tracks"])
+            lastfm.save_plays_batch(db, batch["plays"])
+            batch["artists"].clear()
+            batch["albums"].clear()
+            batch["tracks"].clear()
+            batch["plays"].clear()
+    
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -778,10 +800,11 @@ def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run)
     ) as progress:
         task = progress.add_task("[cyan]Ingesting tracks", total=expected_count)
         for track in history:
-            lastfm.save_artist(db, track["artist"])
-            lastfm.save_album(db, track["album"])
-            lastfm.save_track(db, track["track"])
-            lastfm.save_play(db, track["play"])
+            # Collect records into batch
+            batch["artists"].append(track["artist"])
+            batch["albums"].append(track["album"])
+            batch["tracks"].append(track["track"])
+            batch["plays"].append(track["play"])
             
             # Track timestamp range
             timestamp = track["play"]["timestamp"]
@@ -791,7 +814,14 @@ def ingest(ctx, database, auth, since_date, until_date, limit, verbose, dry_run)
                 max_timestamp = timestamp
             track_count += 1
             
+            # Flush batch when it reaches the batch size
+            if len(batch["plays"]) >= batch_size:
+                flush_batch()
+            
             progress.advance(task)
+        
+        # Flush any remaining records
+        flush_batch()
 
     # Ensure FTS5 triggers are set up now that tables exist
     # This handles the case where setup_fts5() was called during init before tables existed
