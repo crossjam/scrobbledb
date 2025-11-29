@@ -1,6 +1,7 @@
 from xml.dom import minidom
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+import logging
+from unittest.mock import Mock
 from scrobbledb import lastfm
 import datetime as dt
 from datetime import timezone
@@ -8,6 +9,7 @@ import sqlite_utils
 import tempfile
 import os
 import pylast
+from loguru import logger
 
 
 @pytest.fixture
@@ -69,6 +71,16 @@ def sample_play_data():
         "track_id": "track-123",
         "timestamp": dt.datetime(2008, 6, 9, 17, 16, 59, tzinfo=timezone.utc),
     }
+
+
+@pytest.fixture
+def setup_loguru_for_caplog():
+    """Configure loguru to propagate to standard logging for caplog capture."""
+    logger.remove()
+    logger.add(lambda msg: logging.getLogger("loguru").info(msg), format="{message}", level="DEBUG")
+    yield
+    # Reset logger after test
+    logger.remove()
 
 
 def test_extract_track_data(track_node: minidom.Node):
@@ -1167,15 +1179,8 @@ def test_recent_tracks_uses_retry():
 
 # Tests for logging functionality
 
-def test_save_artist_logs_debug(temp_db, sample_artist_data, caplog):
+def test_save_artist_logs_debug(temp_db, sample_artist_data, caplog, setup_loguru_for_caplog):
     """Test that save_artist logs a debug message."""
-    import logging
-    from loguru import logger
-    
-    # Configure loguru to propagate to standard logging for caplog
-    logger.remove()
-    logger.add(lambda msg: logging.getLogger("loguru").info(msg), format="{message}", level="DEBUG")
-    
     with caplog.at_level(logging.INFO, logger="loguru"):
         lastfm.save_artist(temp_db, sample_artist_data)
     
@@ -1185,15 +1190,8 @@ def test_save_artist_logs_debug(temp_db, sample_artist_data, caplog):
     assert artist_logged, f"Expected artist logging but got: {log_messages}"
 
 
-def test_save_album_logs_debug(temp_db, sample_artist_data, sample_album_data, caplog):
+def test_save_album_logs_debug(temp_db, sample_artist_data, sample_album_data, caplog, setup_loguru_for_caplog):
     """Test that save_album logs a debug message."""
-    import logging
-    from loguru import logger
-    
-    # Configure loguru to propagate to standard logging for caplog
-    logger.remove()
-    logger.add(lambda msg: logging.getLogger("loguru").info(msg), format="{message}", level="DEBUG")
-    
     lastfm.save_artist(temp_db, sample_artist_data)
     
     with caplog.at_level(logging.INFO, logger="loguru"):
@@ -1205,15 +1203,8 @@ def test_save_album_logs_debug(temp_db, sample_artist_data, sample_album_data, c
     assert album_logged, f"Expected album logging but got: {log_messages}"
 
 
-def test_save_track_logs_debug(temp_db, sample_artist_data, sample_album_data, sample_track_data, caplog):
+def test_save_track_logs_debug(temp_db, sample_artist_data, sample_album_data, sample_track_data, caplog, setup_loguru_for_caplog):
     """Test that save_track logs a debug message."""
-    import logging
-    from loguru import logger
-    
-    # Configure loguru to propagate to standard logging for caplog
-    logger.remove()
-    logger.add(lambda msg: logging.getLogger("loguru").info(msg), format="{message}", level="DEBUG")
-    
     lastfm.save_artist(temp_db, sample_artist_data)
     lastfm.save_album(temp_db, sample_album_data)
     
@@ -1226,15 +1217,8 @@ def test_save_track_logs_debug(temp_db, sample_artist_data, sample_album_data, s
     assert track_logged, f"Expected track logging but got: {log_messages}"
 
 
-def test_save_play_logs_debug(temp_db, sample_artist_data, sample_album_data, sample_track_data, sample_play_data, caplog):
+def test_save_play_logs_debug(temp_db, sample_artist_data, sample_album_data, sample_track_data, sample_play_data, caplog, setup_loguru_for_caplog):
     """Test that save_play logs a debug message."""
-    import logging
-    from loguru import logger
-    
-    # Configure loguru to propagate to standard logging for caplog
-    logger.remove()
-    logger.add(lambda msg: logging.getLogger("loguru").info(msg), format="{message}", level="DEBUG")
-    
     lastfm.save_artist(temp_db, sample_artist_data)
     lastfm.save_album(temp_db, sample_album_data)
     lastfm.save_track(temp_db, sample_track_data)
