@@ -121,7 +121,7 @@ class ScrobbleBrowser(App):
         self.page_size = 50
         self.filter_text = ""
         self.filter_column = "all"
-        self.sort_by = "plays_desc"
+        self.sort_by = "last_played_desc"
         self.total_count = 0
 
     def compose(self) -> ComposeResult:
@@ -142,7 +142,7 @@ class ScrobbleBrowser(App):
                 )
                 yield Select(
                     options=self.SORT_OPTIONS,
-                    value="plays_desc",
+                    value="last_played_desc",
                     id="sort-select",
                     allow_blank=False,
                 )
