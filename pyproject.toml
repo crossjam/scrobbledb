@@ -46,6 +46,7 @@ dev = [
     "ruff>=0.1.0",
     "ty",
     "types-python-dateutil>=2.8.0",
+    "pip-audit>=2.0.0",
 ]
 
 [tool.setuptools.package-data]
@@ -82,6 +83,11 @@ cmd = "ruff check --fix src/ tests/"
 help = "Run ty type checker on source files"
 cmd = "ty check src/"
 
+# Security auditing
+[tool.poe.tasks.audit]
+help = "Run pip-audit to check for known vulnerabilities"
+cmd = "pip-audit"
+
 # Testing
 [tool.poe.tasks.test]
 help = "Run pytest with verbose output"
@@ -97,6 +103,6 @@ cmd = "pytest -x"
 
 # Combined QA - run all checks
 [tool.poe.tasks.qa]
-help = "Run all QA checks (lint, type, test)"
-sequence = ["lint", "type", "test"]
+help = "Run all QA checks (lint, type, audit, test)"
+sequence = ["lint", "type", "audit", "test"]
 ignore_fail = false
