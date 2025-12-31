@@ -6,6 +6,5 @@ auth.json
 __pycache__/
 *.pyc
 .venv/
-uv.lock
 sys.stderr
 /.claude/
