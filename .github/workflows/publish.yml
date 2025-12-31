@@ -4,6 +4,10 @@ on:
   release:
     types: [published]
 
+# Explicitly set permissions for security best practices
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build distribution packages

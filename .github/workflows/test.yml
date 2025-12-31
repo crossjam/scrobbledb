@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: ["**"]
 
+# Cancel in-progress runs when a new commit is pushed
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Explicitly set permissions for security best practices
+permissions:
+  contents: read
+
 jobs:
   qa:
     name: QA Checks (Python ${{ matrix.python-version }})
