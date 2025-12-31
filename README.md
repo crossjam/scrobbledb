@@ -1,6 +1,6 @@
 # scrobbledb
 
-[![Tests](https://github.com/crossjam/scrobbledb/actions/workflows/test.yml/badge.svg)](https://github.com/crossjam/scrobbledb/actions/workflows/test.yml)
+[![QA](https://github.com/crossjam/scrobbledb/actions/workflows/qa.yml/badge.svg)](https://github.com/crossjam/scrobbledb/actions/workflows/qa.yml)
 
 A modernization of [Jacob Kaplan-Moss’s](https://github.com/jacobian/)
 project

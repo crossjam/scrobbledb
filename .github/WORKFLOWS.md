@@ -12,7 +12,7 @@ The project uses modern GitHub Actions workflows with:
 
 ## Workflows
 
-### `test.yml` - Continuous Integration
+### `qa.yml` - Continuous Integration
 
 **Triggers:** Runs on every push to any branch and on all pull requests
 
@@ -116,7 +116,7 @@ uv run poe qa            # Runs all of the above
 When updating supported Python versions:
 
 1. Update `requires-python` in `pyproject.toml`
-2. Update the matrix in `.github/workflows/test.yml`
+2. Update the matrix in `.github/workflows/qa.yml`
 3. Consider updating the Python version used for building in `publish.yml`
 
 ### Updating Actions
