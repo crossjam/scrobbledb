@@ -33,6 +33,44 @@ The scrobbledb database has four core tables:
 - **Output Formatting**: `rich` - Already used for tables, progress bars, and styled output
 - **Database Access**: `sqlite_utils` - Existing dependency for database operations
 
+### Implementation Guidelines
+
+When implementing these domain-specific commands, follow these principles:
+
+1. **Database Location**: Use existing helper functions to locate the scrobbledb SQLite database
+   - Use `get_default_db_path()` from `cli.py` to get the default database location
+   - Use `get_data_dir()` for XDG-compliant data directory access
+   - Always support `--database` / `-d` option to override the default path
+
+2. **Database Access**: Prefer the `sqlite-utils` Python API over raw SQL queries
+   - Use `sqlite_utils.Database` class for database operations
+   - Use `.execute()` for parameterized queries when SQL is needed
+   - Leverage `sqlite-utils` table methods (`.rows`, `.search()`, etc.) where applicable
+   - See `lastfm.py` and `sql.py` for examples of sqlite-utils usage
+
+3. **Database Extensions**: Extend the database connection with domain-specific functionality
+   - Register custom SQL functions for common operations (e.g., timestamp parsing/formatting)
+   - Use SQLite's `create_function()` to add helpers like date range filters
+   - Example: Register a `parse_relative_time()` function for "7 days ago" expressions
+   - See `stamina` retry logic in `lastfm.py` for patterns to follow
+
+4. **Output Format**:
+   - **Default**: Console output using Rich tables, panels, and formatted text
+   - **Additional formats**: Support `--format` option with:
+     - `table` (default): Rich table output for human-readable display
+     - `csv`: Comma-separated values for spreadsheet import
+     - `json`: JSON object (single object or array of objects)
+     - `jsonl`: JSON Lines format (one JSON object per line, newline-delimited)
+   - Use Rich's `Console` class and check `console.is_terminal` for appropriate formatting
+   - See `export.py` for examples of multiple output format support
+
+5. **Rich Output**: Default to using Rich for all console presentation
+   - Use `rich.table.Table` for tabular data
+   - Use `rich.panel.Panel` for summary information and headers
+   - Use `rich.console.Console` for all output operations
+   - Use `rich.progress.Progress` for long-running operations
+   - Follow existing patterns in `cli.py`, `search()`, and `browse` commands
+
 ### Command Structure
 
 All domain-specific commands will be organized under their respective top-level command groups:
@@ -65,7 +103,7 @@ List recent plays with filtering and pagination.
 - `--artist` - Filter by artist name (case-insensitive partial match)
 - `--album` - Filter by album title (case-insensitive partial match)
 - `--track` - Filter by track title (case-insensitive partial match)
-- `--format` - Output format: `table` (default), `json`, `csv`
+- `--format` - Output format: `table` (default), `csv`, `json`, `jsonl`
 - `--database` / `-d` - Database path (defaults to XDG data directory)
 
 **Output Columns**:
@@ -118,7 +156,7 @@ Search for albums using fuzzy matching.
 **Options**:
 - `--limit` / `-l` - Maximum results (default: 20)
 - `--artist` - Filter by artist name
-- `--format` - Output format: `table` (default), `json`, `csv`
+- `--format` - Output format: `table` (default), `csv`, `json`, `jsonl`
 - `--database` / `-d` - Database path
 
 **Output Columns**:
@@ -158,7 +196,7 @@ Display detailed information about a specific album and list its tracks.
 **Options**:
 - `--album-id` - Use album ID instead of title
 - `--artist` - Artist name (to disambiguate albums with same title)
-- `--format` - Output format: `table` (default), `json`, `csv`
+- `--format` - Output format: `table` (default), `csv`, `json`, `jsonl`
 - `--database` / `-d` - Database path
 
 **Output**:
@@ -211,7 +249,7 @@ List all artists in the database with play statistics.
 - `--sort` - Sort by: `plays` (default), `name`, `recent`
 - `--order` - Sort order: `desc` (default), `asc`
 - `--min-plays` - Show only artists with at least N plays
-- `--format` - Output format: `table` (default), `json`, `csv`
+- `--format` - Output format: `table` (default), `csv`, `json`, `jsonl`
 - `--database` / `-d` - Database path
 
 **Output Columns**:
@@ -257,7 +295,7 @@ Show top artists with flexible time range support.
 - `--since` / `-s` - Start date/time for analysis period
 - `--until` / `-u` - End date/time for analysis period
 - `--period` - Predefined period: `week`, `month`, `quarter`, `year`, `all-time` (default: all-time)
-- `--format` - Output format: `table` (default), `json`, `csv`
+- `--format` - Output format: `table` (default), `csv`, `json`, `jsonl`
 - `--database` / `-d` - Database path
 
 **Output Columns**:
@@ -305,7 +343,7 @@ Display detailed information about a specific artist.
 
 **Options**:
 - `--artist-id` - Use artist ID instead of name
-- `--format` - Output format: `table` (default), `json`
+- `--format` - Output format: `table` (default), `json`, `jsonl`
 - `--database` / `-d` - Database path
 
 **Output**:
@@ -366,7 +404,7 @@ Search for tracks using fuzzy matching.
 - `--limit` / `-l` - Maximum results (default: 20)
 - `--artist` - Filter by artist name
 - `--album` - Filter by album title
-- `--format` - Output format: `table` (default), `json`, `csv`
+- `--format` - Output format: `table` (default), `csv`, `json`, `jsonl`
 - `--database` / `-d` - Database path
 
 **Output Columns**:
@@ -407,7 +445,7 @@ Show top tracks with flexible time range support.
 - `--until` / `-u` - End date/time for analysis period
 - `--period` - Predefined period: `week`, `month`, `quarter`, `year`, `all-time` (default: all-time)
 - `--artist` - Filter by artist name
-- `--format` - Output format: `table` (default), `json`, `csv`
+- `--format` - Output format: `table` (default), `csv`, `json`, `jsonl`
 - `--database` / `-d` - Database path
 
 **Output Columns**:
@@ -454,7 +492,7 @@ Display detailed information about a specific track.
 - `--artist` - Artist name (to disambiguate tracks with same title)
 - `--album` - Album title (to disambiguate further)
 - `--show-plays` - Show individual play timestamps (default: false)
-- `--format` - Output format: `table` (default), `json`
+- `--format` - Output format: `table` (default), `json`, `jsonl`
 - `--database` / `-d` - Database path
 
 **Output**:
@@ -581,10 +619,11 @@ All commands will use the existing `get_default_db_path()` helper from `cli.py` 
 
 ### Output Format Support
 
-Support three output formats consistently:
+Support four output formats consistently:
 - **table** (default): Rich table output, human-readable
-- **json**: JSON array of objects, machine-readable
 - **csv**: CSV format, suitable for Excel/spreadsheet import
+- **json**: JSON object or array of objects, machine-readable
+- **jsonl**: JSON Lines format (newline-delimited JSON), one object per line
 
 ## Command Module Structure
 
