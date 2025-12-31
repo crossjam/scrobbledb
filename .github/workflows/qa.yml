@@ -42,6 +42,8 @@ jobs:
         run: uv sync
 
       - name: Verify CLI docs are in sync
+        env:
+          COLUMNS: 100  # stabilize click help wrapping across environments
         run: |
           uv run poe docs:cli
           git diff --name-only --exit-code docs/commands

@@ -106,7 +106,7 @@ cmd = "pytest -x"
 # Documentation
 [tool.poe.tasks."docs:cli"]
 help = "Regenerate CLI help snippets across docs/commands"
-cmd = "env PYTHONPATH=src uv run cog -r docs/commands/*.md"
+cmd = "env PYTHONPATH=src COLUMNS=100 uv run cog -r docs/commands/*.md"
 
 # Combined QA - run all checks
 [tool.poe.tasks.qa]
