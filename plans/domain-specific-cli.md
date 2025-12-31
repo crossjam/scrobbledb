@@ -71,7 +71,155 @@ When implementing these domain-specific commands, follow these principles:
    - Use `rich.progress.Progress` for long-running operations
    - Follow existing patterns in `cli.py`, `search()`, and `browse` commands
 
-### Command Structure
+### Recommended Libraries for Human-Friendly Input
+
+#### Date/Time Parsing
+
+**Option 1: python-dateutil** (Already a dependency ✅)
+- **Status**: Already installed (`python-dateutil>=2.8.1`)
+- **Strengths**: 
+  - Mature, well-tested library (in use since 2003)
+  - Excellent parser for various date formats
+  - Handles relative dates with `relativedelta`
+  - ISO 8601 support
+  - Timezone-aware parsing
+  - Small footprint, minimal dependencies
+- **Weaknesses**:
+  - Doesn't parse natural language like "7 days ago" directly
+  - Requires custom logic for relative time expressions
+  - Less intuitive API for casual date math
+- **Integration**: Minimal - already used in the codebase
+
+**Option 2: dateparser**
+- **PyPI**: `dateparser` (~2M downloads/month)
+- **Strengths**:
+  - Parses human-readable dates: "yesterday", "last week", "3 days ago"
+  - Supports 200+ languages
+  - Handles fuzzy date matching
+  - Relative time expressions built-in
+  - Settings for timezone and date order preferences
+- **Weaknesses**:
+  - Heavier dependency (requires regex, pytz, tzlocal)
+  - Slower than python-dateutil for simple parsing
+  - Can be overly permissive (might match unintended strings)
+  - More memory overhead
+- **Integration**: Would require adding as new dependency
+
+**Option 3: arrow**
+- **PyPI**: `arrow` (~15M downloads/month)
+- **Strengths**:
+  - Intuitive API: `arrow.now().shift(days=-7)`
+  - Human-friendly formatting and parsing
+  - Good timezone support
+  - Built-in humanization: "2 hours ago"
+  - Popular and actively maintained
+- **Weaknesses**:
+  - Another datetime abstraction layer
+  - Less flexible than python-dateutil for complex parsing
+  - Might be overkill for our needs
+  - Adds learning curve for contributors
+- **Integration**: Would require adding as new dependency
+
+**Recommendation: python-dateutil** ✅
+- Already a project dependency (zero integration cost)
+- Robust and well-tested for parsing various date formats
+- Build a thin wrapper for relative time expressions ("7 days ago", "last month")
+- Can leverage its `relativedelta` for date arithmetic
+- Example helper:
+  ```python
+  def parse_relative_or_absolute(date_str: str) -> datetime:
+      # Handle "N days/weeks/months ago" with regex + relativedelta
+      # Fall back to dateutil.parser.parse() for absolute dates
+  ```
+
+#### Fuzzy String Matching
+
+**Option 1: rapidfuzz**
+- **PyPI**: `rapidfuzz` (~25M downloads/month)
+- **Strengths**:
+  - Extremely fast (C++ implementation)
+  - Low memory usage
+  - Multiple algorithms: Levenshtein, Jaro-Winkler, etc.
+  - Compatible with fuzzywuzzy API but faster
+  - No GPL licensing issues (MIT license)
+  - Active development
+- **Weaknesses**:
+  - Requires compilation (though wheels available)
+  - API can be complex for advanced use cases
+- **Integration**: Would require adding as dependency
+- **Use case**: Artist/album/track name matching when searching
+
+**Option 2: thefuzz (fuzzywuzzy)**
+- **PyPI**: `thefuzz` (fork of fuzzywuzzy, ~5M downloads/month)
+- **Strengths**:
+  - Simple, intuitive API
+  - Good for quick fuzzy matching
+  - Well-documented
+  - Pure Python fallback available
+- **Weaknesses**:
+  - Slower than rapidfuzz
+  - GPL license (can be problematic)
+  - Less actively maintained than rapidfuzz
+  - Higher memory usage
+- **Integration**: Would require adding as dependency
+
+**Option 3: FTS5 (SQLite Full-Text Search)**
+- **Status**: Already available (SQLite built-in, already set up in codebase)
+- **Strengths**:
+  - No additional dependencies
+  - Already configured for `tracks_fts` table
+  - Fast for database searches
+  - Supports ranking and relevance scoring
+  - Integrated with existing search command
+- **Weaknesses**:
+  - Not "fuzzy" in the Levenshtein sense
+  - Requires exact word matches (with stemming)
+  - Less flexible than dedicated fuzzy matchers
+  - Typo tolerance limited to stemming
+- **Integration**: None needed - already in use
+
+**Option 4: polyleven**
+- **PyPI**: `polyleven` (~1M downloads/month)
+- **Strengths**:
+  - Focused on Levenshtein distance only
+  - Very fast for single algorithm
+  - Minimal dependencies
+  - Simple API
+- **Weaknesses**:
+  - Limited to one algorithm
+  - Less features than rapidfuzz
+  - Smaller community
+- **Integration**: Would require adding as dependency
+
+**Recommendation: rapidfuzz** ✅
+- Best performance for fuzzy string matching use cases
+- MIT license (no GPL concerns)
+- Well-maintained and widely used
+- Multiple algorithms available for different scenarios
+- Use for:
+  - Disambiguating artist/album/track names with typos
+  - "Did you mean?" suggestions
+  - Matching partial user input to database entries
+- Example usage:
+  ```python
+  from rapidfuzz import fuzz, process
+  
+  # Find closest matches
+  matches = process.extract("The Beattles", artist_names, limit=5)
+  # Returns: [("The Beatles", 95.0), ...]
+  ```
+- For full-text search across large datasets, continue using FTS5
+- Use rapidfuzz for small-set matching and typo correction
+
+#### Implementation Note
+
+Incorporate these libraries into CLI interfaces:
+- Use `python-dateutil` with custom wrappers for all date/time inputs
+- Accept flexible formats: ISO 8601, relative expressions, common patterns
+- Use `rapidfuzz` for artist/album/track name disambiguation
+- Provide "Did you mean?" suggestions when exact matches fail
+- Use FTS5 for broad text search, rapidfuzz for precise name matching
+- Make human-friendly input the default (e.g., `--since "last week"` just works)
 
 All domain-specific commands will be organized under their respective top-level command groups:
 
