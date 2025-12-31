@@ -255,3 +255,924 @@ def parse_relative_time(time_str: str) -> Optional[datetime]:
         return dateutil.parser.parse(time_str)
     except (ValueError, TypeError):
         return None
+
+
+def parse_period_to_dates(period: str) -> tuple[Optional[datetime], Optional[datetime]]:
+    """
+    Convert period string to since/until dates.
+
+    Supported periods:
+    - 'week': last 7 days
+    - 'month': last 30 days
+    - 'quarter': last 90 days
+    - 'year': last 365 days
+    - 'all-time': no date filter (returns None, None)
+
+    Returns:
+        Tuple of (since, until) datetime objects
+    """
+    from datetime import timedelta
+
+    now = datetime.now()
+    period = period.lower().strip()
+
+    if period == "week":
+        return (now - timedelta(days=7), now)
+    elif period == "month":
+        return (now - timedelta(days=30), now)
+    elif period == "quarter":
+        return (now - timedelta(days=90), now)
+    elif period == "year":
+        return (now - timedelta(days=365), now)
+    elif period == "all-time":
+        return (None, None)
+    else:
+        raise ValueError(f"Unknown period: {period}")
+
+
+def get_plays_with_filters(
+    db: sqlite_utils.Database,
+    limit: int = 20,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    artist: Optional[str] = None,
+    album: Optional[str] = None,
+    track: Optional[str] = None,
+) -> list[dict]:
+    """
+    Query plays with various filters.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of plays to return
+        since: Start date filter
+        until: End date filter
+        artist: Artist name filter (partial match)
+        album: Album title filter (partial match)
+        track: Track title filter (partial match)
+
+    Returns:
+        List of dicts with play information
+    """
+    conditions = []
+    params = []
+
+    if since:
+        conditions.append("plays.timestamp >= ?")
+        params.append(since.isoformat() if isinstance(since, datetime) else since)
+
+    if until:
+        conditions.append("plays.timestamp <= ?")
+        params.append(until.isoformat() if isinstance(until, datetime) else until)
+
+    if artist:
+        conditions.append("artists.name LIKE ?")
+        params.append(f"%{artist}%")
+
+    if album:
+        conditions.append("albums.title LIKE ?")
+        params.append(f"%{album}%")
+
+    if track:
+        conditions.append("tracks.title LIKE ?")
+        params.append(f"%{track}%")
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+
+    query = f"""
+        SELECT
+            plays.timestamp,
+            artists.name as artist_name,
+            tracks.title as track_title,
+            albums.title as album_title
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {where_clause}
+        ORDER BY plays.timestamp DESC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    rows = db.execute(query, params).fetchall()
+    return [
+        {
+            "timestamp": row[0],
+            "artist_name": row[1],
+            "track_title": row[2],
+            "album_title": row[3],
+        }
+        for row in rows
+    ]
+
+
+def get_artists_with_stats(
+    db: sqlite_utils.Database,
+    limit: int = 50,
+    sort_by: str = "plays",
+    order: str = "desc",
+    min_plays: int = 0,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+) -> list[dict]:
+    """
+    Query artists with aggregated statistics.
+
+    Args:
+        db: Database connection
+        limit: Maximum number of artists to return
+        sort_by: Sort field ('plays', 'name', or 'recent')
+        order: Sort order ('asc' or 'desc')
+        min_plays: Minimum play count filter
+        since: Start date filter
+        until: End date filter
+
+    Returns:
+        List of dicts with artist statistics
+    """
+    conditions = []
+    params = []
+
+    # Date filters apply to plays
+    if since:
+        conditions.append("plays.timestamp >= ?")
+        params.append(since.isoformat() if isinstance(since, datetime) else since)
+
+    if until:
+        conditions.append("plays.timestamp <= ?")
+        params.append(until.isoformat() if isinstance(until, datetime) else until)
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+
+    # Determine ORDER BY clause
+    if sort_by == "plays":
+        order_clause = f"ORDER BY play_count {order.upper()}"
+    elif sort_by == "name":
+        order_clause = f"ORDER BY artist_name {order.upper()}"
+    elif sort_by == "recent":
+        order_clause = "ORDER BY last_played DESC"
+    else:
+        raise ValueError(f"Unknown sort_by: {sort_by}")
+
+    query = f"""
+        SELECT
+            artists.id as artist_id,
+            artists.name as artist_name,
+            COUNT(*) as play_count,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(DISTINCT albums.id) as album_count,
+            MAX(plays.timestamp) as last_played
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {where_clause}
+        GROUP BY artists.id, artists.name
+        HAVING play_count >= ?
+        {order_clause}
+        LIMIT ?
+    """
+    params.extend([min_plays, limit])
+
+    rows = db.execute(query, params).fetchall()
+    return [
+        {
+            "artist_id": row[0],
+            "artist_name": row[1],
+            "play_count": row[2],
+            "track_count": row[3],
+            "album_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
+
+
+def get_albums_by_search(
+    db: sqlite_utils.Database,
+    query: str,
+    artist: Optional[str] = None,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Search albums by title with optional artist filter.
+
+    Args:
+        db: Database connection
+        query: Search query for album title
+        artist: Optional artist name filter
+        limit: Maximum results
+
+    Returns:
+        List of dicts with album information
+    """
+    conditions = ["albums.title LIKE ?"]
+    params = [f"%{query}%"]
+
+    if artist:
+        conditions.append("artists.name LIKE ?")
+        params.append(f"%{artist}%")
+
+    where_clause = "WHERE " + " AND ".join(conditions)
+
+    sql = f"""
+        SELECT
+            albums.id as album_id,
+            albums.title as album_title,
+            artists.name as artist_name,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM albums
+        JOIN artists ON albums.artist_id = artists.id
+        LEFT JOIN tracks ON tracks.album_id = albums.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        {where_clause}
+        GROUP BY albums.id, albums.title, artists.name
+        ORDER BY play_count DESC, albums.title ASC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    rows = db.execute(sql, params).fetchall()
+    return [
+        {
+            "album_id": row[0],
+            "album_title": row[1],
+            "artist_name": row[2],
+            "track_count": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
+
+
+def get_tracks_by_search(
+    db: sqlite_utils.Database,
+    query: str,
+    artist: Optional[str] = None,
+    album: Optional[str] = None,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Search tracks by title with optional filters.
+
+    Args:
+        db: Database connection
+        query: Search query for track title
+        artist: Optional artist name filter
+        album: Optional album title filter
+        limit: Maximum results
+
+    Returns:
+        List of dicts with track information
+    """
+    conditions = ["tracks.title LIKE ?"]
+    params = [f"%{query}%"]
+
+    if artist:
+        conditions.append("artists.name LIKE ?")
+        params.append(f"%{artist}%")
+
+    if album:
+        conditions.append("albums.title LIKE ?")
+        params.append(f"%{album}%")
+
+    where_clause = "WHERE " + " AND ".join(conditions)
+
+    sql = f"""
+        SELECT
+            tracks.id as track_id,
+            tracks.title as track_title,
+            artists.name as artist_name,
+            albums.title as album_title,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM tracks
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        {where_clause}
+        GROUP BY tracks.id, tracks.title, artists.name, albums.title
+        ORDER BY play_count DESC, tracks.title ASC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    rows = db.execute(sql, params).fetchall()
+    return [
+        {
+            "track_id": row[0],
+            "track_title": row[1],
+            "artist_name": row[2],
+            "album_title": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
+
+
+def get_top_artists(
+    db: sqlite_utils.Database,
+    limit: int = 10,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+) -> list[dict]:
+    """
+    Get top artists by play count with flexible time range.
+
+    Args:
+        db: Database connection
+        limit: Number of artists to return
+        since: Start date filter
+        until: End date filter
+
+    Returns:
+        List of dicts with artist statistics including rank and percentage
+    """
+    conditions = []
+    params = []
+
+    if since:
+        conditions.append("plays.timestamp >= ?")
+        params.append(since.isoformat() if isinstance(since, datetime) else since)
+
+    if until:
+        conditions.append("plays.timestamp <= ?")
+        params.append(until.isoformat() if isinstance(until, datetime) else until)
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+
+    # First get total plays in period
+    total_query = f"""
+        SELECT COUNT(*) FROM plays {where_clause}
+    """
+    total_plays = db.execute(total_query, params).fetchone()[0]
+
+    # Get top artists
+    query = f"""
+        SELECT
+            artists.id as artist_id,
+            artists.name as artist_name,
+            COUNT(*) as play_count
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {where_clause}
+        GROUP BY artists.id, artists.name
+        ORDER BY play_count DESC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    rows = db.execute(query, params).fetchall()
+
+    # Calculate days in period for avg plays/day
+    if since and until:
+        days = (until - since).days or 1
+    elif since:
+        days = (datetime.now() - since).days or 1
+    elif until:
+        days = (until - datetime.now()).days or 1
+    else:
+        # All time - calculate from first to last play
+        date_range = db.execute(
+            "SELECT MIN(timestamp), MAX(timestamp) FROM plays"
+        ).fetchone()
+        if date_range[0] and date_range[1]:
+            first = dateutil.parser.parse(date_range[0]) if isinstance(date_range[0], str) else date_range[0]
+            last = dateutil.parser.parse(date_range[1]) if isinstance(date_range[1], str) else date_range[1]
+            days = (last - first).days or 1
+        else:
+            days = 1
+
+    return [
+        {
+            "rank": i + 1,
+            "artist_id": row[0],
+            "artist_name": row[1],
+            "play_count": row[2],
+            "percentage": (row[2] / total_plays * 100) if total_plays > 0 else 0,
+            "avg_plays_per_day": row[2] / days,
+        }
+        for i, row in enumerate(rows)
+    ]
+
+
+def get_top_tracks(
+    db: sqlite_utils.Database,
+    limit: int = 10,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    artist: Optional[str] = None,
+) -> list[dict]:
+    """
+    Get top tracks by play count with flexible time range.
+
+    Args:
+        db: Database connection
+        limit: Number of tracks to return
+        since: Start date filter
+        until: End date filter
+        artist: Optional artist name filter
+
+    Returns:
+        List of dicts with track statistics including rank and percentage
+    """
+    conditions = []
+    params = []
+
+    if since:
+        conditions.append("plays.timestamp >= ?")
+        params.append(since.isoformat() if isinstance(since, datetime) else since)
+
+    if until:
+        conditions.append("plays.timestamp <= ?")
+        params.append(until.isoformat() if isinstance(until, datetime) else until)
+
+    if artist:
+        conditions.append("artists.name LIKE ?")
+        params.append(f"%{artist}%")
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+
+    # First get total plays in period
+    total_query = f"""
+        SELECT COUNT(*) FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {where_clause}
+    """
+    total_plays = db.execute(total_query, params[:]).fetchone()[0]
+
+    # Get top tracks
+    query = f"""
+        SELECT
+            tracks.id as track_id,
+            tracks.title as track_title,
+            artists.name as artist_name,
+            albums.title as album_title,
+            COUNT(*) as play_count
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {where_clause}
+        GROUP BY tracks.id, tracks.title, artists.name, albums.title
+        ORDER BY play_count DESC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    rows = db.execute(query, params).fetchall()
+    return [
+        {
+            "rank": i + 1,
+            "track_id": row[0],
+            "track_title": row[1],
+            "artist_name": row[2],
+            "album_title": row[3],
+            "play_count": row[4],
+            "percentage": (row[4] / total_plays * 100) if total_plays > 0 else 0,
+        }
+        for i, row in enumerate(rows)
+    ]
+
+
+def get_artist_details(
+    db: sqlite_utils.Database,
+    artist_id: Optional[int] = None,
+    artist_name: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    Get detailed information about a specific artist.
+
+    Args:
+        db: Database connection
+        artist_id: Artist ID (exact match)
+        artist_name: Artist name (partial match if no ID provided)
+
+    Returns:
+        Dict with artist details or None if not found
+    """
+    if artist_id:
+        # Exact match by ID
+        artist_row = db.execute(
+            "SELECT id, name FROM artists WHERE id = ?",
+            [artist_id],
+        ).fetchone()
+    elif artist_name:
+        # Partial match by name
+        matches = db.execute(
+            "SELECT id, name FROM artists WHERE name LIKE ? LIMIT 2",
+            [f"%{artist_name}%"],
+        ).fetchall()
+
+        if not matches:
+            return None
+        if len(matches) > 1:
+            # Multiple matches - caller should handle disambiguation
+            raise ValueError(f"Multiple artists match '{artist_name}'")
+
+        artist_row = matches[0]
+    else:
+        raise ValueError("Either artist_id or artist_name must be provided")
+
+    if not artist_row:
+        return None
+
+    artist_id = artist_row[0]
+    artist_name = artist_row[1]
+
+    # Get statistics
+    stats = db.execute(
+        """
+        SELECT
+            COUNT(*) as play_count,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(DISTINCT albums.id) as album_count,
+            MIN(plays.timestamp) as first_played,
+            MAX(plays.timestamp) as last_played
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        WHERE albums.artist_id = ?
+        """,
+        [artist_id],
+    ).fetchone()
+
+    return {
+        "artist_id": artist_id,
+        "artist_name": artist_name,
+        "play_count": stats[0],
+        "track_count": stats[1],
+        "album_count": stats[2],
+        "first_played": stats[3],
+        "last_played": stats[4],
+    }
+
+
+def get_artist_top_tracks(
+    db: sqlite_utils.Database,
+    artist_id: int,
+    limit: int = 10,
+) -> list[dict]:
+    """
+    Get top tracks for a specific artist.
+
+    Args:
+        db: Database connection
+        artist_id: Artist ID
+        limit: Maximum number of tracks
+
+    Returns:
+        List of dicts with track information
+    """
+    query = """
+        SELECT
+            tracks.id as track_id,
+            tracks.title as track_title,
+            albums.title as album_title,
+            COUNT(*) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        WHERE albums.artist_id = ?
+        GROUP BY tracks.id, tracks.title, albums.title
+        ORDER BY play_count DESC
+        LIMIT ?
+    """
+
+    rows = db.execute(query, [artist_id, limit]).fetchall()
+    return [
+        {
+            "track_id": row[0],
+            "track_title": row[1],
+            "album_title": row[2],
+            "play_count": row[3],
+            "last_played": row[4],
+        }
+        for row in rows
+    ]
+
+
+def get_artist_albums(
+    db: sqlite_utils.Database,
+    artist_id: int,
+) -> list[dict]:
+    """
+    Get all albums for a specific artist.
+
+    Args:
+        db: Database connection
+        artist_id: Artist ID
+
+    Returns:
+        List of dicts with album information
+    """
+    query = """
+        SELECT
+            albums.id as album_id,
+            albums.title as album_title,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM albums
+        LEFT JOIN tracks ON tracks.album_id = albums.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        WHERE albums.artist_id = ?
+        GROUP BY albums.id, albums.title
+        ORDER BY play_count DESC
+    """
+
+    rows = db.execute(query, [artist_id]).fetchall()
+    return [
+        {
+            "album_id": row[0],
+            "album_title": row[1],
+            "track_count": row[2],
+            "play_count": row[3],
+            "last_played": row[4],
+        }
+        for row in rows
+    ]
+
+
+def get_album_details(
+    db: sqlite_utils.Database,
+    album_id: Optional[int] = None,
+    album_title: Optional[str] = None,
+    artist_name: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    Get detailed information about a specific album.
+
+    Args:
+        db: Database connection
+        album_id: Album ID (exact match)
+        album_title: Album title (partial match if no ID provided)
+        artist_name: Artist name for disambiguation
+
+    Returns:
+        Dict with album details or None if not found
+    """
+    if album_id:
+        # Exact match by ID
+        album_row = db.execute(
+            """
+            SELECT albums.id, albums.title, artists.name
+            FROM albums
+            JOIN artists ON albums.artist_id = artists.id
+            WHERE albums.id = ?
+            """,
+            [album_id],
+        ).fetchone()
+    elif album_title:
+        # Partial match by title
+        if artist_name:
+            matches = db.execute(
+                """
+                SELECT albums.id, albums.title, artists.name
+                FROM albums
+                JOIN artists ON albums.artist_id = artists.id
+                WHERE albums.title LIKE ? AND artists.name LIKE ?
+                LIMIT 2
+                """,
+                [f"%{album_title}%", f"%{artist_name}%"],
+            ).fetchall()
+        else:
+            matches = db.execute(
+                """
+                SELECT albums.id, albums.title, artists.name
+                FROM albums
+                JOIN artists ON albums.artist_id = artists.id
+                WHERE albums.title LIKE ?
+                LIMIT 2
+                """,
+                [f"%{album_title}%"],
+            ).fetchall()
+
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise ValueError(f"Multiple albums match '{album_title}'")
+
+        album_row = matches[0]
+    else:
+        raise ValueError("Either album_id or album_title must be provided")
+
+    if not album_row:
+        return None
+
+    album_id = album_row[0]
+    album_title = album_row[1]
+    artist_name = album_row[2]
+
+    # Get statistics
+    stats = db.execute(
+        """
+        SELECT
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(plays.timestamp) as play_count,
+            MIN(plays.timestamp) as first_played,
+            MAX(plays.timestamp) as last_played
+        FROM albums
+        LEFT JOIN tracks ON tracks.album_id = albums.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        WHERE albums.id = ?
+        """,
+        [album_id],
+    ).fetchone()
+
+    return {
+        "album_id": album_id,
+        "album_title": album_title,
+        "artist_name": artist_name,
+        "track_count": stats[0],
+        "play_count": stats[1],
+        "first_played": stats[2],
+        "last_played": stats[3],
+    }
+
+
+def get_album_tracks(
+    db: sqlite_utils.Database,
+    album_id: int,
+) -> list[dict]:
+    """
+    Get all tracks for a specific album.
+
+    Args:
+        db: Database connection
+        album_id: Album ID
+
+    Returns:
+        List of dicts with track information
+    """
+    query = """
+        SELECT
+            tracks.id as track_id,
+            tracks.title as track_title,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM tracks
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        WHERE tracks.album_id = ?
+        GROUP BY tracks.id, tracks.title
+        ORDER BY tracks.id ASC
+    """
+
+    rows = db.execute(query, [album_id]).fetchall()
+    return [
+        {
+            "track_id": row[0],
+            "track_title": row[1],
+            "play_count": row[2],
+            "last_played": row[3],
+        }
+        for row in rows
+    ]
+
+
+def get_track_details(
+    db: sqlite_utils.Database,
+    track_id: Optional[int] = None,
+    track_title: Optional[str] = None,
+    artist_name: Optional[str] = None,
+    album_title: Optional[str] = None,
+) -> Optional[dict]:
+    """
+    Get detailed information about a specific track.
+
+    Args:
+        db: Database connection
+        track_id: Track ID (exact match)
+        track_title: Track title (partial match if no ID provided)
+        artist_name: Artist name for disambiguation
+        album_title: Album title for disambiguation
+
+    Returns:
+        Dict with track details or None if not found
+    """
+    if track_id:
+        # Exact match by ID
+        track_row = db.execute(
+            """
+            SELECT tracks.id, tracks.title, artists.name, albums.title
+            FROM tracks
+            JOIN albums ON tracks.album_id = albums.id
+            JOIN artists ON albums.artist_id = artists.id
+            WHERE tracks.id = ?
+            """,
+            [track_id],
+        ).fetchone()
+    elif track_title:
+        # Build conditions
+        conditions = ["tracks.title LIKE ?"]
+        params = [f"%{track_title}%"]
+
+        if artist_name:
+            conditions.append("artists.name LIKE ?")
+            params.append(f"%{artist_name}%")
+
+        if album_title:
+            conditions.append("albums.title LIKE ?")
+            params.append(f"%{album_title}%")
+
+        where_clause = " AND ".join(conditions)
+
+        matches = db.execute(
+            f"""
+            SELECT tracks.id, tracks.title, artists.name, albums.title
+            FROM tracks
+            JOIN albums ON tracks.album_id = albums.id
+            JOIN artists ON albums.artist_id = artists.id
+            WHERE {where_clause}
+            LIMIT 2
+            """,
+            params,
+        ).fetchall()
+
+        if not matches:
+            return None
+        if len(matches) > 1:
+            raise ValueError(f"Multiple tracks match '{track_title}'")
+
+        track_row = matches[0]
+    else:
+        raise ValueError("Either track_id or track_title must be provided")
+
+    if not track_row:
+        return None
+
+    track_id = track_row[0]
+    track_title = track_row[1]
+    artist_name = track_row[2]
+    album_title = track_row[3]
+
+    # Get statistics
+    stats = db.execute(
+        """
+        SELECT
+            COUNT(*) as play_count,
+            MIN(timestamp) as first_played,
+            MAX(timestamp) as last_played
+        FROM plays
+        WHERE track_id = ?
+        """,
+        [track_id],
+    ).fetchone()
+
+    return {
+        "track_id": track_id,
+        "track_title": track_title,
+        "artist_name": artist_name,
+        "album_title": album_title,
+        "play_count": stats[0],
+        "first_played": stats[1],
+        "last_played": stats[2],
+    }
+
+
+def get_track_plays(
+    db: sqlite_utils.Database,
+    track_id: int,
+    limit: Optional[int] = None,
+) -> list[dict]:
+    """
+    Get play history for a specific track.
+
+    Args:
+        db: Database connection
+        track_id: Track ID
+        limit: Optional limit on number of plays
+
+    Returns:
+        List of dicts with play timestamps
+    """
+    limit_clause = f"LIMIT {limit}" if limit else ""
+
+    query = f"""
+        SELECT timestamp
+        FROM plays
+        WHERE track_id = ?
+        ORDER BY timestamp DESC
+        {limit_clause}
+    """
+
+    rows = db.execute(query, [track_id]).fetchall()
+    return [{"timestamp": row[0]} for row in rows]

@@ -25,6 +25,10 @@ from . import lastfm
 from . import sql as sql_commands
 from . import export as export_command
 from .commands import stats as stats_command
+from .commands import plays as plays_command
+from .commands import albums as albums_command
+from .commands import artists as artists_command
+from .commands import tracks as tracks_command
 import dateutil.parser
 
 APP_NAME = "dev.pirateninja.scrobbledb"
@@ -133,6 +137,12 @@ cli.add_command(export_command.export)
 
 # Register stats command group
 cli.add_command(stats_command.stats)
+
+# Register domain-specific command groups
+cli.add_command(plays_command.plays)
+cli.add_command(albums_command.albums)
+cli.add_command(artists_command.artists)
+cli.add_command(tracks_command.tracks)
 
 
 @click.group()
