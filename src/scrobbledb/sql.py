@@ -82,17 +82,17 @@ def _is_safe_order_clause(order_clause):
             return False
 
     return True
+DEFAULT_DB_DESCRIPTION = (
+    "the scrobbledb database in your XDG data directory "
+    "(e.g., $XDG_DATA_HOME/dev.pirateninja.scrobbledb/scrobbledb.db)"
+)
 
 
 class SqlGroup(click.Group):
     """Custom Group class that provides dynamic help text."""
 
     def format_help(self, ctx, formatter):
-        """Format help text with actual database path."""
-        # Import here to avoid circular import
-        from .cli import get_default_db_path
-
-        db_path = get_default_db_path()
+        """Format help text with stable default database guidance."""
 
         # Write usage
         self.format_usage(ctx, formatter)
@@ -101,11 +101,8 @@ class SqlGroup(click.Group):
         help_text = f"""SQLite database query and inspection commands.
 
 These commands provide read-only access to your scrobbledb database
-using the sqlite-utils CLI. The database path defaults to your
-scrobbledb database in the XDG data directory.
-
-Default Database Location:
-  {db_path}
+using the sqlite-utils CLI. The database path defaults to
+{DEFAULT_DB_DESCRIPTION}.
 
 To check if your database is initialized:
   scrobbledb init --dry-run
