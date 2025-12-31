@@ -83,7 +83,9 @@ def get_monthly_rollup(
         where_clause = "WHERE " + " AND ".join(conditions)
 
     limit_clause = ""
-    if limit:
+    if limit is not None:
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
         limit_clause = f"LIMIT {limit}"
 
     query = f"""
@@ -156,8 +158,10 @@ def get_yearly_rollup(
         where_clause = "WHERE " + " AND ".join(conditions)
 
     limit_clause = ""
-    if limit:
-        limit_clause = f"LIMIT {limit}"
+    if limit is not None:
+        limit_value = int(limit)
+        if limit_value > 0:
+            limit_clause = f"LIMIT {limit_value}"
 
     query = f"""
         SELECT

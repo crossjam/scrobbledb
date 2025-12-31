@@ -8,7 +8,7 @@ including Rich console output and multiple export formats.
 import json
 import csv as csv_module
 from io import StringIO
-from typing import Optional
+
 
 from rich.console import Console
 from rich.table import Table
