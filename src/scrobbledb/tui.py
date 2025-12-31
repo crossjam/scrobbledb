@@ -19,6 +19,7 @@ from textual.widgets import (
 from textual.binding import Binding
 from textual import on
 from sqlite_utils import Database
+from rich.markup import escape
 
 from .browse import ScrobbleDataAdapter
 
@@ -225,13 +226,15 @@ class ScrobbleBrowser(App):
         if self.total_count > 0:
             status.update(f"Showing {start}-{end} of {self.total_count} tracks")
             info_bar.update(
-                f"Page {self.current_page + 1}/{total_pages} | "
-                f"[n] Next | [p] Prev | [/] Filter | [r] Refresh | [q] Quit"
+                escape(
+                    f"Page {self.current_page + 1}/{total_pages} | "
+                    f"[n] Next | [p] Prev | [/] Filter | [r] Refresh | [q] Quit"
+                )
             )
         else:
             status.update("No tracks found")
             info_bar.update(
-                "[/] Filter | [r] Refresh | [q] Quit"
+                escape("[/] Filter | [r] Refresh | [q] Quit")
             )
 
     @on(Input.Submitted, "#filter-input")
