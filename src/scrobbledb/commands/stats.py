@@ -24,9 +24,20 @@ from ..domain_format import (
     format_monthly_rollup,
     format_yearly_rollup,
 )
-from ..cli import get_default_db_path
 
 console = Console()
+
+
+def get_default_db_path():
+    """Get the default path for the database in XDG compliant directory."""
+    from platformdirs import user_data_dir
+
+    APP_NAME = "dev.pirateninja.scrobbledb"
+    data_dir = Path(user_data_dir(APP_NAME))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return str(data_dir / "scrobbledb.db")
+
+
 def validate_database(db_path: str) -> sqlite_utils.Database:
     """
     Validate database exists and has the expected tables.
