@@ -646,6 +646,8 @@ def get_top_artists(
         days = (until - datetime.now()).days or 1
     else:
         # All time - calculate from first to last play
+        import dateutil.parser
+
         date_range = db.execute(
             "SELECT MIN(timestamp), MAX(timestamp) FROM plays"
         ).fetchone()

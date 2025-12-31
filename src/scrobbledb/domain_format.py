@@ -572,7 +572,6 @@ def format_track_details(
     # Calculate avg plays per month if we have enough data
     if track.get("first_played") and track.get("last_played"):
         import dateutil.parser
-        from datetime import datetime
 
         first = dateutil.parser.parse(track["first_played"]) if isinstance(track["first_played"], str) else track["first_played"]
         last = dateutil.parser.parse(track["last_played"]) if isinstance(track["last_played"], str) else track["last_played"]
@@ -598,7 +597,6 @@ def format_track_details(
             days_since = ""
             if prev_ts:
                 import dateutil.parser
-                from datetime import datetime
 
                 current = dateutil.parser.parse(timestamp) if isinstance(timestamp, str) else timestamp
                 previous = dateutil.parser.parse(prev_ts) if isinstance(prev_ts, str) else prev_ts

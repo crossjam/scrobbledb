@@ -6,7 +6,7 @@ and directories.
 """
 
 from pathlib import Path
-from platformdirs import user_data_dir, user_config_dir
+from platformdirs import user_data_dir
 
 APP_NAME = "dev.pirateninja.scrobbledb"
 
