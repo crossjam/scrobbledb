@@ -24,6 +24,7 @@ from rich.table import Table
 from . import lastfm
 from . import sql as sql_commands
 from . import export as export_command
+from .commands import stats as stats_command
 import dateutil.parser
 
 APP_NAME = "dev.pirateninja.scrobbledb"
@@ -129,6 +130,9 @@ cli.add_command(sql_commands.sql)
 
 # Register export command
 cli.add_command(export_command.export)
+
+# Register stats command group
+cli.add_command(stats_command.stats)
 
 
 @click.group()
