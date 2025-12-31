@@ -17,11 +17,9 @@ Usage: cli sql [OPTIONS] COMMAND [ARGS]...
 SQLite database query and inspection commands.
 
 These commands provide read-only access to your scrobbledb database
-using the sqlite-utils CLI. The database path defaults to your
-scrobbledb database in the XDG data directory.
-
-Default Database Location:
-  /root/.local/share/dev.pirateninja.scrobbledb/scrobbledb.db
+using the sqlite-utils CLI. The database path defaults to
+the scrobbledb database in your XDG data directory (e.g.,
+$XDG_DATA_HOME/dev.pirateninja.scrobbledb/scrobbledb.db).
 
 To check if your database is initialized:
   scrobbledb init --dry-run
