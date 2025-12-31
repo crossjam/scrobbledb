@@ -40,7 +40,12 @@ jobs:
       
       - name: Install dependencies
         run: uv sync
-      
+
+      - name: Verify CLI docs are in sync
+        run: |
+          uv run poe docs:cli
+          git diff --name-only --exit-code docs/commands
+
       - name: Run linting
         run: uv run poe lint
       

@@ -21,11 +21,12 @@ The project uses modern GitHub Actions workflows with:
 **Steps:**
 1. **Setup**: Checks out code, sets up Python, installs uv with caching
 2. **Install dependencies**: Runs `uv sync` to install project dependencies
-3. **Linting**: Runs `poe lint` (ruff check)
-4. **Type checking**: Runs `poe type` (ty type checker)
-5. **Security audit**: Runs `poe audit` (pip-audit for vulnerabilities)
+3. **Docs consistency**: Runs `poe docs:cli` and fails if cog regenerates any files under `docs/commands`
+4. **Linting**: Runs `poe lint` (ruff check)
+5. **Type checking**: Runs `poe type` (ty type checker)
+6. **Security audit**: Runs `poe audit` (pip-audit for vulnerabilities)
    - Set to `continue-on-error: true` to not block builds on audit warnings
-6. **Tests**: Runs `poe test` (pytest with verbose output)
+7. **Tests**: Runs `poe test` (pytest with verbose output)
 
 **Python versions tested:** 3.11, 3.12, 3.13
 
