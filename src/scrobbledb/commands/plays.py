@@ -81,7 +81,8 @@ def plays():
     help="Output format",
     show_default=True,
 )
-def list_plays(database, limit, since, until, artist, album, track, format):
+@click.pass_context
+def list_plays(ctx, database, limit, since, until, artist, album, track, format):
     """
     List recent plays with filtering and pagination.
 
@@ -114,9 +115,9 @@ def list_plays(database, limit, since, until, artist, album, track, format):
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -124,9 +125,9 @@ def list_plays(database, limit, since, until, artist, album, track, format):
     if "plays" not in db.table_names() or db["plays"].count == 0:
         console.print("[yellow]![/yellow] No plays found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Parse date filters
     since_dt = None
@@ -136,22 +137,28 @@ def list_plays(database, limit, since, until, artist, album, track, format):
         since_dt = domain_queries.parse_relative_time(since)
         if not since_dt:
             console.print(
-                f"[red]✗[/red] Invalid date format: {since}. Use ISO 8601 (YYYY-MM-DD) or relative time (7 days ago)"
+                f"[red]✗[/red] Invalid date format: [yellow]{since}[/yellow]"
             )
-            raise click.Abort()
+            console.print(
+                "[yellow]→[/yellow] Use ISO 8601 format (YYYY-MM-DD) or relative time like '7 days ago'"
+            )
+            ctx.exit(1)
 
     if until:
         until_dt = domain_queries.parse_relative_time(until)
         if not until_dt:
             console.print(
-                f"[red]✗[/red] Invalid date format: {until}. Use ISO 8601 (YYYY-MM-DD) or relative time expressions"
+                f"[red]✗[/red] Invalid date format: [yellow]{until}[/yellow]"
             )
-            raise click.Abort()
+            console.print(
+                "[yellow]→[/yellow] Use ISO 8601 format (YYYY-MM-DD) or relative time expressions"
+            )
+            ctx.exit(1)
 
     # Validate limit
     if limit < 1:
         console.print("[red]✗[/red] Limit must be at least 1")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Query plays
     try:
@@ -166,7 +173,7 @@ def list_plays(database, limit, since, until, artist, album, track, format):
         )
     except Exception as e:
         console.print(f"[red]✗[/red] Query failed: {e}")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Output results
     if format == "table":

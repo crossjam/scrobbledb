@@ -56,7 +56,8 @@ def albums():
     help="Output format",
     show_default=True,
 )
-def search_albums(query, database, limit, artist, format):
+@click.pass_context
+def search_albums(ctx, query, database, limit, artist, format):
     """
     Search for albums using fuzzy matching.
 
@@ -80,9 +81,9 @@ def search_albums(query, database, limit, artist, format):
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -90,14 +91,14 @@ def search_albums(query, database, limit, artist, format):
     if "albums" not in db.table_names():
         console.print("[yellow]![/yellow] No albums found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Validate limit
     if limit < 1:
         console.print("[red]✗[/red] Limit must be at least 1")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Search albums
     try:
@@ -106,7 +107,7 @@ def search_albums(query, database, limit, artist, format):
         )
     except Exception as e:
         console.print(f"[red]✗[/red] Search failed: {e}")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Output results
     if format == "table":
@@ -144,7 +145,8 @@ def search_albums(query, database, limit, artist, format):
     help="Output format",
     show_default=True,
 )
-def show_album(album_title, database, album_id, artist, format):
+@click.pass_context
+def show_album(ctx, album_title, database, album_id, artist, format):
     """
     Display detailed information about a specific album and list its tracks.
 
@@ -164,7 +166,8 @@ def show_album(album_title, database, album_id, artist, format):
     # Validate arguments
     if not album_id and not album_title:
         console.print("[red]✗[/red] Either ALBUM_TITLE or --album-id is required")
-        raise click.Abort()
+        console.print("[yellow]→[/yellow] Try: [cyan]scrobbledb albums show \"Album Name\"[/cyan]")
+        ctx.exit(1)
 
     # Get database path
     if database is None:
@@ -173,9 +176,9 @@ def show_album(album_title, database, album_id, artist, format):
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -183,9 +186,9 @@ def show_album(album_title, database, album_id, artist, format):
     if "albums" not in db.table_names():
         console.print("[yellow]![/yellow] No albums found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Get album details
     try:
@@ -196,28 +199,30 @@ def show_album(album_title, database, album_id, artist, format):
         if "Multiple albums match" in str(e):
             console.print(f"[yellow]![/yellow] {e}")
             console.print(
-                "\n[dim]Use --artist to narrow down the search, or use --album-id for exact selection.[/dim]"
+                "[yellow]→[/yellow] Use [cyan]--artist[/cyan] to narrow down the search, or [cyan]--album-id[/cyan] for exact selection."
             )
-            raise click.Abort()
+            ctx.exit(1)
         else:
             console.print(f"[red]✗[/red] Error: {e}")
-            raise click.Abort()
+            ctx.exit(1)
 
     if not album:
         if album_id:
-            console.print(f"[yellow]![/yellow] No album found with ID: {album_id}")
+            console.print(f"[yellow]![/yellow] No album found with ID [cyan]{album_id}[/cyan]")
+            console.print("[yellow]→[/yellow] Try searching: [cyan]scrobbledb albums search \"keyword\"[/cyan]")
         else:
             console.print(
-                f"[yellow]![/yellow] No album found matching: {album_title}"
+                f"[yellow]![/yellow] No album found matching [yellow]\"{album_title}\"[/yellow]"
             )
-        raise click.Abort()
+            console.print("[yellow]→[/yellow] Try searching: [cyan]scrobbledb albums search \"{album_title}\"[/cyan]")
+        ctx.exit(1)
 
     # Get tracks for this album
     try:
         tracks = domain_queries.get_album_tracks(db, album["album_id"])
     except Exception as e:
         console.print(f"[red]✗[/red] Failed to get tracks: {e}")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Output results
     if format == "table":

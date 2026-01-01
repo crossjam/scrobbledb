@@ -62,7 +62,7 @@ def tracks():
     help="Output format",
     show_default=True,
 )
-def search_tracks(query, database, limit, artist, album, format):
+def search_tracks(ctx, query, database, limit, artist, album, format):
     """
     Search for tracks using fuzzy matching.
 
@@ -86,9 +86,9 @@ def search_tracks(query, database, limit, artist, album, format):
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -96,14 +96,14 @@ def search_tracks(query, database, limit, artist, album, format):
     if "tracks" not in db.table_names():
         console.print("[yellow]![/yellow] No tracks found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Validate limit
     if limit < 1:
         console.print("[red]✗[/red] Limit must be at least 1")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Search tracks
     try:
@@ -112,7 +112,7 @@ def search_tracks(query, database, limit, artist, album, format):
         )
     except Exception as e:
         console.print(f"[red]✗[/red] Search failed: {e}")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Output results
     if format == "table":
@@ -171,7 +171,7 @@ def search_tracks(query, database, limit, artist, album, format):
     help="Output format",
     show_default=True,
 )
-def top_tracks(database, limit, since, until, period, artist, format):
+def top_tracks(ctx, database, limit, since, until, period, artist, format):
     """
     Show top tracks with flexible time range support.
 
@@ -198,9 +198,9 @@ def top_tracks(database, limit, since, until, period, artist, format):
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -208,14 +208,14 @@ def top_tracks(database, limit, since, until, period, artist, format):
     if "plays" not in db.table_names() or db["plays"].count == 0:
         console.print("[yellow]![/yellow] No plays found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Validate limit
     if limit < 1:
         console.print("[red]✗[/red] Limit must be at least 1")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Parse date filters
     since_dt = None
@@ -226,7 +226,7 @@ def top_tracks(database, limit, since, until, period, artist, format):
             console.print(
                 "[yellow]![/yellow] Cannot use --period with --since or --until"
             )
-            raise click.Abort()
+            ctx.exit(1)
         since_dt, until_dt = domain_queries.parse_period_to_dates(period)
     else:
         if since:
@@ -235,7 +235,7 @@ def top_tracks(database, limit, since, until, period, artist, format):
                 console.print(
                     f"[red]✗[/red] Invalid date format: {since}. Use ISO 8601 (YYYY-MM-DD) or relative time (7 days ago)"
                 )
-                raise click.Abort()
+                ctx.exit(1)
 
         if until:
             until_dt = domain_queries.parse_relative_time(until)
@@ -243,7 +243,7 @@ def top_tracks(database, limit, since, until, period, artist, format):
                 console.print(
                     f"[red]✗[/red] Invalid date format: {until}. Use ISO 8601 (YYYY-MM-DD) or relative time expressions"
                 )
-                raise click.Abort()
+                ctx.exit(1)
 
     # Query top tracks
     try:
@@ -252,7 +252,7 @@ def top_tracks(database, limit, since, until, period, artist, format):
         )
     except Exception as e:
         console.print(f"[red]✗[/red] Query failed: {e}")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Output results
     if format == "table":
@@ -304,7 +304,8 @@ def top_tracks(database, limit, since, until, period, artist, format):
     help="Output format",
     show_default=True,
 )
-def show_track(track_title, database, track_id, artist, album, show_plays, format):
+@click.pass_context
+def show_track(ctx, track_title, database, track_id, artist, album, show_plays, format):
     """
     Display detailed information about a specific track.
 
@@ -327,7 +328,8 @@ def show_track(track_title, database, track_id, artist, album, show_plays, forma
     # Validate arguments
     if not track_id and not track_title:
         console.print("[red]✗[/red] Either TRACK_TITLE or --track-id is required")
-        raise click.Abort()
+        console.print("[yellow]→[/yellow] Try: [cyan]scrobbledb tracks show \"Track Name\"[/cyan]")
+        ctx.exit(1)
 
     # Get database path
     if database is None:
@@ -336,9 +338,9 @@ def show_track(track_title, database, track_id, artist, album, show_plays, forma
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -346,9 +348,9 @@ def show_track(track_title, database, track_id, artist, album, show_plays, forma
     if "tracks" not in db.table_names():
         console.print("[yellow]![/yellow] No tracks found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Get track details
     try:
@@ -365,17 +367,19 @@ def show_track(track_title, database, track_id, artist, album, show_plays, forma
             console.print(
                 "\n[dim]Use --artist and/or --album to narrow down, or use --track-id for exact selection.[/dim]"
             )
-            raise click.Abort()
+            ctx.exit(1)
         else:
             console.print(f"[red]✗[/red] Error: {e}")
-            raise click.Abort()
+            ctx.exit(1)
 
     if not track:
         if track_id:
-            console.print(f"[yellow]![/yellow] No track found with ID: {track_id}")
+            console.print(f"[yellow]![/yellow] No track found with ID [cyan]{track_id}[/cyan]")
+            console.print("[yellow]→[/yellow] Try searching: [cyan]scrobbledb tracks search \"keyword\"[/cyan]")
         else:
-            console.print(f"[yellow]![/yellow] No track found matching: {track_title}")
-        raise click.Abort()
+            console.print(f"[yellow]![/yellow] No track found matching [yellow]\"{track_title}\"[/yellow]")
+            console.print(f"[yellow]→[/yellow] Try searching: [cyan]scrobbledb tracks search \"{track_title}\"[/cyan]")
+        ctx.exit(1)
 
     # Get plays if requested
     plays = None
@@ -385,7 +389,7 @@ def show_track(track_title, database, track_id, artist, album, show_plays, forma
             plays = domain_queries.get_track_plays(db, track["track_id"], limit=100)
         except Exception as e:
             console.print(f"[red]✗[/red] Failed to get play history: {e}")
-            raise click.Abort()
+            ctx.exit(1)
 
     # Output results
     if format == "table":

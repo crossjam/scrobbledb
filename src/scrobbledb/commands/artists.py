@@ -70,7 +70,7 @@ def artists():
     help="Output format",
     show_default=True,
 )
-def list_artists(database, limit, sort, order, min_plays, format):
+def list_artists(ctx, database, limit, sort, order, min_plays, format):
     """
     List all artists in the database with play statistics.
 
@@ -97,9 +97,9 @@ def list_artists(database, limit, sort, order, min_plays, format):
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -107,14 +107,14 @@ def list_artists(database, limit, sort, order, min_plays, format):
     if "artists" not in db.table_names():
         console.print("[yellow]![/yellow] No artists found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Validate limit
     if limit < 1:
         console.print("[red]✗[/red] Limit must be at least 1")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Query artists
     try:
@@ -127,7 +127,7 @@ def list_artists(database, limit, sort, order, min_plays, format):
         )
     except Exception as e:
         console.print(f"[red]✗[/red] Query failed: {e}")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Output results
     if format == "table":
@@ -180,7 +180,7 @@ def list_artists(database, limit, sort, order, min_plays, format):
     help="Output format",
     show_default=True,
 )
-def top_artists(database, limit, since, until, period, format):
+def top_artists(ctx, database, limit, since, until, period, format):
     """
     Show top artists with flexible time range support.
 
@@ -207,9 +207,9 @@ def top_artists(database, limit, since, until, period, format):
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -217,14 +217,14 @@ def top_artists(database, limit, since, until, period, format):
     if "plays" not in db.table_names() or db["plays"].count == 0:
         console.print("[yellow]![/yellow] No plays found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Validate limit
     if limit < 1:
         console.print("[red]✗[/red] Limit must be at least 1")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Parse date filters
     since_dt = None
@@ -235,7 +235,7 @@ def top_artists(database, limit, since, until, period, format):
             console.print(
                 "[yellow]![/yellow] Cannot use --period with --since or --until"
             )
-            raise click.Abort()
+            ctx.exit(1)
         since_dt, until_dt = domain_queries.parse_period_to_dates(period)
     else:
         if since:
@@ -244,7 +244,7 @@ def top_artists(database, limit, since, until, period, format):
                 console.print(
                     f"[red]✗[/red] Invalid date format: {since}. Use ISO 8601 (YYYY-MM-DD) or relative time (7 days ago)"
                 )
-                raise click.Abort()
+                ctx.exit(1)
 
         if until:
             until_dt = domain_queries.parse_relative_time(until)
@@ -252,7 +252,7 @@ def top_artists(database, limit, since, until, period, format):
                 console.print(
                     f"[red]✗[/red] Invalid date format: {until}. Use ISO 8601 (YYYY-MM-DD) or relative time expressions"
                 )
-                raise click.Abort()
+                ctx.exit(1)
 
     # Query top artists
     try:
@@ -261,7 +261,7 @@ def top_artists(database, limit, since, until, period, format):
         )
     except Exception as e:
         console.print(f"[red]✗[/red] Query failed: {e}")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Output results
     if format == "table":
@@ -295,7 +295,8 @@ def top_artists(database, limit, since, until, period, format):
     help="Output format",
     show_default=True,
 )
-def show_artist(artist_name, database, artist_id, format):
+@click.pass_context
+def show_artist(ctx, artist_name, database, artist_id, format):
     """
     Display detailed information about a specific artist.
 
@@ -312,7 +313,8 @@ def show_artist(artist_name, database, artist_id, format):
     # Validate arguments
     if not artist_id and not artist_name:
         console.print("[red]✗[/red] Either ARTIST_NAME or --artist-id is required")
-        raise click.Abort()
+        console.print("[yellow]→[/yellow] Try: [cyan]scrobbledb artists show \"Artist Name\"[/cyan]")
+        ctx.exit(1)
 
     # Get database path
     if database is None:
@@ -321,9 +323,9 @@ def show_artist(artist_name, database, artist_id, format):
     if not Path(database).exists():
         console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
         console.print(
-            "[yellow]Run 'scrobbledb config init' to create a new database.[/yellow]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     db = sqlite_utils.Database(database)
 
@@ -331,9 +333,9 @@ def show_artist(artist_name, database, artist_id, format):
     if "artists" not in db.table_names():
         console.print("[yellow]![/yellow] No artists found in database.")
         console.print(
-            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
         )
-        raise click.Abort()
+        ctx.exit(1)
 
     # Get artist details
     try:
@@ -346,19 +348,18 @@ def show_artist(artist_name, database, artist_id, format):
             console.print(
                 "\n[dim]Use --artist-id for exact selection, or be more specific with the name.[/dim]"
             )
-            raise click.Abort()
+            ctx.exit(1)
         else:
             console.print(f"[red]✗[/red] Error: {e}")
-            raise click.Abort()
+            ctx.exit(1)
 
     if not artist:
         if artist_id:
-            console.print(f"[yellow]![/yellow] No artist found with ID: {artist_id}")
+            console.print(f"[yellow]![/yellow] No artist found with ID [cyan]{artist_id}[/cyan]")
         else:
-            console.print(
-                f"[yellow]![/yellow] No artist found matching: {artist_name}"
-            )
-        raise click.Abort()
+            console.print(f"[yellow]![/yellow] No artist found matching [yellow]\"{artist_name}\"[/yellow]")
+        console.print("[yellow]→[/yellow] Try searching: [cyan]scrobbledb artists list[/cyan]")
+        ctx.exit(1)
 
     # Get top tracks and albums for this artist
     try:
@@ -366,7 +367,7 @@ def show_artist(artist_name, database, artist_id, format):
         albums = domain_queries.get_artist_albums(db, artist["artist_id"])
     except Exception as e:
         console.print(f"[red]✗[/red] Failed to get artist data: {e}")
-        raise click.Abort()
+        ctx.exit(1)
 
     # Output results
     if format == "table":
