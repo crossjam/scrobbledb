@@ -307,6 +307,7 @@ def format_artists_list(artists: list[dict], console: Console, fields: Optional[
         return
 
     field_config = {
+        "id": {"name": "ID", "style": "dim", "key": "artist_id", "justify": "right", "formatter": str},
         "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
@@ -422,6 +423,7 @@ def format_artists_search(artists: list[dict], console: Console, fields: Optiona
 
     # Define available fields
     field_config = {
+        "id": {"name": "ID", "style": "dim", "key": "artist_id", "justify": "right", "formatter": str},
         "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
         "albums": {"name": "Albums", "style": "magenta", "key": "album_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
@@ -473,6 +475,7 @@ def format_albums_search(albums: list[dict], console: Console, fields: Optional[
         return
 
     field_config = {
+        "id": {"name": "ID", "style": "dim", "key": "album_id", "justify": "right", "formatter": str},
         "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
         "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
         "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
@@ -565,6 +568,7 @@ def format_tracks_search(tracks: list[dict], console: Console, fields: Optional[
         return
 
     field_config = {
+        "id": {"name": "ID", "style": "dim", "key": "track_id", "justify": "right", "formatter": str},
         "track": {"name": "Track", "style": "green", "key": "track_title", "justify": "left", "formatter": None},
         "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
         "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},

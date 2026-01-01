@@ -54,7 +54,7 @@ def artists():
     "--fields",
     type=str,
     multiple=True,
-    help="Fields to include in output (comma-separated or repeated). Available: artist, albums, tracks, plays, last_played",
+    help="Fields to include in output (comma-separated or repeated). Available: id, artist, albums, tracks, plays, last_played",
 )
 @click.pass_context
 def search_artists(ctx, query, database, limit, format, fields):
@@ -123,6 +123,7 @@ def search_artists(ctx, query, database, limit, format, fields):
     # Filter data if fields specified and not table format
     if selected_fields and format != "table":
         field_mapping = {
+            "id": "artist_id",
             "artist": "artist_name",
             "albums": "album_count",
             "tracks": "track_count",
@@ -188,7 +189,7 @@ def search_artists(ctx, query, database, limit, format, fields):
     "--fields",
     type=str,
     multiple=True,
-    help="Fields to include in output (comma-separated or repeated). Available: artist, plays, tracks, albums, last_played",
+    help="Fields to include in output (comma-separated or repeated). Available: id, artist, plays, tracks, albums, last_played",
 )
 @click.pass_context
 def list_artists(ctx, database, limit, sort, order, min_plays, format, fields):
@@ -260,6 +261,7 @@ def list_artists(ctx, database, limit, sort, order, min_plays, format, fields):
     # Filter data if fields specified and not table format
     if selected_fields and format != "table":
         field_mapping = {
+            "id": "artist_id",
             "artist": "artist_name",
             "plays": "play_count",
             "tracks": "track_count",

@@ -68,7 +68,7 @@ Options:
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include in output (comma-separated
-                                  or repeated). Available: artist, plays,
+                                  or repeated). Available: id, artist, plays,
                                   tracks, albums, last_played
   --help                          Show this message and exit.
 ```

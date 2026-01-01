@@ -66,7 +66,7 @@ def tracks():
     "--fields",
     type=str,
     multiple=True,
-    help="Fields to include in output (comma-separated or repeated). Available: track, artist, album, plays, last_played",
+    help="Fields to include in output (comma-separated or repeated). Available: id, track, artist, album, plays, last_played",
 )
 @click.pass_context
 def search_tracks(ctx, query, database, limit, artist, album, format, fields):
@@ -131,6 +131,7 @@ def search_tracks(ctx, query, database, limit, artist, album, format, fields):
     # Filter data if fields specified and not table format
     if selected_fields and format != "table":
         field_mapping = {
+            "id": "track_id",
             "track": "track_title",
             "artist": "artist_name",
             "album": "album_title",
