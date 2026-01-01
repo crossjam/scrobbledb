@@ -74,6 +74,9 @@ Options:
                                   partial match)
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
+  --fields TEXT                   Fields to include in output (comma-separated
+                                  or repeated). Available: timestamp, artist,
+                                  track, album
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->

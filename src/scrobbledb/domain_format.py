@@ -8,11 +8,29 @@ including Rich console output and multiple export formats.
 import json
 import csv as csv_module
 from io import StringIO
+from typing import Optional
 
 
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+
+
+def filter_fields(rows: list[dict], fields: Optional[list[str]] = None) -> list[dict]:
+    """
+    Filter dictionaries to only include specified fields.
+
+    Args:
+        rows: List of dictionaries
+        fields: List of field names to include (None = include all)
+
+    Returns:
+        List of dictionaries with only specified fields
+    """
+    if not fields:
+        return rows
+
+    return [{k: row.get(k) for k in fields if k in row} for row in rows]
 
 
 def format_output(rows: list[dict], format: str, no_headers: bool = False) -> str:
@@ -226,69 +244,107 @@ def format_timestamp(ts: str) -> str:
         return str(ts)
 
 
-def format_plays_list(plays: list[dict], console: Console) -> None:
+def format_plays_list(plays: list[dict], console: Console, fields: Optional[list[str]] = None) -> None:
     """
     Format plays as a rich table.
 
     Args:
         plays: List of play dictionaries
         console: Rich Console instance for output
+        fields: Optional list of fields to include (timestamp, artist, track, album)
     """
     if not plays:
         console.print("[yellow]No plays found.[/yellow]")
         return
 
+    # Define available fields with their display properties
+    field_config = {
+        "timestamp": {"name": "Timestamp", "style": "yellow", "key": "timestamp", "formatter": format_timestamp},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "formatter": None},
+        "track": {"name": "Track", "style": "green", "key": "track_title", "formatter": None},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "formatter": None},
+    }
+
+    # Use all fields if none specified
+    if not fields:
+        fields = ["timestamp", "artist", "track", "album"]
+
+    # Validate fields
+    valid_fields = [f for f in fields if f in field_config]
+    if not valid_fields:
+        console.print("[red]✗[/red] No valid fields specified")
+        return
+
     table = Table(title=f"Plays ({len(plays)} found)")
-    table.add_column("Timestamp", style="yellow")
-    table.add_column("Artist", style="cyan")
-    table.add_column("Track", style="green")
-    table.add_column("Album", style="magenta")
+    for field in valid_fields:
+        config = field_config[field]
+        table.add_column(config["name"], style=config["style"])
 
     for play in plays:
-        table.add_row(
-            format_timestamp(play["timestamp"]),
-            play["artist_name"],
-            play["track_title"],
-            play["album_title"],
-        )
+        row_data = []
+        for field in valid_fields:
+            config = field_config[field]
+            value = play.get(config["key"], "")
+            if config["formatter"]:
+                value = config["formatter"](value)
+            row_data.append(str(value) if value else "-")
+        table.add_row(*row_data)
 
     console.print(table)
 
 
-def format_artists_list(artists: list[dict], console: Console) -> None:
+def format_artists_list(artists: list[dict], console: Console, fields: Optional[list[str]] = None) -> None:
     """
     Format artists list as a rich table.
 
     Args:
         artists: List of artist dictionaries
         console: Rich Console instance for output
+        fields: Optional list of fields to include (artist, plays, tracks, albums, last_played)
     """
     if not artists:
         console.print("[yellow]No artists found.[/yellow]")
         return
 
+    field_config = {
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "albums": {"name": "Albums", "style": "magenta", "key": "album_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "last_played": {"name": "Last Played", "style": "blue", "key": "last_played", "justify": "left", "formatter": format_timestamp},
+    }
+
+    if not fields:
+        fields = ["artist", "plays", "tracks", "albums", "last_played"]
+
+    valid_fields = [f for f in fields if f in field_config]
+    if not valid_fields:
+        console.print("[red]✗[/red] No valid fields specified")
+        return
+
     table = Table(title=f"Artists ({len(artists)} found)")
-    table.add_column("Artist", style="cyan")
-    table.add_column("Plays", justify="right", style="yellow")
-    table.add_column("Tracks", justify="right", style="green")
-    table.add_column("Albums", justify="right", style="magenta")
-    table.add_column("Last Played", style="blue")
+    for field in valid_fields:
+        config = field_config[field]
+        table.add_column(config["name"], style=config["style"], justify=config["justify"])
 
     for artist in artists:
-        table.add_row(
-            artist["artist_name"],
-            f"{artist['play_count']:,}",
-            f"{artist['track_count']:,}",
-            f"{artist['album_count']:,}",
-            format_timestamp(artist["last_played"])
-            if artist.get("last_played")
-            else "-",
-        )
+        row_data = []
+        for field in valid_fields:
+            config = field_config[field]
+            value = artist.get(config["key"])
+            if value and config["formatter"]:
+                value = config["formatter"](value)
+            elif value is not None:
+                value = str(value)
+            else:
+                value = "-"
+            row_data.append(value)
+        table.add_row(*row_data)
 
     console.print(table)
 
 
-def format_top_artists(artists: list[dict], console: Console, since: str = None, until: str = None) -> None:
+def format_top_artists(artists: list[dict], console: Console, since: str = None, until: str = None, fields: Optional[list[str]] = None) -> None:
     """
     Format top artists as a rich table with ranking.
 
@@ -297,9 +353,26 @@ def format_top_artists(artists: list[dict], console: Console, since: str = None,
         console: Rich Console instance for output
         since: Optional start date string for title
         until: Optional end date string for title
+        fields: Optional list of fields to include (rank, artist, plays, percentage, avg_per_day)
     """
     if not artists:
         console.print("[yellow]No artists found.[/yellow]")
+        return
+
+    field_config = {
+        "rank": {"name": "Rank", "style": "dim", "key": "rank", "justify": "right", "formatter": str},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "percentage": {"name": "%", "style": "magenta", "key": "percentage", "justify": "right", "formatter": lambda x: f"{x:.1f}%"},
+        "avg_per_day": {"name": "Avg/Day", "style": "green", "key": "avg_plays_per_day", "justify": "right", "formatter": lambda x: f"{x:.1f}"},
+    }
+
+    if not fields:
+        fields = ["rank", "artist", "plays", "percentage", "avg_per_day"]
+
+    valid_fields = [f for f in fields if f in field_config]
+    if not valid_fields:
+        console.print("[red]✗[/red] No valid fields specified")
         return
 
     # Build title
@@ -313,86 +386,126 @@ def format_top_artists(artists: list[dict], console: Console, since: str = None,
             title += f" (until {until})"
 
     table = Table(title=title)
-    table.add_column("Rank", justify="right", style="dim")
-    table.add_column("Artist", style="cyan")
-    table.add_column("Plays", justify="right", style="yellow")
-    table.add_column("%", justify="right", style="magenta")
-    table.add_column("Avg/Day", justify="right", style="green")
+    for field in valid_fields:
+        config = field_config[field]
+        table.add_column(config["name"], style=config["style"], justify=config["justify"])
 
     for artist in artists:
-        table.add_row(
-            str(artist["rank"]),
-            artist["artist_name"],
-            f"{artist['play_count']:,}",
-            f"{artist['percentage']:.1f}%",
-            f"{artist['avg_plays_per_day']:.1f}",
-        )
+        row_data = []
+        for field in valid_fields:
+            config = field_config[field]
+            value = artist.get(config["key"])
+            if value is not None and config["formatter"]:
+                value = config["formatter"](value)
+            elif value is not None:
+                value = str(value)
+            else:
+                value = "-"
+            row_data.append(value)
+        table.add_row(*row_data)
 
     console.print(table)
 
 
-def format_artists_search(artists: list[dict], console: Console) -> None:
+def format_artists_search(artists: list[dict], console: Console, fields: Optional[list[str]] = None) -> None:
     """
     Format artist search results as a rich table.
 
     Args:
         artists: List of artist dictionaries
         console: Rich Console instance for output
+        fields: Optional list of fields to include (artist, albums, tracks, plays, last_played)
     """
     if not artists:
         console.print("[yellow]No artists found.[/yellow]")
         return
 
+    # Define available fields
+    field_config = {
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "albums": {"name": "Albums", "style": "magenta", "key": "album_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "last_played": {"name": "Last Played", "style": "blue", "key": "last_played", "justify": "left", "formatter": format_timestamp},
+    }
+
+    if not fields:
+        fields = ["artist", "albums", "tracks", "plays", "last_played"]
+
+    valid_fields = [f for f in fields if f in field_config]
+    if not valid_fields:
+        console.print("[red]✗[/red] No valid fields specified")
+        return
+
     table = Table(title=f"Artists ({len(artists)} found)")
-    table.add_column("Artist", style="cyan")
-    table.add_column("Albums", justify="right", style="magenta")
-    table.add_column("Tracks", justify="right", style="green")
-    table.add_column("Plays", justify="right", style="yellow")
-    table.add_column("Last Played", style="blue")
+    for field in valid_fields:
+        config = field_config[field]
+        table.add_column(config["name"], style=config["style"], justify=config["justify"])
 
     for artist in artists:
-        table.add_row(
-            artist["artist_name"],
-            f"{artist['album_count']:,}",
-            f"{artist['track_count']:,}",
-            f"{artist['play_count']:,}",
-            format_timestamp(artist["last_played"])
-            if artist.get("last_played")
-            else "-",
-        )
+        row_data = []
+        for field in valid_fields:
+            config = field_config[field]
+            value = artist.get(config["key"])
+            if value and config["formatter"]:
+                value = config["formatter"](value)
+            elif value is not None:
+                value = str(value)
+            else:
+                value = "-"
+            row_data.append(value)
+        table.add_row(*row_data)
 
     console.print(table)
 
 
-def format_albums_search(albums: list[dict], console: Console) -> None:
+def format_albums_search(albums: list[dict], console: Console, fields: Optional[list[str]] = None) -> None:
     """
     Format album search results as a rich table.
 
     Args:
         albums: List of album dictionaries
         console: Rich Console instance for output
+        fields: Optional list of fields to include (album, artist, tracks, plays, last_played)
     """
     if not albums:
         console.print("[yellow]No albums found.[/yellow]")
         return
 
+    field_config = {
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "last_played": {"name": "Last Played", "style": "blue", "key": "last_played", "justify": "left", "formatter": format_timestamp},
+    }
+
+    if not fields:
+        fields = ["album", "artist", "tracks", "plays", "last_played"]
+
+    valid_fields = [f for f in fields if f in field_config]
+    if not valid_fields:
+        console.print("[red]✗[/red] No valid fields specified")
+        return
+
     table = Table(title=f"Albums ({len(albums)} found)")
-    table.add_column("Album", style="magenta")
-    table.add_column("Artist", style="cyan")
-    table.add_column("Tracks", justify="right", style="green")
-    table.add_column("Plays", justify="right", style="yellow")
-    table.add_column("Last Played", style="blue")
+    for field in valid_fields:
+        config = field_config[field]
+        table.add_column(config["name"], style=config["style"], justify=config["justify"])
 
     for album in albums:
-        table.add_row(
-            album["album_title"],
-            album["artist_name"],
-            f"{album['track_count']:,}",
-            f"{album['play_count']:,}",
-            format_timestamp(album["last_played"])
-            if album.get("last_played")
-            else "-",
-        )
+        row_data = []
+        for field in valid_fields:
+            config = field_config[field]
+            value = album.get(config["key"])
+            if value and config["formatter"]:
+                value = config["formatter"](value)
+            elif value is not None:
+                value = str(value)
+            else:
+                value = "-"
+            row_data.append(value)
+        table.add_row(*row_data)
 
     console.print(table)
 
@@ -438,40 +551,58 @@ def format_album_details(album: dict, tracks: list[dict], console: Console) -> N
         console.print(table)
 
 
-def format_tracks_search(tracks: list[dict], console: Console) -> None:
+def format_tracks_search(tracks: list[dict], console: Console, fields: Optional[list[str]] = None) -> None:
     """
     Format track search results as a rich table.
 
     Args:
         tracks: List of track dictionaries
         console: Rich Console instance for output
+        fields: Optional list of fields to include (track, artist, album, plays, last_played)
     """
     if not tracks:
         console.print("[yellow]No tracks found.[/yellow]")
         return
 
+    field_config = {
+        "track": {"name": "Track", "style": "green", "key": "track_title", "justify": "left", "formatter": None},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
+        "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "last_played": {"name": "Last Played", "style": "blue", "key": "last_played", "justify": "left", "formatter": format_timestamp},
+    }
+
+    if not fields:
+        fields = ["track", "artist", "album", "plays", "last_played"]
+
+    valid_fields = [f for f in fields if f in field_config]
+    if not valid_fields:
+        console.print("[red]✗[/red] No valid fields specified")
+        return
+
     table = Table(title=f"Tracks ({len(tracks)} found)")
-    table.add_column("Track", style="green")
-    table.add_column("Artist", style="cyan")
-    table.add_column("Album", style="magenta")
-    table.add_column("Plays", justify="right", style="yellow")
-    table.add_column("Last Played", style="blue")
+    for field in valid_fields:
+        config = field_config[field]
+        table.add_column(config["name"], style=config["style"], justify=config["justify"])
 
     for track in tracks:
-        table.add_row(
-            track["track_title"],
-            track["artist_name"],
-            track["album_title"],
-            f"{track['play_count']:,}",
-            format_timestamp(track["last_played"])
-            if track.get("last_played")
-            else "-",
-        )
+        row_data = []
+        for field in valid_fields:
+            config = field_config[field]
+            value = track.get(config["key"])
+            if value and config["formatter"]:
+                value = config["formatter"](value)
+            elif value is not None:
+                value = str(value)
+            else:
+                value = "-"
+            row_data.append(value)
+        table.add_row(*row_data)
 
     console.print(table)
 
 
-def format_top_tracks(tracks: list[dict], console: Console, since: str = None, until: str = None) -> None:
+def format_top_tracks(tracks: list[dict], console: Console, since: str = None, until: str = None, fields: Optional[list[str]] = None) -> None:
     """
     Format top tracks as a rich table with ranking.
 
@@ -480,9 +611,27 @@ def format_top_tracks(tracks: list[dict], console: Console, since: str = None, u
         console: Rich Console instance for output
         since: Optional start date string for title
         until: Optional end date string for title
+        fields: Optional list of fields to include (rank, track, artist, album, plays, percentage)
     """
     if not tracks:
         console.print("[yellow]No tracks found.[/yellow]")
+        return
+
+    field_config = {
+        "rank": {"name": "Rank", "style": "dim", "key": "rank", "justify": "right", "formatter": str},
+        "track": {"name": "Track", "style": "green", "key": "track_title", "justify": "left", "formatter": None},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
+        "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "percentage": {"name": "%", "style": "blue", "key": "percentage", "justify": "right", "formatter": lambda x: f"{x:.1f}%"},
+    }
+
+    if not fields:
+        fields = ["rank", "track", "artist", "album", "plays", "percentage"]
+
+    valid_fields = [f for f in fields if f in field_config]
+    if not valid_fields:
+        console.print("[red]✗[/red] No valid fields specified")
         return
 
     # Build title
@@ -496,22 +645,23 @@ def format_top_tracks(tracks: list[dict], console: Console, since: str = None, u
             title += f" (until {until})"
 
     table = Table(title=title)
-    table.add_column("Rank", justify="right", style="dim")
-    table.add_column("Track", style="green")
-    table.add_column("Artist", style="cyan")
-    table.add_column("Album", style="magenta")
-    table.add_column("Plays", justify="right", style="yellow")
-    table.add_column("%", justify="right", style="blue")
+    for field in valid_fields:
+        config = field_config[field]
+        table.add_column(config["name"], style=config["style"], justify=config["justify"])
 
     for track in tracks:
-        table.add_row(
-            str(track["rank"]),
-            track["track_title"],
-            track["artist_name"],
-            track["album_title"],
-            f"{track['play_count']:,}",
-            f"{track['percentage']:.1f}%",
-        )
+        row_data = []
+        for field in valid_fields:
+            config = field_config[field]
+            value = track.get(config["key"])
+            if value is not None and config["formatter"]:
+                value = config["formatter"](value)
+            elif value is not None:
+                value = str(value)
+            else:
+                value = "-"
+            row_data.append(value)
+        table.add_row(*row_data)
 
     console.print(table)
 

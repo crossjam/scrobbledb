@@ -67,6 +67,9 @@ Options:
                                   [default: 0]
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
+  --fields TEXT                   Fields to include in output (comma-separated
+                                  or repeated). Available: artist, plays,
+                                  tracks, albums, last_played
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->
@@ -107,6 +110,9 @@ Options:
                                   Predefined period
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
+  --fields TEXT                   Fields to include in output (comma-separated
+                                  or repeated). Available: rank, artist, plays,
+                                  percentage, avg_per_day
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->

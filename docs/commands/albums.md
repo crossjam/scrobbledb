@@ -58,6 +58,9 @@ Options:
   --artist TEXT                   Filter by artist name
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
+  --fields TEXT                   Fields to include in output (comma-separated
+                                  or repeated). Available: album, artist,
+                                  tracks, plays, last_played
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->

@@ -61,6 +61,9 @@ Options:
   --album TEXT                    Filter by album title
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
+  --fields TEXT                   Fields to include in output (comma-separated
+                                  or repeated). Available: track, artist, album,
+                                  plays, last_played
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->
@@ -102,6 +105,9 @@ Options:
   --artist TEXT                   Filter by artist name
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
+  --fields TEXT                   Fields to include in output (comma-separated
+                                  or repeated). Available: rank, track, artist,
+                                  album, plays, percentage
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->

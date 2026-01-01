@@ -62,8 +62,14 @@ def tracks():
     help="Output format",
     show_default=True,
 )
+@click.option(
+    "--fields",
+    type=str,
+    multiple=True,
+    help="Fields to include in output (comma-separated or repeated). Available: track, artist, album, plays, last_played",
+)
 @click.pass_context
-def search_tracks(ctx, query, database, limit, artist, album, format):
+def search_tracks(ctx, query, database, limit, artist, album, format, fields):
     """
     Search for tracks using fuzzy matching.
 
@@ -115,9 +121,28 @@ def search_tracks(ctx, query, database, limit, artist, album, format):
         console.print(f"[red]✗[/red] Search failed: {e}")
         ctx.exit(1)
 
+    # Parse fields
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        field_mapping = {
+            "track": "track_title",
+            "artist": "artist_name",
+            "album": "album_title",
+            "plays": "play_count",
+            "last_played": "last_played",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        tracks = domain_format.filter_fields(tracks, data_keys)
+
     # Output results
     if format == "table":
-        domain_format.format_tracks_search(tracks, console)
+        domain_format.format_tracks_search(tracks, console, fields=selected_fields)
     else:
         output = domain_format.format_output(tracks, format)
         click.echo(output)
@@ -172,8 +197,14 @@ def search_tracks(ctx, query, database, limit, artist, album, format):
     help="Output format",
     show_default=True,
 )
+@click.option(
+    "--fields",
+    type=str,
+    multiple=True,
+    help="Fields to include in output (comma-separated or repeated). Available: rank, track, artist, album, plays, percentage",
+)
 @click.pass_context
-def top_tracks(ctx, database, limit, since, until, period, artist, format):
+def top_tracks(ctx, database, limit, since, until, period, artist, format, fields):
     """
     Show top tracks with flexible time range support.
 
@@ -256,11 +287,31 @@ def top_tracks(ctx, database, limit, since, until, period, artist, format):
         console.print(f"[red]✗[/red] Query failed: {e}")
         ctx.exit(1)
 
+    # Parse fields
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        field_mapping = {
+            "rank": "rank",
+            "track": "track_title",
+            "artist": "artist_name",
+            "album": "album_title",
+            "plays": "play_count",
+            "percentage": "percentage",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        tracks = domain_format.filter_fields(tracks, data_keys)
+
     # Output results
     if format == "table":
         since_str = since or (period if period else None)
         until_str = until or None
-        domain_format.format_top_tracks(tracks, console, since=since_str, until=until_str)
+        domain_format.format_top_tracks(tracks, console, since=since_str, until=until_str, fields=selected_fields)
     else:
         output = domain_format.format_output(tracks, format)
         click.echo(output)

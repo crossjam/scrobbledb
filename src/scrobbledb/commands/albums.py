@@ -56,8 +56,14 @@ def albums():
     help="Output format",
     show_default=True,
 )
+@click.option(
+    "--fields",
+    type=str,
+    multiple=True,
+    help="Fields to include in output (comma-separated or repeated). Available: album, artist, tracks, plays, last_played",
+)
 @click.pass_context
-def search_albums(ctx, query, database, limit, artist, format):
+def search_albums(ctx, query, database, limit, artist, format, fields):
     """
     Search for albums using fuzzy matching.
 
@@ -109,9 +115,28 @@ def search_albums(ctx, query, database, limit, artist, format):
         console.print(f"[red]✗[/red] Search failed: {e}")
         ctx.exit(1)
 
+    # Parse fields
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        field_mapping = {
+            "album": "album_title",
+            "artist": "artist_name",
+            "tracks": "track_count",
+            "plays": "play_count",
+            "last_played": "last_played",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        albums = domain_format.filter_fields(albums, data_keys)
+
     # Output results
     if format == "table":
-        domain_format.format_albums_search(albums, console)
+        domain_format.format_albums_search(albums, console, fields=selected_fields)
     else:
         output = domain_format.format_output(albums, format)
         click.echo(output)

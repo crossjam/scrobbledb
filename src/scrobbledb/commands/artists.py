@@ -50,8 +50,14 @@ def artists():
     help="Output format",
     show_default=True,
 )
+@click.option(
+    "--fields",
+    type=str,
+    multiple=True,
+    help="Fields to include in output (comma-separated or repeated). Available: artist, albums, tracks, plays, last_played",
+)
 @click.pass_context
-def search_artists(ctx, query, database, limit, format):
+def search_artists(ctx, query, database, limit, format, fields):
     """
     Search for artists using fuzzy matching.
 
@@ -107,9 +113,28 @@ def search_artists(ctx, query, database, limit, format):
         console.print("[yellow]→[/yellow] Try a different search term or browse: [cyan]scrobbledb artists list[/cyan]")
         ctx.exit(0)
 
+    # Parse fields
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        field_mapping = {
+            "artist": "artist_name",
+            "albums": "album_count",
+            "tracks": "track_count",
+            "plays": "play_count",
+            "last_played": "last_played",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        artists = domain_format.filter_fields(artists, data_keys)
+
     # Output results
     if format == "table":
-        domain_format.format_artists_search(artists, console)
+        domain_format.format_artists_search(artists, console, fields=selected_fields)
     else:
         output = domain_format.format_output(artists, format)
         click.echo(output)
@@ -159,7 +184,14 @@ def search_artists(ctx, query, database, limit, format):
     help="Output format",
     show_default=True,
 )
-def list_artists(ctx, database, limit, sort, order, min_plays, format):
+@click.option(
+    "--fields",
+    type=str,
+    multiple=True,
+    help="Fields to include in output (comma-separated or repeated). Available: artist, plays, tracks, albums, last_played",
+)
+@click.pass_context
+def list_artists(ctx, database, limit, sort, order, min_plays, format, fields):
     """
     List all artists in the database with play statistics.
 
@@ -218,9 +250,28 @@ def list_artists(ctx, database, limit, sort, order, min_plays, format):
         console.print(f"[red]✗[/red] Query failed: {e}")
         ctx.exit(1)
 
+    # Parse fields
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        field_mapping = {
+            "artist": "artist_name",
+            "plays": "play_count",
+            "tracks": "track_count",
+            "albums": "album_count",
+            "last_played": "last_played",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        artists = domain_format.filter_fields(artists, data_keys)
+
     # Output results
     if format == "table":
-        domain_format.format_artists_list(artists, console)
+        domain_format.format_artists_list(artists, console, fields=selected_fields)
     else:
         output = domain_format.format_output(artists, format)
         click.echo(output)
@@ -269,7 +320,14 @@ def list_artists(ctx, database, limit, sort, order, min_plays, format):
     help="Output format",
     show_default=True,
 )
-def top_artists(ctx, database, limit, since, until, period, format):
+@click.option(
+    "--fields",
+    type=str,
+    multiple=True,
+    help="Fields to include in output (comma-separated or repeated). Available: rank, artist, plays, percentage, avg_per_day",
+)
+@click.pass_context
+def top_artists(ctx, database, limit, since, until, period, format, fields):
     """
     Show top artists with flexible time range support.
 
@@ -352,11 +410,30 @@ def top_artists(ctx, database, limit, since, until, period, format):
         console.print(f"[red]✗[/red] Query failed: {e}")
         ctx.exit(1)
 
+    # Parse fields
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        field_mapping = {
+            "rank": "rank",
+            "artist": "artist_name",
+            "plays": "play_count",
+            "percentage": "percentage",
+            "avg_per_day": "avg_plays_per_day",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        artists = domain_format.filter_fields(artists, data_keys)
+
     # Output results
     if format == "table":
         since_str = since or (period if period else None)
         until_str = until or None
-        domain_format.format_top_artists(artists, console, since=since_str, until=until_str)
+        domain_format.format_top_artists(artists, console, since=since_str, until=until_str, fields=selected_fields)
     else:
         output = domain_format.format_output(artists, format)
         click.echo(output)

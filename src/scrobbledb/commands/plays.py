@@ -81,8 +81,14 @@ def plays():
     help="Output format",
     show_default=True,
 )
+@click.option(
+    "--fields",
+    type=str,
+    multiple=True,
+    help="Fields to include in output (comma-separated or repeated). Available: timestamp, artist, track, album",
+)
 @click.pass_context
-def list_plays(ctx, database, limit, since, until, artist, album, track, format):
+def list_plays(ctx, database, limit, since, until, artist, album, track, format, fields):
     """
     List recent plays with filtering and pagination.
 
@@ -175,9 +181,28 @@ def list_plays(ctx, database, limit, since, until, artist, album, track, format)
         console.print(f"[red]✗[/red] Query failed: {e}")
         ctx.exit(1)
 
+    # Parse fields (support both comma-separated and repeated --fields options)
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        # Map user-friendly field names to actual dict keys
+        field_mapping = {
+            "timestamp": "timestamp",
+            "artist": "artist_name",
+            "track": "track_title",
+            "album": "album_title",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        plays = domain_format.filter_fields(plays, data_keys)
+
     # Output results
     if format == "table":
-        domain_format.format_plays_list(plays, console)
+        domain_format.format_plays_list(plays, console, fields=selected_fields)
     else:
         output = domain_format.format_output(plays, format)
         click.echo(output)
