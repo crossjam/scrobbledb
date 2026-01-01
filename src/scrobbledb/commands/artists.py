@@ -118,6 +118,13 @@ def search_artists(ctx, query, database, limit, format, fields, select):
         console.print("[yellow]→[/yellow] Try a different search term or browse: [cyan]scrobbledb artists list[/cyan]")
         ctx.exit(0)
 
+    # Parse fields
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
     # Interactive selection mode
     if select:
         if len(artists) == 1:
@@ -149,18 +156,24 @@ def search_artists(ctx, query, database, limit, format, fields, select):
                 console.print("\n[yellow]Selection cancelled[/yellow]")
                 ctx.exit(0)
 
+        # Filter selected record if fields specified
+        if selected_fields:
+            field_mapping = {
+                "id": "artist_id",
+                "artist": "artist_name",
+                "albums": "album_count",
+                "tracks": "track_count",
+                "plays": "play_count",
+                "last_played": "last_played",
+            }
+            data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+            selected = {k: selected.get(k) for k in data_keys if k in selected}
+
         # Output selected record as JSON
         import json
         output = json.dumps(selected, indent=2, default=str)
         click.echo(output)
         return
-
-    # Parse fields
-    selected_fields = None
-    if fields:
-        selected_fields = []
-        for field_arg in fields:
-            selected_fields.extend(f.strip() for f in field_arg.split(","))
 
     # Filter data if fields specified and not table format
     if selected_fields and format != "table":
