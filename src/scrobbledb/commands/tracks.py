@@ -329,7 +329,7 @@ def top_tracks(ctx, database, limit, since, until, period, artist, format, field
 )
 @click.option(
     "--track-id",
-    type=int,
+    type=str,
     default=None,
     help="Use track ID instead of title",
 )

@@ -139,7 +139,7 @@ Usage: cli artists show [OPTIONS] [ARTIST_NAME]
 
 Options:
   -d, --database FILE          Database path (default: XDG data directory)
-  --artist-id INTEGER          Use artist ID instead of name
+  --artist-id TEXT             Use artist ID instead of name
   --format [table|json|jsonl]  Output format  [default: table]
   --help                       Show this message and exit.
 ```

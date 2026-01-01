@@ -154,7 +154,7 @@ def search_albums(ctx, query, database, limit, artist, format, fields):
 )
 @click.option(
     "--album-id",
-    type=int,
+    type=str,
     default=None,
     help="Use album ID instead of title",
 )

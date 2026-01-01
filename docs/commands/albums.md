@@ -90,7 +90,7 @@ Usage: cli albums show [OPTIONS] [ALBUM_TITLE]
 
 Options:
   -d, --database FILE          Database path (default: XDG data directory)
-  --album-id INTEGER           Use album ID instead of title
+  --album-id TEXT              Use album ID instead of title
   --artist TEXT                Artist name (to disambiguate albums with same
                                title)
   --format [table|json|jsonl]  Output format  [default: table]

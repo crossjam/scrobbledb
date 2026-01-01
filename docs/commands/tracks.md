@@ -140,7 +140,7 @@ Usage: cli tracks show [OPTIONS] [TRACK_TITLE]
 
 Options:
   -d, --database FILE          Database path (default: XDG data directory)
-  --track-id INTEGER           Use track ID instead of title
+  --track-id TEXT              Use track ID instead of title
   --artist TEXT                Artist name (to disambiguate tracks with same
                                title)
   --album TEXT                 Album title (to disambiguate further)

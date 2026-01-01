@@ -452,7 +452,7 @@ def top_artists(ctx, database, limit, since, until, period, format, fields):
 )
 @click.option(
     "--artist-id",
-    type=int,
+    type=str,
     default=None,
     help="Use artist ID instead of name",
 )
