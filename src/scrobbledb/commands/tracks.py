@@ -13,7 +13,7 @@ from ..config_utils import get_default_db_path
 from .. import domain_queries
 from .. import domain_format
 
-console = Console()
+console = Console(stderr=True)
 
 
 @click.group()
