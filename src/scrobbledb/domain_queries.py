@@ -579,6 +579,93 @@ def get_tracks_by_search(
     ]
 
 
+def get_albums_list(
+    db: sqlite_utils.Database,
+    artist: Optional[str] = None,
+    artist_id: Optional[str] = None,
+    limit: int = 50,
+    sort: str = "plays",
+    order: str = "desc",
+    min_plays: int = 0,
+) -> list[dict]:
+    """
+    List albums with optional artist filter.
+
+    Args:
+        db: Database connection
+        artist: Optional artist name filter
+        artist_id: Optional artist ID filter
+        limit: Maximum results
+        sort: Sort by plays, name, or recent
+        order: Sort order (asc or desc)
+        min_plays: Minimum play count filter
+
+    Returns:
+        List of dicts with album information
+    """
+    conditions = []
+    params = []
+
+    if artist:
+        conditions.append("artists.name LIKE ?")
+        params.append(f"%{artist}%")
+
+    if artist_id:
+        conditions.append("artists.id = ?")
+        params.append(artist_id)
+
+    if min_plays > 0:
+        conditions.append("play_count >= ?")
+
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    # Determine sort column
+    if sort == "name":
+        order_by = "albums.title"
+    elif sort == "recent":
+        order_by = "last_played"
+    else:  # plays
+        order_by = "play_count"
+
+    order_direction = "ASC" if order == "asc" else "DESC"
+
+    sql = f"""
+        SELECT
+            albums.id as album_id,
+            albums.title as album_title,
+            artists.name as artist_name,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM albums
+        JOIN artists ON albums.artist_id = artists.id
+        LEFT JOIN tracks ON tracks.album_id = albums.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        {where_clause}
+        GROUP BY albums.id, albums.title, artists.name
+        {"HAVING play_count >= ?" if min_plays > 0 else ""}
+        ORDER BY {order_by} {order_direction}
+        LIMIT ?
+    """
+
+    if min_plays > 0:
+        params.append(min_plays)
+    params.append(limit)
+
+    rows = db.execute(sql, params).fetchall()
+    return [
+        {
+            "album_id": row[0],
+            "album_title": row[1],
+            "artist_name": row[2],
+            "track_count": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
+
+
 def get_artists_by_search(
     db: sqlite_utils.Database,
     query: str,

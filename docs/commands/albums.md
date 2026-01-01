@@ -22,6 +22,7 @@ Options:
   --help  Show this message and exit.
 
 Commands:
+  list    List albums with optional artist filter.
   search  Search for albums using fuzzy matching.
   show    Display detailed information about a specific album and list its...
 ```

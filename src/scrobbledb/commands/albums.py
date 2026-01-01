@@ -203,6 +203,171 @@ def search_albums(ctx, query, database, limit, artist, format, fields, select):
         click.echo(output)
 
 
+@albums.command(name="list")
+@click.option(
+    "-d",
+    "--database",
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+    default=None,
+    help="Database path (default: XDG data directory)",
+)
+@click.option(
+    "-l",
+    "--limit",
+    type=int,
+    default=50,
+    help="Maximum results",
+    show_default=True,
+)
+@click.option(
+    "--artist",
+    type=str,
+    default=None,
+    help="Filter by artist name",
+)
+@click.option(
+    "--artist-id",
+    type=str,
+    default=None,
+    help="Filter by artist ID",
+)
+@click.option(
+    "--sort",
+    type=click.Choice(["plays", "name", "recent"], case_sensitive=False),
+    default="plays",
+    help="Sort by: plays, name, or recent",
+    show_default=True,
+)
+@click.option(
+    "--order",
+    type=click.Choice(["desc", "asc"], case_sensitive=False),
+    default="desc",
+    help="Sort order",
+    show_default=True,
+)
+@click.option(
+    "--min-plays",
+    type=int,
+    default=0,
+    help="Show only albums with at least N plays",
+    show_default=True,
+)
+@click.option(
+    "--format",
+    type=click.Choice(["table", "csv", "json", "jsonl"], case_sensitive=False),
+    default="table",
+    help="Output format",
+    show_default=True,
+)
+@click.option(
+    "--fields",
+    type=str,
+    multiple=True,
+    help="Fields to include in output (comma-separated or repeated). Available: id, album, artist, tracks, plays, last_played",
+)
+@click.pass_context
+def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays, format, fields):
+    """
+    List albums with optional artist filter.
+
+    Browse albums in your collection with sorting options. Filter by artist
+    name or artist ID to see all albums by a specific artist.
+
+    \b
+    Examples:
+        # List top 50 albums by play count
+        scrobbledb albums list
+
+        # List albums by specific artist
+        scrobbledb albums list --artist "Radiohead"
+
+        # List albums using artist ID from search
+        scrobbledb albums list --artist-id "80cb9f52-04b5-4084-a2eb-6098c91cb48a"
+
+        # List albums alphabetically
+        scrobbledb albums list --sort name --order asc
+
+        # List recently played albums
+        scrobbledb albums list --sort recent
+    """
+    # Get database path
+    if database is None:
+        database = get_default_db_path()
+
+    if not Path(database).exists():
+        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
+        console.print(
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
+        )
+        ctx.exit(1)
+
+    db = sqlite_utils.Database(database)
+
+    # Check if we have any albums
+    if "albums" not in db.table_names():
+        console.print("[yellow]![/yellow] No albums found in database.")
+        console.print(
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
+        )
+        ctx.exit(1)
+
+    # Validate limit
+    if limit < 1:
+        console.print("[red]✗[/red] Limit must be at least 1")
+        ctx.exit(1)
+
+    # Query albums
+    try:
+        albums = domain_queries.get_albums_list(
+            db,
+            artist=artist,
+            artist_id=artist_id,
+            limit=limit,
+            sort=sort,
+            order=order,
+            min_plays=min_plays,
+        )
+    except Exception as e:
+        console.print(f"[red]✗[/red] Query failed: {e}")
+        ctx.exit(1)
+
+    if not albums:
+        if artist:
+            console.print(f"[yellow]![/yellow] No albums found for artist: [yellow]{artist}[/yellow]")
+        elif artist_id:
+            console.print(f"[yellow]![/yellow] No albums found for artist ID: [yellow]{artist_id}[/yellow]")
+        else:
+            console.print("[yellow]![/yellow] No albums found in database.")
+        ctx.exit(0)
+
+    # Parse fields
+    selected_fields = None
+    if fields:
+        selected_fields = []
+        for field_arg in fields:
+            selected_fields.extend(f.strip() for f in field_arg.split(","))
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        field_mapping = {
+            "id": "album_id",
+            "album": "album_title",
+            "artist": "artist_name",
+            "tracks": "track_count",
+            "plays": "play_count",
+            "last_played": "last_played",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        albums = domain_format.filter_fields(albums, data_keys)
+
+    # Output results
+    if format == "table":
+        domain_format.format_albums_list(albums, console, fields=selected_fields)
+    else:
+        output = domain_format.format_output(albums, format)
+        click.echo(output)
+
+
 @albums.command(name="show")
 @click.argument("album_title", required=False)
 @click.option(
