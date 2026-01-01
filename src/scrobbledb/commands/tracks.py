@@ -153,7 +153,8 @@ def search_tracks(ctx, query, database, limit, artist, album, format, fields, se
             try:
                 choice = Prompt.ask(
                     f"\n[bold]Select a track[/bold] [dim](1-{len(tracks)}, or 'q' to quit)[/dim]",
-                    default="1"
+                    default="1",
+                    console=console
                 )
                 if choice.lower() == 'q':
                     ctx.exit(0)

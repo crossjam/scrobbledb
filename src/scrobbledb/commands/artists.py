@@ -141,7 +141,8 @@ def search_artists(ctx, query, database, limit, format, fields, select):
             try:
                 choice = Prompt.ask(
                     f"\n[bold]Select an artist[/bold] [dim](1-{len(artists)}, or 'q' to quit)[/dim]",
-                    default="1"
+                    default="1",
+                    console=console
                 )
                 if choice.lower() == 'q':
                     ctx.exit(0)

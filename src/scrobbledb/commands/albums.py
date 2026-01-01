@@ -147,7 +147,8 @@ def search_albums(ctx, query, database, limit, artist, format, fields, select):
             try:
                 choice = Prompt.ask(
                     f"\n[bold]Select an album[/bold] [dim](1-{len(albums)}, or 'q' to quit)[/dim]",
-                    default="1"
+                    default="1",
+                    console=console
                 )
                 if choice.lower() == 'q':
                     ctx.exit(0)
