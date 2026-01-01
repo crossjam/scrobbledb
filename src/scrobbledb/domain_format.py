@@ -331,6 +331,39 @@ def format_top_artists(artists: list[dict], console: Console, since: str = None,
     console.print(table)
 
 
+def format_artists_search(artists: list[dict], console: Console) -> None:
+    """
+    Format artist search results as a rich table.
+
+    Args:
+        artists: List of artist dictionaries
+        console: Rich Console instance for output
+    """
+    if not artists:
+        console.print("[yellow]No artists found.[/yellow]")
+        return
+
+    table = Table(title=f"Artists ({len(artists)} found)")
+    table.add_column("Artist", style="cyan")
+    table.add_column("Albums", justify="right", style="magenta")
+    table.add_column("Tracks", justify="right", style="green")
+    table.add_column("Plays", justify="right", style="yellow")
+    table.add_column("Last Played", style="blue")
+
+    for artist in artists:
+        table.add_row(
+            artist["artist_name"],
+            f"{artist['album_count']:,}",
+            f"{artist['track_count']:,}",
+            f"{artist['play_count']:,}",
+            format_timestamp(artist["last_played"])
+            if artist.get("last_played")
+            else "-",
+        )
+
+    console.print(table)
+
+
 def format_albums_search(albums: list[dict], console: Console) -> None:
     """
     Format album search results as a rich table.

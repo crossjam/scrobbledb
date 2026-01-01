@@ -22,9 +22,10 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  list  List all artists in the database with play statistics.
-  show  Display detailed information about a specific artist.
-  top   Show top artists with flexible time range support.
+  list    List all artists in the database with play statistics.
+  search  Search for artists using fuzzy matching.
+  show    Display detailed information about a specific artist.
+  top     Show top artists with flexible time range support.
 ```
 <!-- [[[end]]] -->
 

@@ -579,6 +579,104 @@ def get_tracks_by_search(
     ]
 
 
+def get_artists_by_search(
+    db: sqlite_utils.Database,
+    query: str,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Search artists by name using FTS5 and fuzzy matching.
+
+    Args:
+        db: Database connection
+        query: Search query for artist name
+        limit: Maximum results
+
+    Returns:
+        List of dicts with artist information
+    """
+    from rapidfuzz import fuzz
+
+    # First try FTS5 search if the tracks_fts table exists
+    if "tracks_fts" in db.table_names():
+        # Use FTS5 to search artist names
+        fts_sql = """
+            SELECT DISTINCT
+                tracks_fts.artist_id,
+                tracks_fts.artist_name
+            FROM tracks_fts
+            WHERE tracks_fts MATCH ?
+            LIMIT ?
+        """
+        # FTS5 MATCH query - search in artist_name field
+        fts_query = f"artist_name:{query}*"
+        fts_results = db.execute(fts_sql, [fts_query, limit * 3]).fetchall()
+
+        # Get unique artist IDs from FTS results
+        artist_ids = list(set(row[0] for row in fts_results))
+    else:
+        # Fallback to LIKE search if FTS5 not available
+        artist_ids = []
+
+    # If FTS5 didn't return enough results, supplement with LIKE search
+    if len(artist_ids) < limit:
+        like_sql = """
+            SELECT DISTINCT artists.id
+            FROM artists
+            WHERE artists.name LIKE ?
+            LIMIT ?
+        """
+        like_results = db.execute(like_sql, [f"%{query}%", limit * 2]).fetchall()
+        like_ids = [row[0] for row in like_results]
+
+        # Combine FTS and LIKE results, removing duplicates
+        all_ids = artist_ids + [aid for aid in like_ids if aid not in artist_ids]
+        artist_ids = all_ids[:limit * 2]
+
+    if not artist_ids:
+        return []
+
+    # Get full artist details with play statistics
+    placeholders = ",".join("?" * len(artist_ids))
+    sql = f"""
+        SELECT
+            artists.id as artist_id,
+            artists.name as artist_name,
+            COUNT(DISTINCT albums.id) as album_count,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM artists
+        LEFT JOIN albums ON albums.artist_id = artists.id
+        LEFT JOIN tracks ON tracks.album_id = albums.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        WHERE artists.id IN ({placeholders})
+        GROUP BY artists.id, artists.name
+    """
+
+    rows = db.execute(sql, artist_ids).fetchall()
+    results = [
+        {
+            "artist_id": row[0],
+            "artist_name": row[1],
+            "album_count": row[2],
+            "track_count": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
+
+    # Use rapidfuzz to score and rank results
+    for result in results:
+        result["fuzzy_score"] = fuzz.partial_ratio(query.lower(), result["artist_name"].lower())
+
+    # Sort by fuzzy score (descending), then by play count
+    results.sort(key=lambda x: (x["fuzzy_score"], x["play_count"]), reverse=True)
+
+    return results[:limit]
+
+
 def get_top_artists(
     db: sqlite_utils.Database,
     limit: int = 10,

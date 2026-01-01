@@ -26,6 +26,95 @@ def artists():
     pass
 
 
+@artists.command(name="search")
+@click.argument("query", required=True)
+@click.option(
+    "-d",
+    "--database",
+    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
+    default=None,
+    help="Database path (default: XDG data directory)",
+)
+@click.option(
+    "-l",
+    "--limit",
+    type=int,
+    default=20,
+    help="Maximum results",
+    show_default=True,
+)
+@click.option(
+    "--format",
+    type=click.Choice(["table", "csv", "json", "jsonl"], case_sensitive=False),
+    default="table",
+    help="Output format",
+    show_default=True,
+)
+@click.pass_context
+def search_artists(ctx, query, database, limit, format):
+    """
+    Search for artists using fuzzy matching.
+
+    Find artists by partial name, useful when you don't remember exact spelling.
+    Uses FTS5 full-text search and rapidfuzz for intelligent matching.
+
+    \b
+    Examples:
+        # Search for artists with "radio" in name
+        scrobbledb artists search "radio"
+
+        # Find artists similar to "beetles"
+        scrobbledb artists search "beetles"
+
+        # Get top 10 results
+        scrobbledb artists search "rock" --limit 10
+    """
+    # Get database path
+    if database is None:
+        database = get_default_db_path()
+
+    if not Path(database).exists():
+        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
+        console.print(
+            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
+        )
+        ctx.exit(1)
+
+    db = sqlite_utils.Database(database)
+
+    # Check if we have any artists
+    if "artists" not in db.table_names():
+        console.print("[yellow]![/yellow] No artists found in database.")
+        console.print(
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
+        )
+        ctx.exit(1)
+
+    # Validate limit
+    if limit < 1:
+        console.print("[red]✗[/red] Limit must be at least 1")
+        ctx.exit(1)
+
+    # Search artists
+    try:
+        artists = domain_queries.get_artists_by_search(db, query=query, limit=limit)
+    except Exception as e:
+        console.print(f"[red]✗[/red] Search failed: {e}")
+        ctx.exit(1)
+
+    if not artists:
+        console.print(f"[yellow]![/yellow] No artists found matching [yellow]\"{query}\"[/yellow]")
+        console.print("[yellow]→[/yellow] Try a different search term or browse: [cyan]scrobbledb artists list[/cyan]")
+        ctx.exit(0)
+
+    # Output results
+    if format == "table":
+        domain_format.format_artists_search(artists, console)
+    else:
+        output = domain_format.format_output(artists, format)
+        click.echo(output)
+
+
 @artists.command(name="list")
 @click.option(
     "-d",
