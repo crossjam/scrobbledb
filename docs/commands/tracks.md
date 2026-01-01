@@ -64,6 +64,8 @@ Options:
   --fields TEXT                   Fields to include in output (comma-separated
                                   or repeated). Available: id, track, artist,
                                   album, plays, last_played
+  --select                        Interactive mode: select a single result and
+                                  output its details as JSON
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->

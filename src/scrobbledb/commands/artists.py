@@ -56,8 +56,13 @@ def artists():
     multiple=True,
     help="Fields to include in output (comma-separated or repeated). Available: id, artist, albums, tracks, plays, last_played",
 )
+@click.option(
+    "--select",
+    is_flag=True,
+    help="Interactive mode: select a single result and output its details as JSON",
+)
 @click.pass_context
-def search_artists(ctx, query, database, limit, format, fields):
+def search_artists(ctx, query, database, limit, format, fields, select):
     """
     Search for artists using fuzzy matching.
 
@@ -112,6 +117,43 @@ def search_artists(ctx, query, database, limit, format, fields):
         console.print(f"[yellow]![/yellow] No artists found matching [yellow]\"{query}\"[/yellow]")
         console.print("[yellow]→[/yellow] Try a different search term or browse: [cyan]scrobbledb artists list[/cyan]")
         ctx.exit(0)
+
+    # Interactive selection mode
+    if select:
+        if len(artists) == 1:
+            # Only one result, auto-select it
+            selected = artists[0]
+        else:
+            # Display numbered results
+            console.print(f"\n[bold]Found {len(artists)} artists matching [cyan]\"{query}\"[/cyan]:[/bold]\n")
+            for i, artist in enumerate(artists, 1):
+                console.print(f"  [dim]{i}.[/dim] [cyan]{artist['artist_name']}[/cyan] - {artist['play_count']:,} plays")
+
+            # Prompt for selection
+            from rich.prompt import Prompt
+            try:
+                choice = Prompt.ask(
+                    f"\n[bold]Select an artist[/bold] [dim](1-{len(artists)}, or 'q' to quit)[/dim]",
+                    default="1"
+                )
+                if choice.lower() == 'q':
+                    ctx.exit(0)
+
+                choice_num = int(choice)
+                if choice_num < 1 or choice_num > len(artists):
+                    console.print(f"[red]✗[/red] Invalid selection: {choice_num}")
+                    ctx.exit(1)
+
+                selected = artists[choice_num - 1]
+            except (ValueError, KeyboardInterrupt):
+                console.print("\n[yellow]Selection cancelled[/yellow]")
+                ctx.exit(0)
+
+        # Output selected record as JSON
+        import json
+        output = json.dumps(selected, indent=2, default=str)
+        click.echo(output)
+        return
 
     # Parse fields
     selected_fields = None

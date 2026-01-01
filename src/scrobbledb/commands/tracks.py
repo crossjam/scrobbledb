@@ -68,8 +68,13 @@ def tracks():
     multiple=True,
     help="Fields to include in output (comma-separated or repeated). Available: id, track, artist, album, plays, last_played",
 )
+@click.option(
+    "--select",
+    is_flag=True,
+    help="Interactive mode: select a single result and output its details as JSON",
+)
 @click.pass_context
-def search_tracks(ctx, query, database, limit, artist, album, format, fields):
+def search_tracks(ctx, query, database, limit, artist, album, format, fields, select):
     """
     Search for tracks using fuzzy matching.
 
@@ -120,6 +125,47 @@ def search_tracks(ctx, query, database, limit, artist, album, format, fields):
     except Exception as e:
         console.print(f"[red]✗[/red] Search failed: {e}")
         ctx.exit(1)
+
+    if not tracks:
+        console.print(f"[yellow]![/yellow] No tracks found matching [yellow]\"{query}\"[/yellow]")
+        ctx.exit(0)
+
+    # Interactive selection mode
+    if select:
+        if len(tracks) == 1:
+            # Only one result, auto-select it
+            selected = tracks[0]
+        else:
+            # Display numbered results
+            console.print(f"\n[bold]Found {len(tracks)} tracks matching [cyan]\"{query}\"[/cyan]:[/bold]\n")
+            for i, track in enumerate(tracks, 1):
+                console.print(f"  [dim]{i}.[/dim] [green]{track['track_title']}[/green] by [cyan]{track['artist_name']}[/cyan] - {track['play_count']:,} plays")
+
+            # Prompt for selection
+            from rich.prompt import Prompt
+            try:
+                choice = Prompt.ask(
+                    f"\n[bold]Select a track[/bold] [dim](1-{len(tracks)}, or 'q' to quit)[/dim]",
+                    default="1"
+                )
+                if choice.lower() == 'q':
+                    ctx.exit(0)
+
+                choice_num = int(choice)
+                if choice_num < 1 or choice_num > len(tracks):
+                    console.print(f"[red]✗[/red] Invalid selection: {choice_num}")
+                    ctx.exit(1)
+
+                selected = tracks[choice_num - 1]
+            except (ValueError, KeyboardInterrupt):
+                console.print("\n[yellow]Selection cancelled[/yellow]")
+                ctx.exit(0)
+
+        # Output selected record as JSON
+        import json
+        output = json.dumps(selected, indent=2, default=str)
+        click.echo(output)
+        return
 
     # Parse fields
     selected_fields = None
