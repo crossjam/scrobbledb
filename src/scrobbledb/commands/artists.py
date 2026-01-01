@@ -362,6 +362,7 @@ def show_artist(ctx, artist_name, database, artist_id, format):
         ctx.exit(1)
 
     # Get top tracks and albums for this artist
+    assert artist is not None  # Type narrowing for type checker
     try:
         top_tracks = domain_queries.get_artist_top_tracks(db, artist["artist_id"], limit=10)
         albums = domain_queries.get_artist_albums(db, artist["artist_id"])

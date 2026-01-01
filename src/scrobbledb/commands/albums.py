@@ -218,6 +218,7 @@ def show_album(ctx, album_title, database, album_id, artist, format):
         ctx.exit(1)
 
     # Get tracks for this album
+    assert album is not None  # Type narrowing for type checker
     try:
         tracks = domain_queries.get_album_tracks(db, album["album_id"])
     except Exception as e:

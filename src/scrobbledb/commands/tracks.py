@@ -62,6 +62,7 @@ def tracks():
     help="Output format",
     show_default=True,
 )
+@click.pass_context
 def search_tracks(ctx, query, database, limit, artist, album, format):
     """
     Search for tracks using fuzzy matching.
@@ -171,6 +172,7 @@ def search_tracks(ctx, query, database, limit, artist, album, format):
     help="Output format",
     show_default=True,
 )
+@click.pass_context
 def top_tracks(ctx, database, limit, since, until, period, artist, format):
     """
     Show top tracks with flexible time range support.
@@ -382,6 +384,7 @@ def show_track(ctx, track_title, database, track_id, artist, album, show_plays, 
         ctx.exit(1)
 
     # Get plays if requested
+    assert track is not None  # Type narrowing for type checker
     plays = None
     if show_plays:
         try:
