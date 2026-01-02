@@ -26,6 +26,11 @@ dependencies = [
     "stamina>=24.2.0",
     "rapidfuzz>=3.0.0",
     "dateparser>=1.1.0",
+    "marimo[sql]",
+    "sqlalchemy",
+    "openai>=2.14.0",
+    "altair>=6.0.0",
+    "pandas>=2.3.3",
 ]
 
 [project.optional-dependencies]

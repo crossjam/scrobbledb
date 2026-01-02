@@ -1,0 +1,73 @@
+{
+  "version": "1",
+  "metadata": {
+    "marimo_version": "0.18.4"
+  },
+  "cells": [
+    {
+      "id": "Hbol",
+      "code_hash": "042b699e4cd5e6617cd926dde12ad562",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "application/vnd.vegalite.v5+json": "{\n  \"$schema\": \"https://vega.github.io/schema/vega-lite/v6.1.0.json\",\n  \"config\": {\n    \"view\": {\n      \"continuousHeight\": 300,\n      \"continuousWidth\": 300\n    }\n  },\n  \"data\": {\n    \"name\": \"data-867055ae39104bd516f8bcf78c90354c\"\n  },\n  \"datasets\": {\n    \"data-867055ae39104bd516f8bcf78c90354c\": [\n      {\n        \"count\": 7492,\n        \"year\": 2009\n      },\n      {\n        \"count\": 6147,\n        \"year\": 2010\n      },\n      {\n        \"count\": 4962,\n        \"year\": 2011\n      },\n      {\n        \"count\": 4728,\n        \"year\": 2012\n      },\n      {\n        \"count\": 526,\n        \"year\": 2013\n      },\n      {\n        \"count\": 1281,\n        \"year\": 2015\n      },\n      {\n        \"count\": 2211,\n        \"year\": 2016\n      },\n      {\n        \"count\": 1109,\n        \"year\": 2017\n      },\n      {\n        \"count\": 783,\n        \"year\": 2018\n      },\n      {\n        \"count\": 1230,\n        \"year\": 2019\n      },\n      {\n        \"count\": 4699,\n        \"year\": 2020\n      },\n      {\n        \"count\": 10363,\n        \"year\": 2021\n      },\n      {\n        \"count\": 11627,\n        \"year\": 2022\n      },\n      {\n        \"count\": 7534,\n        \"year\": 2023\n      },\n      {\n        \"count\": 6418,\n        \"year\": 2024\n      },\n      {\n        \"count\": 15957,\n        \"year\": 2025\n      }\n    ]\n  },\n  \"encoding\": {\n    \"color\": {\n      \"value\": \"#4C78A8\"\n    },\n    \"tooltip\": [\n      {\n        \"field\": \"year\",\n        \"title\": \"Year\",\n        \"type\": \"ordinal\"\n      },\n      {\n        \"field\": \"count\",\n        \"title\": \"Plays\",\n        \"type\": \"quantitative\"\n      }\n    ],\n    \"x\": {\n      \"field\": \"year\",\n      \"title\": \"Year\",\n      \"type\": \"ordinal\"\n    },\n    \"y\": {\n      \"field\": \"count\",\n      \"title\": \"Number of Plays\",\n      \"type\": \"quantitative\"\n    }\n  },\n  \"height\": 420,\n  \"mark\": {\n    \"color\": \"#4C78A8\",\n    \"type\": \"bar\"\n  },\n  \"params\": [\n    {\n      \"bind\": \"scales\",\n      \"name\": \"param_1e9efca18e7a2868\",\n      \"select\": {\n        \"encodings\": [\n          \"x\",\n          \"y\"\n        ],\n        \"type\": \"interval\"\n      }\n    }\n  ],\n  \"title\": \"Plays by Year\",\n  \"usermeta\": {\n    \"embedOptions\": {}\n  },\n  \"width\": 700\n}"
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "MJUe",
+      "code_hash": "854166a07849c2d63c2c489d98b49cc6",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "vblA",
+      "code_hash": "a784ea866e9cc841847de6be055a050a",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "bkHC",
+      "code_hash": "2900c2a4219402a32c99f716c7da8ec4",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    },
+    {
+      "id": "lEQa",
+      "code_hash": "d8877da359767bc4a130c20bcdcde5fc",
+      "outputs": [
+        {
+          "type": "data",
+          "data": {
+            "text/plain": ""
+          }
+        }
+      ],
+      "console": []
+    }
+  ]
+}
