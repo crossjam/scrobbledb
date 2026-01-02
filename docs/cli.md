@@ -14,6 +14,8 @@ This guide orients you to the `scrobbledb` command-line interface and links to d
 
 | Command | Purpose | Reference |
 | --- | --- | --- |
+| `albums` | Search albums and view album details | [Albums](commands/albums.md) |
+| `artists` | Browse artists, view top artists, and artist details | [Artists](commands/artists.md) |
 | `auth` | Save Last.fm/Libre.fm credentials | [Auth](commands/auth.md) |
 | `browse` | Launch the Textual TUI to browse tracks | [Browse](commands/browse.md) |
 | `config` | Initialize or reset the database and show paths | [Config](commands/config.md) |
@@ -21,9 +23,11 @@ This guide orients you to the `scrobbledb` command-line interface and links to d
 | `import` | Import plays from files or stdin | [Import](commands/import.md) |
 | `index` | Create or rebuild the FTS5 search index | [Index](commands/index.md) |
 | `ingest` | Fetch recent plays from Last.fm/Libre.fm | [Ingest](commands/ingest.md) |
+| `plays` | View play history with filtering | [Plays](commands/plays.md) |
 | `search` | Full-text search across the library | [Search](commands/search.md) |
 | `sql` | sqlite-utils passthrough commands | [SQL](commands/sql.md) |
 | `stats` | Overview, monthly, and yearly listening stats | [Stats](commands/stats.md) |
+| `tracks` | Search tracks, view top tracks, and track details | [Tracks](commands/tracks.md) |
 | `version` | Print the installed package version | [Version](commands/version.md) |
 
 ## Regenerating help snippets
