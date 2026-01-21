@@ -8,7 +8,7 @@ Album investigation commands. Search for albums and view detailed information ab
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["albums", "--help"])
+result = runner.invoke(cli, ["albums", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -34,7 +34,7 @@ Commands:
 Search for albums using fuzzy matching. Find albums by partial name when you don't remember exact titles.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["albums", "search", "--help"])
+result = runner.invoke(cli, ["albums", "search", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -72,7 +72,7 @@ Options:
 Display detailed information about a specific album and list its tracks with play statistics.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["albums", "show", "--help"])
+result = runner.invoke(cli, ["albums", "show", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```

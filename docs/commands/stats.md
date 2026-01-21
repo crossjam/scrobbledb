@@ -8,7 +8,7 @@ Summaries of your listening history. All subcommands default to the standard dat
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["stats", "--help"])
+result = runner.invoke(cli, ["stats", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -45,7 +45,7 @@ Commands:
 Totals for scrobbles, unique artists/albums/tracks, and the listen date range.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["stats", "overview", "--help"])
+result = runner.invoke(cli, ["stats", "overview", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -74,7 +74,7 @@ Options:
 Monthly play counts with optional relative or absolute date bounds and an optional limit on the number of months returned.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["stats", "monthly", "--help"])
+result = runner.invoke(cli, ["stats", "monthly", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -115,7 +115,7 @@ Options:
 Yearly play counts using the same filtering options as `monthly`.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["stats", "yearly", "--help"])
+result = runner.invoke(cli, ["stats", "yearly", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```

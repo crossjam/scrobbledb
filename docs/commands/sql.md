@@ -8,7 +8,7 @@ Read-only sqlite-utils commands against the scrobbledb database. Use these to in
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["sql", "--help"])
+result = runner.invoke(cli, ["sql", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -74,7 +74,7 @@ Commands:
 Execute SQL and return results as JSON.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "query", "--help"])
+result = runner.invoke(cli, ["sql", "query", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -114,7 +114,7 @@ Options:
 List database tables with optional counts and columns.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "tables", "--help"])
+result = runner.invoke(cli, ["sql", "tables", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -151,7 +151,7 @@ Options:
 Show the schema for the whole database or specific tables.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "schema", "--help"])
+result = runner.invoke(cli, ["sql", "schema", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -174,7 +174,7 @@ Options:
 List views in the database.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "views", "--help"])
+result = runner.invoke(cli, ["sql", "views", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -209,7 +209,7 @@ Options:
 Run full-text search against a table.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "search", "--help"])
+result = runner.invoke(cli, ["sql", "search", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -248,7 +248,7 @@ Options:
 Output a SQL dump of the schema and contents.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "dump", "--help"])
+result = runner.invoke(cli, ["sql", "dump", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -270,7 +270,7 @@ Options:
 Analyze columns in one or more tables.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "analyze-tables", "--help"])
+result = runner.invoke(cli, ["sql", "analyze-tables", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -299,7 +299,7 @@ Options:
 Execute SQL against an in-memory database created from CSV/TSV/JSON inputs.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "memory", "--help"])
+result = runner.invoke(cli, ["sql", "memory", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -348,7 +348,7 @@ Options:
 List installed sqlite-utils plugins.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "plugins", "--help"])
+result = runner.invoke(cli, ["sql", "plugins", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -369,7 +369,7 @@ Options:
 Show indexes for the whole database or specific tables.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "indexes", "--help"])
+result = runner.invoke(cli, ["sql", "indexes", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -403,7 +403,7 @@ Options:
 Output rows from a table with filtering options.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "rows", "--help"])
+result = runner.invoke(cli, ["sql", "rows", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -449,7 +449,7 @@ Options:
 Show triggers configured in the database.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["sql", "triggers", "--help"])
+result = runner.invoke(cli, ["sql", "triggers", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```

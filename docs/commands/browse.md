@@ -8,7 +8,7 @@ Launch an interactive Textual TUI to explore your library without typing search 
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["browse", "--help"])
+result = runner.invoke(cli, ["browse", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```

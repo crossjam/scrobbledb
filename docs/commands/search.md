@@ -8,7 +8,7 @@ Full-text search across artists, albums, and track titles using the FTS5 index. 
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["search", "--help"])
+result = runner.invoke(cli, ["search", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```

@@ -8,7 +8,7 @@ Track investigation commands. Search for tracks, view top tracks over time perio
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["tracks", "--help"])
+result = runner.invoke(cli, ["tracks", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -34,7 +34,7 @@ Commands:
 Search for tracks using fuzzy matching. Find tracks by partial title with optional artist and album filtering.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["tracks", "search", "--help"])
+result = runner.invoke(cli, ["tracks", "search", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -74,7 +74,7 @@ Options:
 Show top tracks with flexible time range support. Discover your most played tracks over various time periods with ranking and percentage statistics.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["tracks", "top", "--help"])
+result = runner.invoke(cli, ["tracks", "top", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -118,7 +118,7 @@ Options:
 Display detailed information about a specific track including play history and statistics.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["tracks", "show", "--help"])
+result = runner.invoke(cli, ["tracks", "show", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```

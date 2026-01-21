@@ -8,7 +8,7 @@ Run preset or custom queries against the database and write the results in JSONL
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["export", "--help"])
+result = runner.invoke(cli, ["export", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```

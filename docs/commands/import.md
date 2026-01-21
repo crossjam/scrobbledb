@@ -8,7 +8,7 @@ Load scrobbles from JSONL, CSV, or TSV files (or stdin) into the database. The c
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["import", "--help"])
+result = runner.invoke(cli, ["import", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```

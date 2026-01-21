@@ -8,7 +8,7 @@ Initialize and manage the scrobbledb database, including optional FTS5 search se
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["config", "--help"])
+result = runner.invoke(cli, ["config", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -35,7 +35,7 @@ Commands:
 Create the data directory, initialize the database, and set up the FTS5 index unless `--no-index` is used. Use `--dry-run` to see what would be created without modifying disk.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["config", "init", "--help"])
+result = runner.invoke(cli, ["config", "init", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -60,7 +60,7 @@ Options:
 Drop and recreate the database, optionally skipping FTS5 with `--no-index`. Prompts for confirmation unless `--force`/`-f` is provided.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["config", "reset", "--help"])
+result = runner.invoke(cli, ["config", "reset", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
@@ -88,7 +88,7 @@ Options:
 Show the resolved data and config directories plus expected file paths.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["config", "location", "--help"])
+result = runner.invoke(cli, ["config", "location", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
