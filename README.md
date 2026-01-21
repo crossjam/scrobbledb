@@ -4,15 +4,36 @@
 
 **Save your listening history from Last.fm or Libre.fm to a local SQLite database.**
 
-scrobbledb is a Python command-line tool that downloads your scrobble data (listening history) from Last.fm or Libre.fm and stores it in a SQLite database for local analysis, backup, and exploration. Built with modern Python tooling, it offers rich terminal output, full-text search, interactive browsing, and comprehensive data export capabilities.
+scrobbledb is a Python command-line tool that downloads your scrobble
+data (listening history) from Last.fm or Libre.fm and stores it in a
+SQLite database for local analysis, backup, and exploration. Built
+with modern Python tooling, it offers rich terminal output, full-text
+search, interactive browsing, and comprehensive data export
+capabilities. 
+
+**Full disclosure, this project is primarily "auditionware".** The
+main goal is to provide something for potential external collaborators
+or employers to view and review. Yup, it’s a bit about me showing
+off. If you have strong opinions feel free to fork this sucker and
+take it where your heart desires.
 
 ## About Last.fm and Scrobbling
 
-[Last.fm](https://www.last.fm/) is a music discovery and tracking service that records what you listen to across different platforms and devices. This process of recording your listening history is called "scrobbling."
+[Last.fm](https://www.last.fm/) is a music discovery and tracking
+service that records what you listen to across different platforms and
+devices. This process of recording your listening history is called
+"scrobbling." 
 
-**Scrobbling** automatically logs each track you play—including the artist, album, track name, and timestamp—creating a detailed history of your music consumption over time. Last.fm aggregates this data to generate statistics, recommendations, and insights about your listening habits.
+**Scrobbling** automatically logs each track you play—including the
+artist, album, track name, and timestamp—creating a detailed history
+of your music consumption over time. Last.fm aggregates this data to
+generate statistics, recommendations, and insights about your
+listening habits. 
 
-The **Last.fm API** provides programmatic access to this scrobble data, allowing applications like scrobbledb to retrieve and analyze your complete listening history. [Libre.fm](https://libre.fm/) is an open-source alternative that offers compatible scrobbling services.
+The **Last.fm API** provides programmatic access to this scrobble
+data, allowing applications like scrobbledb to retrieve and analyze
+your complete listening history. [Libre.fm](https://libre.fm/) is an
+open-source alternative that offers compatible scrobbling services. 
 
 ## Why scrobbledb?
 
@@ -25,7 +46,10 @@ The **Last.fm API** provides programmatic access to this scrobble data, allowing
 
 ## Origin
 
-scrobbledb is a modernization of [Jacob Kaplan-Moss's](https://github.com/jacobian/) [lastfm-to-sqlite](https://github.com/jacobian/lastfm-to-sqlite) project. This version has been significantly expanded with:
+scrobbledb is a modernization of [Jacob
+Kaplan-Moss's](https://github.com/jacobian/)
+[lastfm-to-sqlite](https://github.com/jacobian/lastfm-to-sqlite)
+project. This version has been significantly expanded with: 
 
 - Modern Python tooling (uv, ruff, type hints)
 - Domain-specific commands for exploring artists, albums, tracks, and plays
@@ -61,9 +85,12 @@ uv run scrobbledb --help
 uv run scrobbledb auth
 ```
 
-This prompts for your Last.fm username, API key, shared secret, and password, then saves them in `~/.local/share/dev.pirateninja.scrobbledb/auth.json`.
+This prompts for your Last.fm username, API key, shared secret, and
+password, then saves them in `${APP_DIR}/auth.json`.
 
-**Getting API credentials**: Visit [Last.fm API](https://www.last.fm/api/account/create) to create an API account and obtain your API key and shared secret.
+**Getting API credentials**: Visit [Last.fm
+API](https://www.last.fm/api/account/create) to create an API account
+and obtain your API key and shared secret. 
 
 ### 2. Initialize the database
 
@@ -79,7 +106,9 @@ This creates the SQLite database and sets up the full-text search index.
 uv run scrobbledb ingest
 ```
 
-This fetches your complete scrobble history from Last.fm and stores it locally. Depending on how many scrobbles you have, this may take several minutes.
+This fetches your complete scrobble history from Last.fm and stores it
+locally. Depending on how many scrobbles you have, this may take
+several minutes. 
 
 ### 4. Explore your data
 
@@ -220,17 +249,34 @@ poe type
 poe qa
 ```
 
+## Agentic Coding Disclosure
+
+Significant portions of this project were implemented through the use
+of agentic coding tools such as Claude Code, GitHub Copilot Agent,
+OpenAI Codex, and Gemini CLI. This was a specific goal intended to
+explore and increase my proficiency with AI accelerated coding
+practices. 
+
 See [AGENTS.md](AGENTS.md) for detailed development guidelines.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
+**As mentioned above, this project is primarily "auditionware".** 
+
+However, pull requests and issues are welcome, at least as criticism,
+feedback, and inspiration! There might be a lag on responding or
+acceptance though. You’re likely best off assuming that a PR will take
+forever to be accepted if at all. Similarly for addressing issues. For
+major changes, please open an issue first to discuss what you would
+like to change.
 
 ## License
 
 scrobbledb is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for the full license text.
 
-Original lastfm-to-sqlite project by Jacob Kaplan-Moss, also licensed under Apache License 2.0.
+Original lastfm-to-sqlite project by Jacob Kaplan-Moss, originally
+under the [WTFPL][wtfpl] based upon his repository’s [`pyproject.toml`][jacobian-pyproject-toml]
+file.
 
 ## Links
 
@@ -238,3 +284,6 @@ Original lastfm-to-sqlite project by Jacob Kaplan-Moss, also licensed under Apac
 - **Original Project**: https://github.com/jacobian/lastfm-to-sqlite
 - **Last.fm API**: https://www.last.fm/api
 - **Libre.fm**: https://libre.fm/
+
+[wtfpl]: https://www.wtfpl.net
+[jacobian-pyproject-toml]: https://github.com/jacobian/lastfm-to-sqlite/blob/8118b453b36142241618c484cf74c7916423f649/pyproject.toml
