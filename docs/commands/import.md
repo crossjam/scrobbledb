@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["import", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli import [OPTIONS] [DATABASE]
+Usage: scrobbledb import [OPTIONS] [DATABASE]
 
   Import scrobbles to the database from a file or stdin.
 

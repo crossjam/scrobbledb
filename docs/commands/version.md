@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["version", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli version [OPTIONS]
+Usage: scrobbledb version [OPTIONS]
 
   Display the scrobbledb version.
 

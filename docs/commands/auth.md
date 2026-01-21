@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["auth", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli auth [OPTIONS]
+Usage: scrobbledb auth [OPTIONS]
 
   Save authentication credentials to a JSON file
 

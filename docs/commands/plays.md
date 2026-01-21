@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["plays", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli plays [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb plays [OPTIONS] COMMAND [ARGS]...
 
   Play history commands.
 
@@ -36,7 +36,7 @@ result = runner.invoke(cli, ["plays", "list", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli plays list [OPTIONS]
+Usage: scrobbledb plays list [OPTIONS]
 
   List recent plays with filtering and pagination.
 

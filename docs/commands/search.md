@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["search", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli search [OPTIONS] QUERY [DATABASE]
+Usage: scrobbledb search [OPTIONS] QUERY [DATABASE]
 
   Search for tracks using full-text search.
 

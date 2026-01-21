@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["tracks", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli tracks [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb tracks [OPTIONS] COMMAND [ARGS]...
 
   Track investigation commands.
 
@@ -38,7 +38,7 @@ result = runner.invoke(cli, ["tracks", "search", "--help"], prog_name='scrobbled
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli tracks search [OPTIONS] QUERY
+Usage: scrobbledb tracks search [OPTIONS] QUERY
 
   Search for tracks using fuzzy matching.
 
@@ -78,7 +78,7 @@ result = runner.invoke(cli, ["tracks", "top", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli tracks top [OPTIONS]
+Usage: scrobbledb tracks top [OPTIONS]
 
   Show top tracks with flexible time range support.
 
@@ -122,7 +122,7 @@ result = runner.invoke(cli, ["tracks", "show", "--help"], prog_name='scrobbledb'
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli tracks show [OPTIONS] [TRACK_TITLE]
+Usage: scrobbledb tracks show [OPTIONS] [TRACK_TITLE]
 
   Display detailed information about a specific track.
 

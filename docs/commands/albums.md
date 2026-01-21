@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["albums", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli albums [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb albums [OPTIONS] COMMAND [ARGS]...
 
   Album investigation commands.
 
@@ -38,7 +38,7 @@ result = runner.invoke(cli, ["albums", "search", "--help"], prog_name='scrobbled
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli albums search [OPTIONS] QUERY
+Usage: scrobbledb albums search [OPTIONS] QUERY
 
   Search for albums using fuzzy matching.
 
@@ -76,7 +76,7 @@ result = runner.invoke(cli, ["albums", "show", "--help"], prog_name='scrobbledb'
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli albums show [OPTIONS] [ALBUM_TITLE]
+Usage: scrobbledb albums show [OPTIONS] [ALBUM_TITLE]
 
   Display detailed information about a specific album and list its tracks.
 

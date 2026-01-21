@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["artists", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli artists [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb artists [OPTIONS] COMMAND [ARGS]...
 
   Artist investigation commands.
 
@@ -39,7 +39,7 @@ result = runner.invoke(cli, ["artists", "list", "--help"], prog_name='scrobbledb
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli artists list [OPTIONS]
+Usage: scrobbledb artists list [OPTIONS]
 
   List all artists in the database with play statistics.
 
@@ -82,7 +82,7 @@ result = runner.invoke(cli, ["artists", "top", "--help"], prog_name='scrobbledb'
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli artists top [OPTIONS]
+Usage: scrobbledb artists top [OPTIONS]
 
   Show top artists with flexible time range support.
 
@@ -125,7 +125,7 @@ result = runner.invoke(cli, ["artists", "show", "--help"], prog_name='scrobbledb
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli artists show [OPTIONS] [ARTIST_NAME]
+Usage: scrobbledb artists show [OPTIONS] [ARTIST_NAME]
 
   Display detailed information about a specific artist.
 

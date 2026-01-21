@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["config", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli config [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb config [OPTIONS] COMMAND [ARGS]...
 
   Configuration and database management commands.
 
@@ -39,7 +39,7 @@ result = runner.invoke(cli, ["config", "init", "--help"], prog_name='scrobbledb'
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli config init [OPTIONS]
+Usage: scrobbledb config init [OPTIONS]
 
   Initialize scrobbledb data directory and database.
 
@@ -64,7 +64,7 @@ result = runner.invoke(cli, ["config", "reset", "--help"], prog_name='scrobbledb
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli config reset [OPTIONS] [DATABASE]
+Usage: scrobbledb config reset [OPTIONS] [DATABASE]
 
   Reset the scrobbledb database.
 
@@ -92,7 +92,7 @@ result = runner.invoke(cli, ["config", "location", "--help"], prog_name='scrobbl
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli config location [OPTIONS]
+Usage: scrobbledb config location [OPTIONS]
 
   Display scrobbledb configuration and data directory locations.
 

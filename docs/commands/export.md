@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["export", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli export [OPTIONS] [[plays|tracks|albums|artists]]
+Usage: scrobbledb export [OPTIONS] [[plays|tracks|albums|artists]]
 
   Export scrobble data in various formats.
 

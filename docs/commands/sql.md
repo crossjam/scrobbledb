@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["sql", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb sql [OPTIONS] COMMAND [ARGS]...
 
 SQLite database query and inspection commands.
 
@@ -78,7 +78,7 @@ result = runner.invoke(cli, ["sql", "query", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql query [OPTIONS] SQL_QUERY
+Usage: scrobbledb sql query [OPTIONS] SQL_QUERY
 
   Execute SQL query and return the results as JSON.
 
@@ -118,7 +118,7 @@ result = runner.invoke(cli, ["sql", "tables", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql tables [OPTIONS]
+Usage: scrobbledb sql tables [OPTIONS]
 
   List the tables in the database.
 
@@ -155,7 +155,7 @@ result = runner.invoke(cli, ["sql", "schema", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql schema [OPTIONS] [TABLES]...
+Usage: scrobbledb sql schema [OPTIONS] [TABLES]...
 
   Show full schema for this database or for specified tables.
 
@@ -178,7 +178,7 @@ result = runner.invoke(cli, ["sql", "views", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql views [OPTIONS]
+Usage: scrobbledb sql views [OPTIONS]
 
   List the views in the database.
 
@@ -213,7 +213,7 @@ result = runner.invoke(cli, ["sql", "search", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql search [OPTIONS] DBTABLE Q
+Usage: scrobbledb sql search [OPTIONS] DBTABLE Q
 
   Execute a full-text search against this table.
 
@@ -252,7 +252,7 @@ result = runner.invoke(cli, ["sql", "dump", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql dump [OPTIONS]
+Usage: scrobbledb sql dump [OPTIONS]
 
   Output a SQL dump of the schema and full contents of the database.
 
@@ -274,7 +274,7 @@ result = runner.invoke(cli, ["sql", "analyze-tables", "--help"], prog_name='scro
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql analyze-tables [OPTIONS] [TABLES]...
+Usage: scrobbledb sql analyze-tables [OPTIONS] [TABLES]...
 
   Analyze the columns in one or more tables.
 
@@ -303,7 +303,7 @@ result = runner.invoke(cli, ["sql", "memory", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql memory [OPTIONS] [PATHS]... SQL_QUERY
+Usage: scrobbledb sql memory [OPTIONS] [PATHS]... SQL_QUERY
 
   Execute SQL query against an in-memory database, optionally populated by
   imported data.
@@ -352,7 +352,7 @@ result = runner.invoke(cli, ["sql", "plugins", "--help"], prog_name='scrobbledb'
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql plugins [OPTIONS]
+Usage: scrobbledb sql plugins [OPTIONS]
 
   List installed sqlite-utils plugins.
 
@@ -373,7 +373,7 @@ result = runner.invoke(cli, ["sql", "indexes", "--help"], prog_name='scrobbledb'
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql indexes [OPTIONS] [TABLES]...
+Usage: scrobbledb sql indexes [OPTIONS] [TABLES]...
 
   Show indexes for the whole database or specific tables.
 
@@ -407,7 +407,7 @@ result = runner.invoke(cli, ["sql", "rows", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql rows [OPTIONS] TABLE_NAME
+Usage: scrobbledb sql rows [OPTIONS] TABLE_NAME
 
   Output all rows in the specified table.
 
@@ -453,7 +453,7 @@ result = runner.invoke(cli, ["sql", "triggers", "--help"], prog_name='scrobbledb
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli sql triggers [OPTIONS] [TABLES]...
+Usage: scrobbledb sql triggers [OPTIONS] [TABLES]...
 
   Show triggers configured in this database.
 

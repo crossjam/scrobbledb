@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["browse", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli browse [OPTIONS] [DATABASE]
+Usage: scrobbledb browse [OPTIONS] [DATABASE]
 
   Browse tracks in an interactive TUI.
 

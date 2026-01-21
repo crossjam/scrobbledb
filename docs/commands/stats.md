@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["stats", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli stats [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb stats [OPTIONS] COMMAND [ARGS]...
 
   Descriptive statistics about your scrobbles.
 
@@ -49,7 +49,7 @@ result = runner.invoke(cli, ["stats", "overview", "--help"], prog_name='scrobble
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli stats overview [OPTIONS]
+Usage: scrobbledb stats overview [OPTIONS]
 
   Display overall scrobble statistics.
 
@@ -78,7 +78,7 @@ result = runner.invoke(cli, ["stats", "monthly", "--help"], prog_name='scrobbled
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli stats monthly [OPTIONS]
+Usage: scrobbledb stats monthly [OPTIONS]
 
   Display scrobble statistics rolled up by month.
 
@@ -119,7 +119,7 @@ result = runner.invoke(cli, ["stats", "yearly", "--help"], prog_name='scrobbledb
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli stats yearly [OPTIONS]
+Usage: scrobbledb stats yearly [OPTIONS]
 
   Display scrobble statistics rolled up by year.
 

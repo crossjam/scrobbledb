@@ -12,7 +12,7 @@ result = runner.invoke(cli, ["index", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli index [OPTIONS] [DATABASE]
+Usage: scrobbledb index [OPTIONS] [DATABASE]
 
   Set up and rebuild FTS5 full-text search index.
 
