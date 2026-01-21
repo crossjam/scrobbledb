@@ -8,11 +8,11 @@ View and filter your listening history chronologically. The `plays` command grou
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["plays", "--help"])
+result = runner.invoke(cli, ["plays", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli plays [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb plays [OPTIONS] COMMAND [ARGS]...
 
   Play history commands.
 
@@ -32,11 +32,11 @@ Commands:
 List recent plays with filtering and pagination. Supports flexible date filtering using relative expressions like "7 days ago" or ISO 8601 dates.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["plays", "list", "--help"])
+result = runner.invoke(cli, ["plays", "list", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli plays list [OPTIONS]
+Usage: scrobbledb plays list [OPTIONS]
 
   List recent plays with filtering and pagination.
 

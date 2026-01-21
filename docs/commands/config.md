@@ -8,11 +8,11 @@ Initialize and manage the scrobbledb database, including optional FTS5 search se
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["config", "--help"])
+result = runner.invoke(cli, ["config", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli config [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb config [OPTIONS] COMMAND [ARGS]...
 
   Configuration and database management commands.
 
@@ -35,11 +35,11 @@ Commands:
 Create the data directory, initialize the database, and set up the FTS5 index unless `--no-index` is used. Use `--dry-run` to see what would be created without modifying disk.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["config", "init", "--help"])
+result = runner.invoke(cli, ["config", "init", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli config init [OPTIONS]
+Usage: scrobbledb config init [OPTIONS]
 
   Initialize scrobbledb data directory and database.
 
@@ -60,11 +60,11 @@ Options:
 Drop and recreate the database, optionally skipping FTS5 with `--no-index`. Prompts for confirmation unless `--force`/`-f` is provided.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["config", "reset", "--help"])
+result = runner.invoke(cli, ["config", "reset", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli config reset [OPTIONS] [DATABASE]
+Usage: scrobbledb config reset [OPTIONS] [DATABASE]
 
   Reset the scrobbledb database.
 
@@ -88,11 +88,11 @@ Options:
 Show the resolved data and config directories plus expected file paths.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["config", "location", "--help"])
+result = runner.invoke(cli, ["config", "location", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli config location [OPTIONS]
+Usage: scrobbledb config location [OPTIONS]
 
   Display scrobbledb configuration and data directory locations.
 

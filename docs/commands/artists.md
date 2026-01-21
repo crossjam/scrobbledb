@@ -8,11 +8,11 @@ Artist investigation commands. Browse all artists, view top artists over differe
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["artists", "--help"])
+result = runner.invoke(cli, ["artists", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli artists [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb artists [OPTIONS] COMMAND [ARGS]...
 
   Artist investigation commands.
 
@@ -35,11 +35,11 @@ Commands:
 List all artists in the database with play statistics. Supports sorting by play count, name, or recent activity.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["artists", "list", "--help"])
+result = runner.invoke(cli, ["artists", "list", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli artists list [OPTIONS]
+Usage: scrobbledb artists list [OPTIONS]
 
   List all artists in the database with play statistics.
 
@@ -78,11 +78,11 @@ Options:
 Show top artists with flexible time range support. Analyze listening patterns over different time periods with statistics including percentage of total plays and average plays per day.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["artists", "top", "--help"])
+result = runner.invoke(cli, ["artists", "top", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli artists top [OPTIONS]
+Usage: scrobbledb artists top [OPTIONS]
 
   Show top artists with flexible time range support.
 
@@ -121,11 +121,11 @@ Options:
 Display detailed information about a specific artist including top tracks and albums.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["artists", "show", "--help"])
+result = runner.invoke(cli, ["artists", "show", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli artists show [OPTIONS] [ARTIST_NAME]
+Usage: scrobbledb artists show [OPTIONS] [ARTIST_NAME]
 
   Display detailed information about a specific artist.
 

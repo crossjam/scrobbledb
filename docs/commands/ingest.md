@@ -8,11 +8,11 @@ Fetch recent plays from Last.fm/Libre.fm using saved credentials and insert them
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["ingest", "--help"])
+result = runner.invoke(cli, ["ingest", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli ingest [OPTIONS] [DATABASE]
+Usage: scrobbledb ingest [OPTIONS] [DATABASE]
 
   Ingest play history from last.fm/libre.fm to a SQLite database.
 
