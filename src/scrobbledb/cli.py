@@ -24,12 +24,15 @@ from rich.table import Table
 from . import lastfm
 from . import sql as sql_commands
 from . import export as export_command
+
 from .commands import stats as stats_command
 from .commands import plays as plays_command
 from .commands import albums as albums_command
 from .commands import artists as artists_command
 from .commands import tracks as tracks_command
 import dateutil.parser
+
+from .marimoui import app as marimo_app
 
 APP_NAME = "dev.pirateninja.scrobbledb"
 console = Console()
@@ -649,19 +652,19 @@ def auth(auth, network):
 def _ingest_no_batch(db, history, expected_count):
     """
     Ingest tracks one at a time (original behavior).
-    
+
     Args:
         db: sqlite_utils.Database instance
         history: Iterator of track data dictionaries
         expected_count: Expected number of tracks for progress bar
-        
+
     Returns:
         Tuple of (min_timestamp, max_timestamp, track_count)
     """
     min_timestamp = None
     max_timestamp = None
     track_count = 0
-    
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -677,7 +680,7 @@ def _ingest_no_batch(db, history, expected_count):
             lastfm.save_album(db, track["album"])
             lastfm.save_track(db, track["track"])
             lastfm.save_play(db, track["play"])
-            
+
             # Track timestamp range
             timestamp = track["play"]["timestamp"]
             if min_timestamp is None or timestamp < min_timestamp:
@@ -685,32 +688,32 @@ def _ingest_no_batch(db, history, expected_count):
             if max_timestamp is None or timestamp > max_timestamp:
                 max_timestamp = timestamp
             track_count += 1
-            
+
             progress.advance(task)
-    
+
     return min_timestamp, max_timestamp, track_count
 
 
 def _ingest_batch(db, history, expected_count, batch_size):
     """
     Ingest tracks in batches for improved performance.
-    
+
     Args:
         db: sqlite_utils.Database instance
         history: Iterator of track data dictionaries
         expected_count: Expected number of tracks for progress bar
         batch_size: Number of records to buffer before flushing
-        
+
     Returns:
         Tuple of (min_timestamp, max_timestamp, track_count)
     """
     min_timestamp = None
     max_timestamp = None
     track_count = 0
-    
+
     # Batch buffers
     batch = {"artists": [], "albums": [], "tracks": [], "plays": []}
-    
+
     def flush_batch():
         """Flush the current batch to the database."""
         if batch["artists"]:
@@ -722,7 +725,7 @@ def _ingest_batch(db, history, expected_count, batch_size):
             batch["albums"].clear()
             batch["tracks"].clear()
             batch["plays"].clear()
-    
+
     with Progress(
         SpinnerColumn(),
         TextColumn("[progress.description]{task.description}"),
@@ -739,7 +742,7 @@ def _ingest_batch(db, history, expected_count, batch_size):
             batch["albums"].append(track["album"])
             batch["tracks"].append(track["track"])
             batch["plays"].append(track["play"])
-            
+
             # Track timestamp range
             timestamp = track["play"]["timestamp"]
             if min_timestamp is None or timestamp < min_timestamp:
@@ -747,16 +750,16 @@ def _ingest_batch(db, history, expected_count, batch_size):
             if max_timestamp is None or timestamp > max_timestamp:
                 max_timestamp = timestamp
             track_count += 1
-            
+
             # Flush batch when it reaches the batch size
             if len(batch["plays"]) >= batch_size:
                 flush_batch()
-            
+
             progress.advance(task)
-        
+
         # Flush any remaining records
         flush_batch()
-    
+
     return min_timestamp, max_timestamp, track_count
 
 
@@ -812,7 +815,18 @@ def _ingest_batch(db, history, expected_count, batch_size):
     help="Disable actual execution of ingest and db mods",
 )
 @click.pass_context
-def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_batch, verbose, dry_run):
+def ingest(
+    ctx,
+    database,
+    auth,
+    since_date,
+    until_date,
+    limit,
+    batch_size,
+    no_batch,
+    verbose,
+    dry_run,
+):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -848,11 +862,17 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
         until_date = dateutil.parser.parse(until_date)
 
     if since_date and until_date:
-        console.print(f"[green]Fetching scrobbles from {since_date.isoformat()} to {until_date.isoformat()}[/green]")
+        console.print(
+            f"[green]Fetching scrobbles from {since_date.isoformat()} to {until_date.isoformat()}[/green]"
+        )
     elif since_date:
-        console.print(f"[green]Fetching scrobbles since: {since_date.isoformat()}[/green]")
+        console.print(
+            f"[green]Fetching scrobbles since: {since_date.isoformat()}[/green]"
+        )
     elif until_date:
-        console.print(f"[green]Fetching scrobbles until: {until_date.isoformat()}[/green]")
+        console.print(
+            f"[green]Fetching scrobbles until: {until_date.isoformat()}[/green]"
+        )
     else:
         console.print("[green]Fetching all scrobbles[/green]")
 
@@ -908,9 +928,13 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
 
     # Ingest tracks using the appropriate mode
     if no_batch:
-        min_timestamp, max_timestamp, track_count = _ingest_no_batch(db, history, expected_count)
+        min_timestamp, max_timestamp, track_count = _ingest_no_batch(
+            db, history, expected_count
+        )
     else:
-        min_timestamp, max_timestamp, track_count = _ingest_batch(db, history, expected_count, batch_size)
+        min_timestamp, max_timestamp, track_count = _ingest_batch(
+            db, history, expected_count, batch_size
+        )
 
     # Calculate elapsed time
     elapsed_time = time.time() - start_time
@@ -924,7 +948,7 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
     console.print(
         f"[green]✓[/green] Successfully ingested tracks to: [cyan]{database}[/cyan]"
     )
-    
+
     # Report timestamp range if any tracks were ingested
     if track_count > 0 and min_timestamp and max_timestamp:
         console.print(
@@ -932,15 +956,17 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
             f"[yellow]{min_timestamp.strftime('%Y-%m-%d %H:%M:%S')}[/yellow] to "
             f"[yellow]{max_timestamp.strftime('%Y-%m-%d %H:%M:%S')}[/yellow]"
         )
-    
+
     # Report elapsed time
     if elapsed_time >= 60:
         minutes = int(elapsed_time // 60)
         seconds = elapsed_time % 60
-        console.print(f"[cyan]Total time:[/cyan] [yellow]{minutes}m {seconds:.1f}s[/yellow]")
+        console.print(
+            f"[cyan]Total time:[/cyan] [yellow]{minutes}m {seconds:.1f}s[/yellow]"
+        )
     else:
         console.print(f"[cyan]Total time:[/cyan] [yellow]{elapsed_time:.1f}s[/yellow]")
-    
+
     console.print(
         "[dim]Search index is automatically maintained and ready to use.[/dim]"
     )
@@ -1544,3 +1570,8 @@ def browse(database):
     from .tui import run_browser
 
     run_browser(database)
+
+
+from marimo._cli.cli import run as marimo_run
+
+cli.add_command(marimo_run, name="marimo")
