@@ -8,11 +8,11 @@ Store credentials for Last.fm or Libre.fm. The command prompts for your username
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["auth", "--help"])
+result = runner.invoke(cli, ["auth", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli auth [OPTIONS]
+Usage: scrobbledb auth [OPTIONS]
 
   Save authentication credentials to a JSON file
 

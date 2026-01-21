@@ -8,11 +8,11 @@ Create or rebuild the FTS5 full-text search index. Use this after large imports 
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["index", "--help"])
+result = runner.invoke(cli, ["index", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli index [OPTIONS] [DATABASE]
+Usage: scrobbledb index [OPTIONS] [DATABASE]
 
   Set up and rebuild FTS5 full-text search index.
 

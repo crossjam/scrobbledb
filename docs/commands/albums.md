@@ -8,11 +8,11 @@ Album investigation commands. Search for albums and view detailed information ab
 from click.testing import CliRunner
 from scrobbledb.cli import cli
 runner = CliRunner()
-result = runner.invoke(cli, ["albums", "--help"])
+result = runner.invoke(cli, ["albums", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli albums [OPTIONS] COMMAND [ARGS]...
+Usage: scrobbledb albums [OPTIONS] COMMAND [ARGS]...
 
   Album investigation commands.
 
@@ -34,11 +34,11 @@ Commands:
 Search for albums using fuzzy matching. Find albums by partial name when you don't remember exact titles.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["albums", "search", "--help"])
+result = runner.invoke(cli, ["albums", "search", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli albums search [OPTIONS] QUERY
+Usage: scrobbledb albums search [OPTIONS] QUERY
 
   Search for albums using fuzzy matching.
 
@@ -72,11 +72,11 @@ Options:
 Display detailed information about a specific album and list its tracks with play statistics.
 
 <!-- [[[cog
-result = runner.invoke(cli, ["albums", "show", "--help"])
+result = runner.invoke(cli, ["albums", "show", "--help"], prog_name='scrobbledb')
 cog.out("```\n" + result.output + "```")
 ]]] -->
 ```
-Usage: cli albums show [OPTIONS] [ALBUM_TITLE]
+Usage: scrobbledb albums show [OPTIONS] [ALBUM_TITLE]
 
   Display detailed information about a specific album and list its tracks.
 
