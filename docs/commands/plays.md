@@ -43,10 +43,8 @@ Usage: scrobbledb plays list [OPTIONS]
   View listening history chronologically with flexible filtering.
 
   Examples:
-      # List last 20 plays
+      # List last 50 plays
       scrobbledb plays list
-
-      # List last 50 plays     scrobbledb plays list --limit 50
 
       # List plays in the last week     scrobbledb plays list --since "7 days
       ago"
@@ -61,22 +59,18 @@ Usage: scrobbledb plays list [OPTIONS]
 
 Options:
   -d, --database FILE             Database path (default: XDG data directory)
-  -l, --limit INTEGER             Maximum number of plays to return  [default:
-                                  20]
-  -s, --since TEXT                Show plays since date/time (ISO 8601 format or
-                                  relative like "7 days ago")
-  -u, --until TEXT                Show plays until date/time (ISO 8601 format)
-  --artist TEXT                   Filter by artist name (case-insensitive
-                                  partial match)
-  --album TEXT                    Filter by album title (case-insensitive
-                                  partial match)
-  --track TEXT                    Filter by track title (case-insensitive
-                                  partial match)
+  -l, --limit INTEGER             Maximum results  [default: 50]
+  --period [week|month|quarter|year|all-time]
+                                  Predefined period
+  -u, --until TEXT                End date/time for analysis period
+  -s, --since TEXT                Start date/time for analysis period
+  --artist TEXT                   Filter by artist name
+  --album TEXT                    Filter by album title
+  --track TEXT                    Filter by track title
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
-  --fields TEXT                   Fields to include in output (comma-separated
-                                  or repeated). Available: timestamp, artist,
-                                  track, album
+  --fields TEXT                   Fields to include in output. Available:
+                                  timestamp, artist, track, album
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->

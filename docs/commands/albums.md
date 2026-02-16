@@ -25,6 +25,7 @@ Commands:
   list    List albums with optional artist filter.
   search  Search for albums using fuzzy matching.
   show    Display detailed information about a specific album and list its...
+  top     Show top albums with flexible time range support.
 ```
 <!-- [[[end]]] -->
 
@@ -59,9 +60,8 @@ Options:
   --artist TEXT                   Filter by artist name
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
-  --fields TEXT                   Fields to include in output (comma-separated
-                                  or repeated). Available: id, album, artist,
-                                  tracks, plays, last_played
+  --fields TEXT                   Fields to include. Available: id, album,
+                                  artist, tracks, plays, last_played
   --select                        Interactive mode: select a single result and
                                   output its details as JSON
   --help                          Show this message and exit.

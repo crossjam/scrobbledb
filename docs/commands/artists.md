@@ -60,16 +60,14 @@ Usage: scrobbledb artists list [OPTIONS]
 Options:
   -d, --database FILE             Database path (default: XDG data directory)
   -l, --limit INTEGER             Maximum results  [default: 50]
-  --sort [plays|name|recent]      Sort by: plays, name, or recent  [default:
-                                  plays]
   --order [desc|asc]              Sort order  [default: desc]
+  --sort [plays|name|recent]      Sort by: plays, name, recent  [default: plays]
   --min-plays INTEGER             Show only artists with at least N plays
                                   [default: 0]
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
-  --fields TEXT                   Fields to include in output (comma-separated
-                                  or repeated). Available: id, artist, plays,
-                                  tracks, albums, last_played
+  --fields TEXT                   Fields to include in output. Available: id,
+                                  artist, plays, tracks, albums, last_played
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->
@@ -103,16 +101,15 @@ Usage: scrobbledb artists top [OPTIONS]
 
 Options:
   -d, --database FILE             Database path (default: XDG data directory)
-  -l, --limit INTEGER             Number of artists to show  [default: 10]
-  -s, --since TEXT                Start date/time for analysis period
-  -u, --until TEXT                End date/time for analysis period
+  -l, --limit INTEGER             Maximum results  [default: 10]
   --period [week|month|quarter|year|all-time]
                                   Predefined period
+  -u, --until TEXT                End date/time for analysis period
+  -s, --since TEXT                Start date/time for analysis period
   --format [table|csv|json|jsonl]
                                   Output format  [default: table]
-  --fields TEXT                   Fields to include in output (comma-separated
-                                  or repeated). Available: rank, artist, plays,
-                                  percentage, avg_per_day
+  --fields TEXT                   Fields to include. Available: rank, artist,
+                                  plays, percentage, avg_per_day
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->
