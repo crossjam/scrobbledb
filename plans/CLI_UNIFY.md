@@ -42,7 +42,8 @@ Ensure consistent `--limit` defaults:
 
 ### B. Sorting & Ordering
 Standardize `--sort` and `--order` for `list` commands:
-- **Options**: `plays` (default), `name`, `recent`.
+- **Options**: `plays`, `name`, `recent`.
+- **Default Sort**: `recent` (was `plays`).
 - **Order**: `desc` (default), `asc`.
 - **Affects**: `albums list`, `artists list`, `tracks list` (new).
 

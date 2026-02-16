@@ -686,7 +686,7 @@ def format_albums_list(albums: list[dict], console: Console, fields: Optional[li
     }
 
     if not fields:
-        fields = ["album", "artist", "tracks", "plays", "last_played"]
+        fields = ["album", "plays", "last_played"]
 
     valid_fields = [f for f in fields if f in field_config]
     if not valid_fields:

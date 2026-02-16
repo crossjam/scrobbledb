@@ -173,7 +173,7 @@ def search_albums(ctx, query, database, limit, artist, format, fields, select):
 @database_option
 @limit_option(default=50)
 @filter_options(artist=True, artist_id=True)
-@sort_options(sort_choices=["plays", "name", "recent"], default_sort="plays")
+@sort_options(sort_choices=["plays", "name", "recent"], default_sort="recent")
 @click.option(
     "--min-plays",
     type=int,

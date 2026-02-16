@@ -614,9 +614,6 @@ def get_albums_list(
         conditions.append("artists.id = ?")
         params.append(artist_id)
 
-    if min_plays > 0:
-        conditions.append("play_count >= ?")
-
     where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
     # Determine sort column
@@ -631,9 +628,9 @@ def get_albums_list(
 
     sql = f"""
         SELECT
-            albums.id as album_id,
+            MAX(albums.id) as album_id,
             albums.title as album_title,
-            artists.name as artist_name,
+            MAX(artists.name) as artist_name,
             COUNT(DISTINCT tracks.id) as track_count,
             COUNT(plays.timestamp) as play_count,
             MAX(plays.timestamp) as last_played
@@ -642,7 +639,7 @@ def get_albums_list(
         LEFT JOIN tracks ON tracks.album_id = albums.id
         LEFT JOIN plays ON plays.track_id = tracks.id
         {where_clause}
-        GROUP BY albums.id, albums.title, artists.name
+        GROUP BY albums.title COLLATE NOCASE
         {"HAVING play_count >= ?" if min_plays > 0 else ""}
         ORDER BY {order_by} {order_direction}
         LIMIT ?

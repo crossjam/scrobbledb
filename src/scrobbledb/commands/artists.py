@@ -171,7 +171,7 @@ def search_artists(ctx, query, database, limit, format, fields, select):
 @artists.command(name="list")
 @database_option
 @limit_option(default=50)
-@sort_options(sort_choices=["plays", "name", "recent"], default_sort="plays")
+@sort_options(sort_choices=["plays", "name", "recent"], default_sort="recent")
 @click.option(
     "--min-plays",
     type=int,
