@@ -24,7 +24,8 @@ This document tracks the progress of the CLI interface standardization plan.
     - [x] Apply shared argument decorators to all commands.
 - [x] **6. Verification**
     - [x] Manual verification.
-    - [x] Update/add tests. (Docs test failed as expected, logic tests passed).
+    - [x] Update/add tests.
+    - [x] Regenerate CLI documentation snippets.
 
 ## Design Decisions & Changes
 
@@ -54,3 +55,6 @@ Created `src/scrobbledb/command_utils.py` containing:
 - `tracks`: Added `list` command. Updated `top` with `--album`.
 - `albums`: Added `top` command. Updated `list` with `--expand`.
 - `artists` & `plays`: Refactored to use shared decorators.
+
+### 5. Documentation
+- Regenerated help snippets for all subcommands using `poe docs:cli` to ensure consistency between code and documentation.
