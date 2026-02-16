@@ -35,7 +35,7 @@ def plays():
 
 @plays.command(name="list")
 @database_option
-@limit_option(default=20)
+@limit_option(default=50)
 @time_range_options
 @filter_options(artist=True, album=True, track=True)
 @format_option()

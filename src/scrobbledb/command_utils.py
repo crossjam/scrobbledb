@@ -43,6 +43,7 @@ def format_option(formats=None, default="table"):
     
     def decorator(f):
         return click.option(
+            "-f",
             "--format",
             type=click.Choice(formats, case_sensitive=False),
             default=default,
