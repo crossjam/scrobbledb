@@ -4,7 +4,6 @@ import pytest
 import json
 import tempfile
 import os
-import datetime
 from click.testing import CliRunner
 from scrobbledb.commands import albums, tracks, artists
 import sqlite_utils

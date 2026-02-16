@@ -5,8 +5,6 @@ Commands for listing artists, viewing top artists, and artist details.
 """
 
 import click
-import sqlite_utils
-from pathlib import Path
 from rich.console import Console
 
 from ..command_utils import (
@@ -15,7 +13,6 @@ from ..command_utils import (
     format_option,
     fields_option,
     sort_options,
-    filter_options,
     time_range_options,
     check_database,
     parse_list_args

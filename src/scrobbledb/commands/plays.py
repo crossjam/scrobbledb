@@ -5,8 +5,6 @@ Commands for viewing play history with filtering and pagination.
 """
 
 import click
-import sqlite_utils
-from pathlib import Path
 from rich.console import Console
 
 from ..command_utils import (

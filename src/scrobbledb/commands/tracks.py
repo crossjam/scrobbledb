@@ -5,8 +5,6 @@ Commands for searching tracks, viewing top tracks, and track details.
 """
 
 import click
-import sqlite_utils
-from pathlib import Path
 from rich.console import Console
 
 from ..command_utils import (
