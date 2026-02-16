@@ -65,7 +65,7 @@ Options:
                                   recent]
   --min-plays INTEGER             Show only artists with at least N plays
                                   [default: 0]
-  --format [table|csv|json|jsonl]
+  -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include in output. Available: id,
                                   artist, plays, tracks, albums, last_played
@@ -107,7 +107,7 @@ Options:
                                   Predefined period
   -u, --until TEXT                End date/time for analysis period
   -s, --since TEXT                Start date/time for analysis period
-  --format [table|csv|json|jsonl]
+  -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include. Available: rank, artist,
                                   plays, percentage, avg_per_day
@@ -136,9 +136,10 @@ Usage: scrobbledb artists show [OPTIONS] [ARTIST_NAME]
       # Use artist ID     scrobbledb artists show --artist-id 123
 
 Options:
-  -d, --database FILE          Database path (default: XDG data directory)
-  --artist-id TEXT             Use artist ID instead of name
-  --format [table|json|jsonl]  Output format  [default: table]
-  --help                       Show this message and exit.
+  -d, --database FILE             Database path (default: XDG data directory)
+  --artist-id TEXT                Use artist ID instead of name
+  -f, --format [table|json|jsonl]
+                                  Output format  [default: table]
+  --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->

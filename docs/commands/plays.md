@@ -59,7 +59,7 @@ Usage: scrobbledb plays list [OPTIONS]
 
 Options:
   -d, --database FILE             Database path (default: XDG data directory)
-  -l, --limit INTEGER             Maximum results  [default: 20]
+  -l, --limit INTEGER             Maximum results  [default: 50]
   --period [week|month|quarter|year|all-time]
                                   Predefined period
   -u, --until TEXT                End date/time for analysis period
@@ -67,7 +67,7 @@ Options:
   --artist TEXT                   Filter by artist name
   --album TEXT                    Filter by album title
   --track TEXT                    Filter by track title
-  --format [table|csv|json|jsonl]
+  -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include in output. Available:
                                   timestamp, artist, track, album

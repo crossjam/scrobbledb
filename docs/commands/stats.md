@@ -63,9 +63,9 @@ Usage: scrobbledb stats overview [OPTIONS]
       # Export to JSON     scrobbledb stats overview --format json
 
 Options:
-  -d, --database TEXT             Database path (default: XDG data dir)
-  -f, --format [table|json|jsonl|csv]
-                                  Output format (default: table)
+  -d, --database FILE             Database path (default: XDG data directory)
+  -f, --format [table|csv|json|jsonl]
+                                  Output format  [default: table]
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->
@@ -100,13 +100,14 @@ Usage: scrobbledb stats monthly [OPTIONS]
       monthly_stats.csv
 
 Options:
-  -d, --database TEXT             Database path (default: XDG data dir)
-  -s, --since TEXT                Start date (ISO 8601 or relative like '7 days
-                                  ago')
-  -u, --until TEXT                End date (ISO 8601 or relative)
-  -l, --limit INTEGER             Maximum number of months to display
-  -f, --format [table|json|jsonl|csv]
-                                  Output format (default: table)
+  -d, --database FILE             Database path (default: XDG data directory)
+  --period [week|month|quarter|year|all-time]
+                                  Predefined period
+  -u, --until TEXT                End date/time for analysis period
+  -s, --since TEXT                Start date/time for analysis period
+  -l, --limit INTEGER             Maximum results
+  -f, --format [table|csv|json|jsonl]
+                                  Output format  [default: table]
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->
@@ -138,13 +139,14 @@ Usage: scrobbledb stats yearly [OPTIONS]
       # Export to JSON     scrobbledb stats yearly --format json
 
 Options:
-  -d, --database TEXT             Database path (default: XDG data dir)
-  -s, --since TEXT                Start date (ISO 8601 or relative like '7 days
-                                  ago')
-  -u, --until TEXT                End date (ISO 8601 or relative)
-  -l, --limit INTEGER             Maximum number of years to display
-  -f, --format [table|json|jsonl|csv]
-                                  Output format (default: table)
+  -d, --database FILE             Database path (default: XDG data directory)
+  --period [week|month|quarter|year|all-time]
+                                  Predefined period
+  -u, --until TEXT                End date/time for analysis period
+  -s, --since TEXT                Start date/time for analysis period
+  -l, --limit INTEGER             Maximum results
+  -f, --format [table|csv|json|jsonl]
+                                  Output format  [default: table]
   --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->

@@ -13,6 +13,7 @@ def test_cli_docs_are_up_to_date():
 
     env = os.environ.copy()
     env["PYTHONPATH"] = str(repo_root / "src")
+    env["COLUMNS"] = "100"
 
     subprocess.run(
         [sys.executable, "-m", "cogapp", "-r", *map(str, command_docs)],

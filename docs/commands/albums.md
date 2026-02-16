@@ -58,7 +58,7 @@ Options:
   -d, --database FILE             Database path (default: XDG data directory)
   -l, --limit INTEGER             Maximum results  [default: 20]
   --artist TEXT                   Filter by artist name
-  --format [table|csv|json|jsonl]
+  -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include. Available: id, album,
                                   artist, tracks, plays, last_played
@@ -92,12 +92,13 @@ Usage: scrobbledb albums show [OPTIONS] [ALBUM_TITLE]
       # Use album ID     scrobbledb albums show --album-id 42
 
 Options:
-  -d, --database FILE          Database path (default: XDG data directory)
-  --album-id TEXT              Use album ID instead of title
-  --artist TEXT                Artist name (to disambiguate albums with same
-                               title)
-  --format [table|json|jsonl]  Output format  [default: table]
-  --help                       Show this message and exit.
+  -d, --database FILE             Database path (default: XDG data directory)
+  --album-id TEXT                 Use album ID instead of title
+  --artist TEXT                   Artist name (to disambiguate albums with same
+                                  title)
+  -f, --format [table|json|jsonl]
+                                  Output format  [default: table]
+  --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->
 
@@ -140,7 +141,7 @@ Options:
   --min-plays INTEGER             Show only albums with at least N plays
                                   [default: 0]
   --expand                        Show detailed view with tracks for each album
-  --format [table|csv|json|jsonl]
+  -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include. Available: id, album,
                                   artist, tracks, plays, last_played
@@ -180,7 +181,7 @@ Options:
   -u, --until TEXT                End date/time for analysis period
   -s, --since TEXT                Start date/time for analysis period
   --artist TEXT                   Filter by artist name
-  --format [table|csv|json|jsonl]
+  -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include. Available: rank, album,
                                   artist, plays, percentage

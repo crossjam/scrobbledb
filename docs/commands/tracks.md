@@ -60,7 +60,7 @@ Options:
   -l, --limit INTEGER             Maximum results  [default: 20]
   --artist TEXT                   Filter by artist name
   --album TEXT                    Filter by album title
-  --format [table|csv|json|jsonl]
+  -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include in output. Available: id,
                                   track, artist, album, plays, last_played
@@ -102,7 +102,7 @@ Options:
   -u, --until TEXT                End date/time for analysis period
   -s, --since TEXT                Start date/time for analysis period
   --artist TEXT                   Filter by artist name
-  --format [table|csv|json|jsonl]
+  -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include. Available: rank, track,
                                   artist, album, plays, percentage
@@ -138,13 +138,14 @@ Usage: scrobbledb tracks show [OPTIONS] [TRACK_TITLE]
       # Use track ID     scrobbledb tracks show --track-id 456
 
 Options:
-  -d, --database FILE          Database path (default: XDG data directory)
-  --track-id TEXT              Use track ID instead of title
-  --artist TEXT                Artist name (to disambiguate tracks with same
-                               title)
-  --album TEXT                 Album title (to disambiguate further)
-  --show-plays                 Show individual play timestamps
-  --format [table|json|jsonl]  Output format  [default: table]
-  --help                       Show this message and exit.
+  -d, --database FILE             Database path (default: XDG data directory)
+  --track-id TEXT                 Use track ID instead of title
+  --artist TEXT                   Artist name (to disambiguate tracks with same
+                                  title)
+  --album TEXT                    Album title (to disambiguate further)
+  --show-plays                    Show individual play timestamps
+  -f, --format [table|json|jsonl]
+                                  Output format  [default: table]
+  --help                          Show this message and exit.
 ```
 <!-- [[[end]]] -->
