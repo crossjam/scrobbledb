@@ -169,7 +169,7 @@ def search_tracks(ctx, query, database, limit, artist, album, format, fields, se
 
 @tracks.command(name="list")
 @database_option
-@limit_option(default=50)
+@limit_option(default=20)
 @filter_options(artist=True, album=True, artist_id=True, album_id=True)
 @sort_options(sort_choices=["plays", "name", "recent"], default_sort="recent")
 @click.option(
@@ -272,7 +272,7 @@ def list_tracks(ctx, database, limit, artist, album, artist_id, album_id, sort, 
 
 @tracks.command(name="top")
 @database_option
-@limit_option(default=10)
+@limit_option(default=20)
 @time_range_options
 @filter_options(artist=True)  # TODO: Add album filter to get_top_tracks if needed, but only artist requested
 @format_option()

@@ -59,7 +59,7 @@ Usage: scrobbledb artists list [OPTIONS]
 
 Options:
   -d, --database FILE             Database path (default: XDG data directory)
-  -l, --limit INTEGER             Maximum results  [default: 50]
+  -l, --limit INTEGER             Maximum results  [default: 20]
   --order [desc|asc]              Sort order  [default: desc]
   --sort [plays|name|recent]      Sort by: plays, name, recent  [default:
                                   recent]
@@ -102,7 +102,7 @@ Usage: scrobbledb artists top [OPTIONS]
 
 Options:
   -d, --database FILE             Database path (default: XDG data directory)
-  -l, --limit INTEGER             Maximum results  [default: 10]
+  -l, --limit INTEGER             Maximum results  [default: 20]
   --period [week|month|quarter|year|all-time]
                                   Predefined period
   -u, --until TEXT                End date/time for analysis period

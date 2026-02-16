@@ -167,7 +167,7 @@ def search_artists(ctx, query, database, limit, format, fields, select):
 
 @artists.command(name="list")
 @database_option
-@limit_option(default=50)
+@limit_option(default=20)
 @sort_options(sort_choices=["plays", "name", "recent"], default_sort="recent")
 @click.option(
     "--min-plays",
@@ -253,7 +253,7 @@ def list_artists(ctx, database, limit, sort, order, min_plays, format, fields):
 
 @artists.command(name="top")
 @database_option
-@limit_option(default=10)
+@limit_option(default=20)
 @time_range_options
 @format_option()
 @fields_option("Fields to include. Available: rank, artist, plays, percentage, avg_per_day")

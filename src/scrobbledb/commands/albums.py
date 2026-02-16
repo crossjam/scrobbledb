@@ -169,7 +169,7 @@ def search_albums(ctx, query, database, limit, artist, format, fields, select):
 
 @albums.command(name="list")
 @database_option
-@limit_option(default=50)
+@limit_option(default=20)
 @filter_options(artist=True, artist_id=True)
 @sort_options(sort_choices=["plays", "name", "recent"], default_sort="recent")
 @click.option(
@@ -283,7 +283,7 @@ def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays,
 
 @albums.command(name="top")
 @database_option
-@limit_option(default=10)
+@limit_option(default=20)
 @time_range_options
 @filter_options(artist=True)
 @format_option()

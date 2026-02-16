@@ -59,7 +59,7 @@ Usage: scrobbledb plays list [OPTIONS]
 
 Options:
   -d, --database FILE             Database path (default: XDG data directory)
-  -l, --limit INTEGER             Maximum results  [default: 50]
+  -l, --limit INTEGER             Maximum results  [default: 20]
   --period [week|month|quarter|year|all-time]
                                   Predefined period
   -u, --until TEXT                End date/time for analysis period

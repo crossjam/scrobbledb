@@ -100,3 +100,90 @@ Options:
   --help                       Show this message and exit.
 ```
 <!-- [[[end]]] -->
+
+### `list`
+List albums with optional filtering and sorting.
+
+<!-- [[[cog
+result = runner.invoke(cli, ["albums", "list", "--help"], prog_name='scrobbledb')
+cog.out("```\n" + result.output + "```")
+]]] -->
+```
+Usage: scrobbledb albums list [OPTIONS]
+
+  List albums with optional artist filter.
+
+  Browse albums in your collection with sorting options. Filter by artist name
+  or artist ID to see all albums by a specific artist.
+
+  Examples:
+      # List top 50 albums by play count
+      scrobbledb albums list
+
+      # List albums by specific artist     scrobbledb albums list --artist
+      "Radiohead"
+
+      # List albums alphabetically     scrobbledb albums list --sort name
+      --order asc
+
+      # List recently played albums with tracks     scrobbledb albums list
+      --sort recent --expand
+
+Options:
+  -d, --database FILE             Database path (default: XDG data directory)
+  -l, --limit INTEGER             Maximum results  [default: 20]
+  --artist TEXT                   Filter by artist name
+  --artist-id TEXT                Filter by artist ID
+  --order [desc|asc]              Sort order  [default: desc]
+  --sort [plays|name|recent]      Sort by: plays, name, recent  [default:
+                                  recent]
+  --min-plays INTEGER             Show only albums with at least N plays
+                                  [default: 0]
+  --expand                        Show detailed view with tracks for each album
+  --format [table|csv|json|jsonl]
+                                  Output format  [default: table]
+  --fields TEXT                   Fields to include. Available: id, album,
+                                  artist, tracks, plays, last_played
+  --help                          Show this message and exit.
+```
+<!-- [[[end]]] -->
+
+### `top`
+Show top albums with flexible time range support.
+
+<!-- [[[cog
+result = runner.invoke(cli, ["albums", "top", "--help"], prog_name='scrobbledb')
+cog.out("```\n" + result.output + "```")
+]]] -->
+```
+Usage: scrobbledb albums top [OPTIONS]
+
+  Show top albums with flexible time range support.
+
+  Discover your most played albums over various time periods.
+
+  Examples:
+      # Top 10 albums all-time
+      scrobbledb albums top
+
+      # Top 25 albums this month     scrobbledb albums top --limit 25 --period
+      month
+
+      # Top albums by specific artist     scrobbledb albums top --artist
+      "Radiohead"
+
+Options:
+  -d, --database FILE             Database path (default: XDG data directory)
+  -l, --limit INTEGER             Maximum results  [default: 20]
+  --period [week|month|quarter|year|all-time]
+                                  Predefined period
+  -u, --until TEXT                End date/time for analysis period
+  -s, --since TEXT                Start date/time for analysis period
+  --artist TEXT                   Filter by artist name
+  --format [table|csv|json|jsonl]
+                                  Output format  [default: table]
+  --fields TEXT                   Fields to include. Available: rank, album,
+                                  artist, plays, percentage
+  --help                          Show this message and exit.
+```
+<!-- [[[end]]] -->
