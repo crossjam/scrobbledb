@@ -1363,3 +1363,179 @@ def get_track_plays(
 
     rows = db.execute(query, [track_id]).fetchall()
     return [{"timestamp": row[0]} for row in rows]
+
+
+def get_tracks_list(
+    db: sqlite_utils.Database,
+    artist: Optional[str] = None,
+    artist_id: Optional[str] = None,
+    album: Optional[str] = None,
+    album_id: Optional[str] = None,
+    limit: int = 50,
+    sort: str = "plays",
+    order: str = "desc",
+    min_plays: int = 0,
+) -> list[dict]:
+    """
+    List tracks with optional filters.
+
+    Args:
+        db: Database connection
+        artist: Optional artist name filter
+        artist_id: Optional artist ID filter
+        album: Optional album title filter
+        album_id: Optional album ID filter
+        limit: Maximum results
+        sort: Sort by plays, name, or recent
+        order: Sort order (asc or desc)
+        min_plays: Minimum play count filter
+
+    Returns:
+        List of dicts with track information
+    """
+    conditions = []
+    params = []
+
+    if artist:
+        conditions.append("artists.name LIKE ?")
+        params.append(f"%{artist}%")
+
+    if artist_id:
+        conditions.append("artists.id = ?")
+        params.append(artist_id)
+
+    if album:
+        conditions.append("albums.title LIKE ?")
+        params.append(f"%{album}%")
+
+    if album_id:
+        conditions.append("albums.id = ?")
+        params.append(album_id)
+
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
+
+    # Determine sort column
+    if sort == "name":
+        order_by = "tracks.title"
+    elif sort == "recent":
+        order_by = "last_played"
+    else:  # plays
+        order_by = "play_count"
+
+    order_direction = "ASC" if order == "asc" else "DESC"
+
+    sql = f"""
+        SELECT
+            tracks.id as track_id,
+            tracks.title as track_title,
+            artists.name as artist_name,
+            albums.title as album_title,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM tracks
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        {where_clause}
+        GROUP BY tracks.id, tracks.title, artists.name, albums.title
+        HAVING play_count >= ?
+        ORDER BY {order_by} {order_direction}
+        LIMIT ?
+    """
+
+    params.append(min_plays)
+    params.append(limit)
+
+    rows = db.execute(sql, params).fetchall()
+    return [
+        {
+            "track_id": row[0],
+            "track_title": row[1],
+            "artist_name": row[2],
+            "album_title": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
+
+
+def get_top_albums(
+    db: sqlite_utils.Database,
+    limit: int = 10,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    artist: Optional[str] = None,
+) -> list[dict]:
+    """
+    Get top albums by play count with flexible time range.
+
+    Args:
+        db: Database connection
+        limit: Number of albums to return
+        since: Start date filter
+        until: End date filter
+        artist: Optional artist name filter
+
+    Returns:
+        List of dicts with album statistics including rank and percentage
+    """
+    conditions = []
+    params = []
+
+    if since:
+        conditions.append("plays.timestamp >= ?")
+        params.append(since.isoformat() if isinstance(since, datetime) else since)
+
+    if until:
+        conditions.append("plays.timestamp <= ?")
+        params.append(until.isoformat() if isinstance(until, datetime) else until)
+
+    if artist:
+        conditions.append("artists.name LIKE ?")
+        params.append(f"%{artist}%")
+
+    where_clause = ""
+    if conditions:
+        where_clause = "WHERE " + " AND ".join(conditions)
+
+    # First get total plays in period
+    total_query = f"""
+        SELECT COUNT(*) FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {where_clause}
+    """
+    total_plays = db.execute(total_query, params[:]).fetchone()[0]
+
+    # Get top albums
+    query = f"""
+        SELECT
+            albums.id as album_id,
+            albums.title as album_title,
+            artists.name as artist_name,
+            COUNT(*) as play_count
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {where_clause}
+        GROUP BY albums.id, albums.title, artists.name
+        ORDER BY play_count DESC
+        LIMIT ?
+    """
+    params.append(limit)
+
+    rows = db.execute(query, params).fetchall()
+    return [
+        {
+            "rank": i + 1,
+            "album_id": row[0],
+            "album_title": row[1],
+            "artist_name": row[2],
+            "play_count": row[3],
+            "percentage": (row[3] / total_plays * 100) if total_plays > 0 else 0,
+        }
+        for i, row in enumerate(rows)
+    ]

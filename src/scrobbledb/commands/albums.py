@@ -9,7 +9,17 @@ import sqlite_utils
 from pathlib import Path
 from rich.console import Console
 
-from ..config_utils import get_default_db_path
+from ..command_utils import (
+    database_option,
+    limit_option,
+    format_option,
+    fields_option,
+    sort_options,
+    filter_options,
+    time_range_options,
+    check_database,
+    parse_list_args
+)
 from .. import domain_queries
 from .. import domain_format
 
@@ -28,40 +38,11 @@ def albums():
 
 @albums.command(name="search")
 @click.argument("query", required=True)
-@click.option(
-    "-d",
-    "--database",
-    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
-    default=None,
-    help="Database path (default: XDG data directory)",
-)
-@click.option(
-    "-l",
-    "--limit",
-    type=int,
-    default=20,
-    help="Maximum results",
-    show_default=True,
-)
-@click.option(
-    "--artist",
-    type=str,
-    default=None,
-    help="Filter by artist name",
-)
-@click.option(
-    "--format",
-    type=click.Choice(["table", "csv", "json", "jsonl"], case_sensitive=False),
-    default="table",
-    help="Output format",
-    show_default=True,
-)
-@click.option(
-    "--fields",
-    type=str,
-    multiple=True,
-    help="Fields to include in output (comma-separated or repeated). Available: id, album, artist, tracks, plays, last_played",
-)
+@database_option
+@limit_option(default=20)
+@filter_options(artist=True)
+@format_option()
+@fields_option("Fields to include. Available: id, album, artist, tracks, plays, last_played")
 @click.option(
     "--select",
     is_flag=True,
@@ -85,18 +66,7 @@ def search_albums(ctx, query, database, limit, artist, format, fields, select):
         # Get top 10 results
         scrobbledb albums search "greatest" --limit 10
     """
-    # Get database path
-    if database is None:
-        database = get_default_db_path()
-
-    if not Path(database).exists():
-        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print(
-            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
-        )
-        ctx.exit(1)
-
-    db = sqlite_utils.Database(database)
+    db = check_database(ctx, database)
 
     # Check if we have any albums
     if "albums" not in db.table_names():
@@ -125,11 +95,7 @@ def search_albums(ctx, query, database, limit, artist, format, fields, select):
         ctx.exit(0)
 
     # Parse fields
-    selected_fields = None
-    if fields:
-        selected_fields = []
-        for field_arg in fields:
-            selected_fields.extend(f.strip() for f in field_arg.split(","))
+    selected_fields = parse_list_args(fields)
 
     # Interactive selection mode
     if select:
@@ -204,47 +170,10 @@ def search_albums(ctx, query, database, limit, artist, format, fields, select):
 
 
 @albums.command(name="list")
-@click.option(
-    "-d",
-    "--database",
-    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
-    default=None,
-    help="Database path (default: XDG data directory)",
-)
-@click.option(
-    "-l",
-    "--limit",
-    type=int,
-    default=50,
-    help="Maximum results",
-    show_default=True,
-)
-@click.option(
-    "--artist",
-    type=str,
-    default=None,
-    help="Filter by artist name",
-)
-@click.option(
-    "--artist-id",
-    type=str,
-    default=None,
-    help="Filter by artist ID",
-)
-@click.option(
-    "--sort",
-    type=click.Choice(["plays", "name", "recent"], case_sensitive=False),
-    default="plays",
-    help="Sort by: plays, name, or recent",
-    show_default=True,
-)
-@click.option(
-    "--order",
-    type=click.Choice(["desc", "asc"], case_sensitive=False),
-    default="desc",
-    help="Sort order",
-    show_default=True,
-)
+@database_option
+@limit_option(default=50)
+@filter_options(artist=True, artist_id=True)
+@sort_options(sort_choices=["plays", "name", "recent"], default_sort="plays")
 @click.option(
     "--min-plays",
     type=int,
@@ -253,20 +182,14 @@ def search_albums(ctx, query, database, limit, artist, format, fields, select):
     show_default=True,
 )
 @click.option(
-    "--format",
-    type=click.Choice(["table", "csv", "json", "jsonl"], case_sensitive=False),
-    default="table",
-    help="Output format",
-    show_default=True,
+    "--expand",
+    is_flag=True,
+    help="Show detailed view with tracks for each album",
 )
-@click.option(
-    "--fields",
-    type=str,
-    multiple=True,
-    help="Fields to include in output (comma-separated or repeated). Available: id, album, artist, tracks, plays, last_played",
-)
+@format_option()
+@fields_option("Fields to include. Available: id, album, artist, tracks, plays, last_played")
 @click.pass_context
-def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays, format, fields):
+def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays, expand, format, fields):
     """
     List albums with optional artist filter.
 
@@ -281,27 +204,13 @@ def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays,
         # List albums by specific artist
         scrobbledb albums list --artist "Radiohead"
 
-        # List albums using artist ID from search
-        scrobbledb albums list --artist-id "80cb9f52-04b5-4084-a2eb-6098c91cb48a"
-
         # List albums alphabetically
         scrobbledb albums list --sort name --order asc
 
-        # List recently played albums
-        scrobbledb albums list --sort recent
+        # List recently played albums with tracks
+        scrobbledb albums list --sort recent --expand
     """
-    # Get database path
-    if database is None:
-        database = get_default_db_path()
-
-    if not Path(database).exists():
-        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print(
-            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
-        )
-        ctx.exit(1)
-
-    db = sqlite_utils.Database(database)
+    db = check_database(ctx, database)
 
     # Check if we have any albums
     if "albums" not in db.table_names():
@@ -340,15 +249,21 @@ def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays,
             console.print("[yellow]![/yellow] No albums found in database.")
         ctx.exit(0)
 
+    # Fetch tracks if expand is requested
+    if expand:
+        for album in albums:
+            try:
+                album_tracks = domain_queries.get_album_tracks(db, album['album_id'])
+                album['tracks'] = album_tracks
+            except Exception:
+                album['tracks'] = []
+
     # Parse fields
-    selected_fields = None
-    if fields:
-        selected_fields = []
-        for field_arg in fields:
-            selected_fields.extend(f.strip() for f in field_arg.split(","))
+    selected_fields = parse_list_args(fields)
 
     # Filter data if fields specified and not table format
-    if selected_fields and format != "table":
+    # Note: we generally keep all data for table format (which filters internally) or if expand is used
+    if selected_fields and format != "table" and not expand:
         field_mapping = {
             "id": "album_id",
             "album": "album_title",
@@ -362,7 +277,109 @@ def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays,
 
     # Output results
     if format == "table":
-        domain_format.format_albums_list(albums, console, fields=selected_fields)
+        domain_format.format_albums_list(albums, console, fields=selected_fields, expand=expand)
+    else:
+        output = domain_format.format_output(albums, format)
+        click.echo(output)
+
+
+@albums.command(name="top")
+@database_option
+@limit_option(default=10)
+@time_range_options
+@filter_options(artist=True)
+@format_option()
+@fields_option("Fields to include. Available: rank, album, artist, plays, percentage")
+@click.pass_context
+def top_albums(ctx, database, limit, since, until, period, artist, format, fields):
+    """
+    Show top albums with flexible time range support.
+
+    Discover your most played albums over various time periods.
+
+    \b
+    Examples:
+        # Top 10 albums all-time
+        scrobbledb albums top
+
+        # Top 25 albums this month
+        scrobbledb albums top --limit 25 --period month
+
+        # Top albums by specific artist
+        scrobbledb albums top --artist "Radiohead"
+    """
+    db = check_database(ctx, database)
+
+    # Check if we have any plays
+    if "plays" not in db.table_names() or db["plays"].count == 0:
+        console.print("[yellow]![/yellow] No plays found in database.")
+        console.print(
+            "[yellow]→[/yellow] Run [cyan]scrobbledb ingest[/cyan] to import your listening history."
+        )
+        ctx.exit(1)
+
+    # Validate limit
+    if limit < 1:
+        console.print("[red]✗[/red] Limit must be at least 1")
+        ctx.exit(1)
+
+    # Parse date filters
+    since_dt = None
+    until_dt = None
+
+    if period:
+        if since or until:
+            console.print(
+                "[yellow]![/yellow] Cannot use --period with --since or --until"
+            )
+            ctx.exit(1)
+        since_dt, until_dt = domain_queries.parse_period_to_dates(period)
+    else:
+        if since:
+            since_dt = domain_queries.parse_relative_time(since)
+            if not since_dt:
+                console.print(
+                    f"[red]✗[/red] Invalid date format: {since}. Use ISO 8601 (YYYY-MM-DD) or relative time (7 days ago)"
+                )
+                ctx.exit(1)
+
+        if until:
+            until_dt = domain_queries.parse_relative_time(until)
+            if not until_dt:
+                console.print(
+                    f"[red]✗[/red] Invalid date format: {until}. Use ISO 8601 (YYYY-MM-DD) or relative time expressions"
+                )
+                ctx.exit(1)
+
+    # Query top albums
+    try:
+        albums = domain_queries.get_top_albums(
+            db, limit=limit, since=since_dt, until=until_dt, artist=artist
+        )
+    except Exception as e:
+        console.print(f"[red]✗[/red] Query failed: {e}")
+        ctx.exit(1)
+
+    # Parse fields
+    selected_fields = parse_list_args(fields)
+
+    # Filter data if fields specified and not table format
+    if selected_fields and format != "table":
+        field_mapping = {
+            "rank": "rank",
+            "album": "album_title",
+            "artist": "artist_name",
+            "plays": "play_count",
+            "percentage": "percentage",
+        }
+        data_keys = [field_mapping.get(f, f) for f in selected_fields if field_mapping.get(f)]
+        albums = domain_format.filter_fields(albums, data_keys)
+
+    # Output results
+    if format == "table":
+        since_str = since or (period if period else None)
+        until_str = until or None
+        domain_format.format_top_albums(albums, console, since=since_str, until=until_str, fields=selected_fields)
     else:
         output = domain_format.format_output(albums, format)
         click.echo(output)
@@ -370,13 +387,7 @@ def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays,
 
 @albums.command(name="show")
 @click.argument("album_title", required=False)
-@click.option(
-    "-d",
-    "--database",
-    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
-    default=None,
-    help="Database path (default: XDG data directory)",
-)
+@database_option
 @click.option(
     "--album-id",
     type=str,
@@ -389,13 +400,7 @@ def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays,
     default=None,
     help="Artist name (to disambiguate albums with same title)",
 )
-@click.option(
-    "--format",
-    type=click.Choice(["table", "json", "jsonl"], case_sensitive=False),
-    default="table",
-    help="Output format",
-    show_default=True,
-)
+@format_option(formats=["table", "json", "jsonl"])
 @click.pass_context
 def show_album(ctx, album_title, database, album_id, artist, format):
     """
@@ -420,18 +425,7 @@ def show_album(ctx, album_title, database, album_id, artist, format):
         console.print("[yellow]→[/yellow] Try: [cyan]scrobbledb albums show \"Album Name\"[/cyan]")
         ctx.exit(1)
 
-    # Get database path
-    if database is None:
-        database = get_default_db_path()
-
-    if not Path(database).exists():
-        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print(
-            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
-        )
-        ctx.exit(1)
-
-    db = sqlite_utils.Database(database)
+    db = check_database(ctx, database)
 
     # Check if we have any albums
     if "albums" not in db.table_names():

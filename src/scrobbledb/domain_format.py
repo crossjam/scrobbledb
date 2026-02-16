@@ -554,17 +554,126 @@ def format_album_details(album: dict, tracks: list[dict], console: Console) -> N
         console.print(table)
 
 
-def format_albums_list(albums: list[dict], console: Console, fields: Optional[list[str]] = None) -> None:
+    console.print(table)
+
+
+def format_tracks_list(tracks: list[dict], console: Console, fields: Optional[list[str]] = None) -> None:
     """
-    Format album list as a rich table.
+    Format track list as a rich table.
+
+    Args:
+        tracks: List of track dictionaries
+        console: Rich Console instance for output
+        fields: Optional list of fields to include
+    """
+    # Use the same formatting as search for now
+    format_tracks_search(tracks, console, fields)
+
+
+def format_top_albums(albums: list[dict], console: Console, since: str = None, until: str = None, fields: Optional[list[str]] = None) -> None:
+    """
+    Format top albums as a rich table with ranking.
+
+    Args:
+        albums: List of album dictionaries with rank and percentage
+        console: Rich Console instance for output
+        since: Optional start date string for title
+        until: Optional end date string for title
+        fields: Optional list of fields to include (rank, album, artist, plays, percentage)
+    """
+    if not albums:
+        console.print("[yellow]No albums found.[/yellow]")
+        return
+
+    field_config = {
+        "rank": {"name": "Rank", "style": "dim", "key": "rank", "justify": "right", "formatter": str},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
+        "percentage": {"name": "%", "style": "blue", "key": "percentage", "justify": "right", "formatter": lambda x: f"{x:.1f}%"},
+    }
+
+    if not fields:
+        fields = ["rank", "album", "artist", "plays", "percentage"]
+
+    valid_fields = [f for f in fields if f in field_config]
+    if not valid_fields:
+        console.print("[red]✗[/red] No valid fields specified")
+        return
+
+    # Build title
+    title = "Top Albums"
+    if since or until:
+        if since and until:
+            title += f" ({since} to {until})"
+        elif since:
+            title += f" (since {since})"
+        elif until:
+            title += f" (until {until})"
+
+    table = Table(title=title)
+    for field in valid_fields:
+        config = field_config[field]
+        table.add_column(config["name"], style=config["style"], justify=config["justify"])
+
+    for album in albums:
+        row_data = []
+        for field in valid_fields:
+            config = field_config[field]
+            value = album.get(config["key"])
+            if value is not None and config["formatter"]:
+                value = config["formatter"](value)
+            elif value is not None:
+                value = str(value)
+            else:
+                value = "-"
+            row_data.append(value)
+        table.add_row(*row_data)
+
+    console.print(table)
+
+
+def format_albums_list(albums: list[dict], console: Console, fields: Optional[list[str]] = None, expand: bool = False) -> None:
+    """
+    Format album list as a rich table or detailed view.
 
     Args:
         albums: List of album dictionaries
         console: Rich Console instance for output
         fields: Optional list of fields to include (id, album, artist, tracks, plays, last_played)
+        expand: If True, show detailed view with tracks
     """
     if not albums:
         console.print("[yellow]No albums found.[/yellow]")
+        return
+
+    if expand:
+        for album in albums:
+            # Header
+            header = f"[bold magenta]{album['album_title']}[/bold magenta] by [cyan]{album['artist_name']}[/cyan]"
+            meta = f"Plays: [yellow]{album['play_count']:,}[/yellow] | Last Played: [blue]{format_timestamp(album['last_played'])}[/blue]"
+            console.print(Panel(f"{header}\n{meta}", expand=False))
+
+            # Tracks
+            if "tracks" in album and album["tracks"]:
+                track_table = Table(show_header=True, box=None, padding=(0, 2))
+                track_table.add_column("#", style="dim", justify="right")
+                track_table.add_column("Track", style="green")
+                track_table.add_column("Plays", style="yellow", justify="right")
+                track_table.add_column("Last Played", style="blue")
+
+                for i, track in enumerate(album["tracks"], 1):
+                    track_table.add_row(
+                        str(i),
+                        track["track_title"],
+                        f"{track['play_count']:,}",
+                        format_timestamp(track["last_played"]) if track.get("last_played") else "-"
+                    )
+                console.print(track_table)
+            elif "tracks" in album:
+                console.print("[dim]  No tracks found[/dim]")
+            
+            console.print() # Spacer
         return
 
     field_config = {

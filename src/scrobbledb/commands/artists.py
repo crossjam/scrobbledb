@@ -9,7 +9,17 @@ import sqlite_utils
 from pathlib import Path
 from rich.console import Console
 
-from ..config_utils import get_default_db_path
+from ..command_utils import (
+    database_option,
+    limit_option,
+    format_option,
+    fields_option,
+    sort_options,
+    filter_options,
+    time_range_options,
+    check_database,
+    parse_list_args
+)
 from .. import domain_queries
 from .. import domain_format
 
@@ -28,34 +38,10 @@ def artists():
 
 @artists.command(name="search")
 @click.argument("query", required=True)
-@click.option(
-    "-d",
-    "--database",
-    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
-    default=None,
-    help="Database path (default: XDG data directory)",
-)
-@click.option(
-    "-l",
-    "--limit",
-    type=int,
-    default=20,
-    help="Maximum results",
-    show_default=True,
-)
-@click.option(
-    "--format",
-    type=click.Choice(["table", "csv", "json", "jsonl"], case_sensitive=False),
-    default="table",
-    help="Output format",
-    show_default=True,
-)
-@click.option(
-    "--fields",
-    type=str,
-    multiple=True,
-    help="Fields to include in output (comma-separated or repeated). Available: id, artist, albums, tracks, plays, last_played",
-)
+@database_option
+@limit_option(default=20)
+@format_option()
+@fields_option("Fields to include in output. Available: id, artist, albums, tracks, plays, last_played")
 @click.option(
     "--select",
     is_flag=True,
@@ -80,18 +66,7 @@ def search_artists(ctx, query, database, limit, format, fields, select):
         # Get top 10 results
         scrobbledb artists search "rock" --limit 10
     """
-    # Get database path
-    if database is None:
-        database = get_default_db_path()
-
-    if not Path(database).exists():
-        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print(
-            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
-        )
-        ctx.exit(1)
-
-    db = sqlite_utils.Database(database)
+    db = check_database(ctx, database)
 
     # Check if we have any artists
     if "artists" not in db.table_names():
@@ -119,11 +94,7 @@ def search_artists(ctx, query, database, limit, format, fields, select):
         ctx.exit(0)
 
     # Parse fields
-    selected_fields = None
-    if fields:
-        selected_fields = []
-        for field_arg in fields:
-            selected_fields.extend(f.strip() for f in field_arg.split(","))
+    selected_fields = parse_list_args(fields)
 
     # Interactive selection mode
     if select:
@@ -198,35 +169,9 @@ def search_artists(ctx, query, database, limit, format, fields, select):
 
 
 @artists.command(name="list")
-@click.option(
-    "-d",
-    "--database",
-    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
-    default=None,
-    help="Database path (default: XDG data directory)",
-)
-@click.option(
-    "-l",
-    "--limit",
-    type=int,
-    default=50,
-    help="Maximum results",
-    show_default=True,
-)
-@click.option(
-    "--sort",
-    type=click.Choice(["plays", "name", "recent"], case_sensitive=False),
-    default="plays",
-    help="Sort by: plays, name, or recent",
-    show_default=True,
-)
-@click.option(
-    "--order",
-    type=click.Choice(["desc", "asc"], case_sensitive=False),
-    default="desc",
-    help="Sort order",
-    show_default=True,
-)
+@database_option
+@limit_option(default=50)
+@sort_options(sort_choices=["plays", "name", "recent"], default_sort="plays")
 @click.option(
     "--min-plays",
     type=int,
@@ -234,19 +179,8 @@ def search_artists(ctx, query, database, limit, format, fields, select):
     help="Show only artists with at least N plays",
     show_default=True,
 )
-@click.option(
-    "--format",
-    type=click.Choice(["table", "csv", "json", "jsonl"], case_sensitive=False),
-    default="table",
-    help="Output format",
-    show_default=True,
-)
-@click.option(
-    "--fields",
-    type=str,
-    multiple=True,
-    help="Fields to include in output (comma-separated or repeated). Available: id, artist, plays, tracks, albums, last_played",
-)
+@format_option()
+@fields_option("Fields to include in output. Available: id, artist, plays, tracks, albums, last_played")
 @click.pass_context
 def list_artists(ctx, database, limit, sort, order, min_plays, format, fields):
     """
@@ -268,18 +202,7 @@ def list_artists(ctx, database, limit, sort, order, min_plays, format, fields):
         # Show recently played artists
         scrobbledb artists list --sort recent
     """
-    # Get database path
-    if database is None:
-        database = get_default_db_path()
-
-    if not Path(database).exists():
-        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print(
-            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
-        )
-        ctx.exit(1)
-
-    db = sqlite_utils.Database(database)
+    db = check_database(ctx, database)
 
     # Check if we have any artists
     if "artists" not in db.table_names():
@@ -308,11 +231,7 @@ def list_artists(ctx, database, limit, sort, order, min_plays, format, fields):
         ctx.exit(1)
 
     # Parse fields
-    selected_fields = None
-    if fields:
-        selected_fields = []
-        for field_arg in fields:
-            selected_fields.extend(f.strip() for f in field_arg.split(","))
+    selected_fields = parse_list_args(fields)
 
     # Filter data if fields specified and not table format
     if selected_fields and format != "table":
@@ -336,54 +255,11 @@ def list_artists(ctx, database, limit, sort, order, min_plays, format, fields):
 
 
 @artists.command(name="top")
-@click.option(
-    "-d",
-    "--database",
-    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
-    default=None,
-    help="Database path (default: XDG data directory)",
-)
-@click.option(
-    "-l",
-    "--limit",
-    type=int,
-    default=10,
-    help="Number of artists to show",
-    show_default=True,
-)
-@click.option(
-    "-s",
-    "--since",
-    type=str,
-    default=None,
-    help="Start date/time for analysis period",
-)
-@click.option(
-    "-u",
-    "--until",
-    type=str,
-    default=None,
-    help="End date/time for analysis period",
-)
-@click.option(
-    "--period",
-    type=click.Choice(["week", "month", "quarter", "year", "all-time"], case_sensitive=False),
-    default=None,
-    help="Predefined period",
-)
-@click.option(
-    "--format",
-    type=click.Choice(["table", "csv", "json", "jsonl"], case_sensitive=False),
-    default="table",
-    help="Output format",
-    show_default=True,
-)
-@click.option(
-    "--fields",
-    type=str,
-    multiple=True,
-    help="Fields to include in output (comma-separated or repeated). Available: rank, artist, plays, percentage, avg_per_day",
-)
+@database_option
+@limit_option(default=10)
+@time_range_options
+@format_option()
+@fields_option("Fields to include. Available: rank, artist, plays, percentage, avg_per_day")
 @click.pass_context
 def top_artists(ctx, database, limit, since, until, period, format, fields):
     """
@@ -405,18 +281,7 @@ def top_artists(ctx, database, limit, since, until, period, format, fields):
         # Top artists in specific date range
         scrobbledb artists top --since 2024-01-01 --until 2024-03-31
     """
-    # Get database path
-    if database is None:
-        database = get_default_db_path()
-
-    if not Path(database).exists():
-        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print(
-            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
-        )
-        ctx.exit(1)
-
-    db = sqlite_utils.Database(database)
+    db = check_database(ctx, database)
 
     # Check if we have any plays
     if "plays" not in db.table_names() or db["plays"].count == 0:
@@ -469,11 +334,7 @@ def top_artists(ctx, database, limit, since, until, period, format, fields):
         ctx.exit(1)
 
     # Parse fields
-    selected_fields = None
-    if fields:
-        selected_fields = []
-        for field_arg in fields:
-            selected_fields.extend(f.strip() for f in field_arg.split(","))
+    selected_fields = parse_list_args(fields)
 
     # Filter data if fields specified and not table format
     if selected_fields and format != "table":
@@ -499,26 +360,14 @@ def top_artists(ctx, database, limit, since, until, period, format, fields):
 
 @artists.command(name="show")
 @click.argument("artist_name", required=False)
-@click.option(
-    "-d",
-    "--database",
-    type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
-    default=None,
-    help="Database path (default: XDG data directory)",
-)
+@database_option
 @click.option(
     "--artist-id",
     type=str,
     default=None,
     help="Use artist ID instead of name",
 )
-@click.option(
-    "--format",
-    type=click.Choice(["table", "json", "jsonl"], case_sensitive=False),
-    default="table",
-    help="Output format",
-    show_default=True,
-)
+@format_option(formats=["table", "json", "jsonl"])
 @click.pass_context
 def show_artist(ctx, artist_name, database, artist_id, format):
     """
@@ -540,18 +389,7 @@ def show_artist(ctx, artist_name, database, artist_id, format):
         console.print("[yellow]→[/yellow] Try: [cyan]scrobbledb artists show \"Artist Name\"[/cyan]")
         ctx.exit(1)
 
-    # Get database path
-    if database is None:
-        database = get_default_db_path()
-
-    if not Path(database).exists():
-        console.print(f"[red]✗[/red] Database not found: [cyan]{database}[/cyan]")
-        console.print(
-            "[yellow]→[/yellow] Run [cyan]scrobbledb config init[/cyan] to create a new database."
-        )
-        ctx.exit(1)
-
-    db = sqlite_utils.Database(database)
+    db = check_database(ctx, database)
 
     # Check if we have any artists
     if "artists" not in db.table_names():
