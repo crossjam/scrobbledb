@@ -17,23 +17,24 @@ type checking.
 # set up environment from pyproject + uv.lock
 uv sync
 
-# run the test suite (quiet, stop on first failure)
-uv run pytest -q -x
-
-# run tests with coverage reporting
-uv run pytest --cov=./src/copyedit_ai --cov-report=html
-
-# run type checks & lint (if dev deps are present)
-uv run ty src/copyedit_ai
-uv run ruff check src tests
-uv run ruff format src tests
-
-# run the package (replace with your module/CLI)
-uv run python -m copyedit_ai --help
-
 # poe is Poe the Poet, a Python task runner
 # poe integrates well with pyproject.toml
 
 # list tasks
-poe
+uv run poe
+
+# run the test suite (quiet, stop on first failure)
+uv run poe test:quick
+
+# run tests with coverage reporting
+uv run poe test:cov
+
+# run type checks & lint (if dev deps are present)
+uv run poe type
+uv run poe lint
+uv run poe lint:fix
+
+# run the package (replace with your module/CLI)
+uv run scrobbledb --help
+
 ```
