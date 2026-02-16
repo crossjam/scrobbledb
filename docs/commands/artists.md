@@ -61,7 +61,8 @@ Options:
   -d, --database FILE             Database path (default: XDG data directory)
   -l, --limit INTEGER             Maximum results  [default: 50]
   --order [desc|asc]              Sort order  [default: desc]
-  --sort [plays|name|recent]      Sort by: plays, name, recent  [default: plays]
+  --sort [plays|name|recent]      Sort by: plays, name, recent  [default:
+                                  recent]
   --min-plays INTEGER             Show only artists with at least N plays
                                   [default: 0]
   --format [table|csv|json|jsonl]
