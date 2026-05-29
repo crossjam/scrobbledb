@@ -4,6 +4,7 @@ import pytest
 import json
 import tempfile
 import os
+from email.message import Message
 from click.testing import CliRunner
 from unittest.mock import Mock, patch
 import sqlite_utils
@@ -50,6 +51,78 @@ def temp_auth():
     # Cleanup
     if os.path.exists(path):
         os.unlink(path)
+
+
+def test_about_command_exists(runner):
+    """Test that the about command exists and exits cleanly."""
+    result = runner.invoke(cli.cli, ["about"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert "scrobbledb" in result.output
+
+
+def test_about_command_includes_project_identity(runner):
+    """Test that the about command includes project metadata."""
+    result = runner.invoke(cli.cli, ["about"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert "scrobbledb" in result.output
+    assert f"version: {cli.get_version('scrobbledb')}" in result.output
+    assert "https://github.com/crossjam/scrobbledb" in result.output
+
+
+def test_about_command_includes_default_paths(runner):
+    """Test that the about command shows the default storage paths."""
+    result = runner.invoke(cli.cli, ["about"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert f"data directory: {cli.get_data_dir()}" in result.output
+    assert f"default database: {cli.get_default_db_path()}" in result.output
+    assert f"default auth file: {cli.get_default_auth_path()}" in result.output
+
+
+def test_about_help_is_available(runner):
+    """Test that the about command has helpful usage text."""
+    result = runner.invoke(cli.cli, ["about", "--help"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert "Display information about the scrobbledb project." in result.output
+    assert "Shows project summary, version, repository URL, and default storage paths." in result.output
+
+
+def test_about_command_does_not_create_data_directory(runner, monkeypatch, tmp_path):
+    """Test that the about command reports paths without creating them."""
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+
+    data_dir = cli.get_data_dir()
+    assert not data_dir.exists()
+
+    result = runner.invoke(cli.cli, ["about"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert not data_dir.exists()
+
+
+def test_about_command_uses_package_metadata(runner):
+    """Test that the about command renders package metadata dynamically."""
+    metadata = Message()
+    metadata["Summary"] = "Custom summary"
+    metadata["Author-email"] = (
+        '"Alice Example" <alice@example.com>, Bob Example <bob@example.com>'
+    )
+    metadata["Project-URL"] = "Homepage, https://example.com/home"
+    metadata["Project-URL"] = "Repository, https://example.com/repo"
+
+    with patch("scrobbledb.cli.get_metadata", return_value=metadata):
+        result = runner.invoke(cli.cli, ["about"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert "summary: Custom summary" in result.output
+    assert "repository: https://example.com/repo" in result.output
+    assert "authors: Alice Example; Bob Example" in result.output
 
 
 class TestTableExistsFix:

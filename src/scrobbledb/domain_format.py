@@ -8,12 +8,28 @@ including Rich console output and multiple export formats.
 import json
 import csv as csv_module
 from io import StringIO
-from typing import Optional
+from typing import Callable, Optional, cast
 
 
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
+
+
+Formatter = Callable[[object], str]
+
+
+def _format_value(
+    value: object | None, formatter: object, *, missing_if_empty: bool = False
+) -> str:
+    """Format an optional table value using the provided formatter."""
+    if value is None:
+        return "-"
+
+    formatted = cast(Formatter, formatter)(value)
+    if missing_if_empty and formatted == "":
+        return "-"
+    return formatted
 
 
 def filter_fields(rows: list[dict], fields: Optional[list[str]] = None) -> list[dict]:
@@ -260,9 +276,9 @@ def format_plays_list(plays: list[dict], console: Console, fields: Optional[list
     # Define available fields with their display properties
     field_config = {
         "timestamp": {"name": "Timestamp", "style": "yellow", "key": "timestamp", "formatter": format_timestamp},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "formatter": None},
-        "track": {"name": "Track", "style": "green", "key": "track_title", "formatter": None},
-        "album": {"name": "Album", "style": "magenta", "key": "album_title", "formatter": None},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "formatter": str},
+        "track": {"name": "Track", "style": "green", "key": "track_title", "formatter": str},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "formatter": str},
     }
 
     # Use all fields if none specified
@@ -285,9 +301,9 @@ def format_plays_list(plays: list[dict], console: Console, fields: Optional[list
         for field in valid_fields:
             config = field_config[field]
             value = play.get(config["key"], "")
-            if config["formatter"]:
-                value = config["formatter"](value)
-            row_data.append(str(value) if value else "-")
+            row_data.append(
+                _format_value(value, config["formatter"], missing_if_empty=True)
+            )
         table.add_row(*row_data)
 
     console.print(table)
@@ -308,7 +324,7 @@ def format_artists_list(artists: list[dict], console: Console, fields: Optional[
 
     field_config = {
         "id": {"name": "ID", "style": "dim", "key": "artist_id", "justify": "right", "formatter": str},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": str},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "albums": {"name": "Albums", "style": "magenta", "key": "album_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
@@ -333,13 +349,7 @@ def format_artists_list(artists: list[dict], console: Console, fields: Optional[
         for field in valid_fields:
             config = field_config[field]
             value = artist.get(config["key"])
-            if value and config["formatter"]:
-                value = config["formatter"](value)
-            elif value is not None:
-                value = str(value)
-            else:
-                value = "-"
-            row_data.append(value)
+            row_data.append(_format_value(value, config["formatter"]))
         table.add_row(*row_data)
 
     console.print(table)
@@ -362,7 +372,7 @@ def format_top_artists(artists: list[dict], console: Console, since: str = None,
 
     field_config = {
         "rank": {"name": "Rank", "style": "dim", "key": "rank", "justify": "right", "formatter": str},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": str},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "percentage": {"name": "%", "style": "magenta", "key": "percentage", "justify": "right", "formatter": lambda x: f"{x:.1f}%"},
         "avg_per_day": {"name": "Avg/Day", "style": "green", "key": "avg_plays_per_day", "justify": "right", "formatter": lambda x: f"{x:.1f}"},
@@ -396,13 +406,7 @@ def format_top_artists(artists: list[dict], console: Console, since: str = None,
         for field in valid_fields:
             config = field_config[field]
             value = artist.get(config["key"])
-            if value is not None and config["formatter"]:
-                value = config["formatter"](value)
-            elif value is not None:
-                value = str(value)
-            else:
-                value = "-"
-            row_data.append(value)
+            row_data.append(_format_value(value, config["formatter"]))
         table.add_row(*row_data)
 
     console.print(table)
@@ -424,7 +428,7 @@ def format_artists_search(artists: list[dict], console: Console, fields: Optiona
     # Define available fields
     field_config = {
         "id": {"name": "ID", "style": "dim", "key": "artist_id", "justify": "right", "formatter": str},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": str},
         "albums": {"name": "Albums", "style": "magenta", "key": "album_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
@@ -449,13 +453,7 @@ def format_artists_search(artists: list[dict], console: Console, fields: Optiona
         for field in valid_fields:
             config = field_config[field]
             value = artist.get(config["key"])
-            if value and config["formatter"]:
-                value = config["formatter"](value)
-            elif value is not None:
-                value = str(value)
-            else:
-                value = "-"
-            row_data.append(value)
+            row_data.append(_format_value(value, config["formatter"]))
         table.add_row(*row_data)
 
     console.print(table)
@@ -476,8 +474,8 @@ def format_albums_search(albums: list[dict], console: Console, fields: Optional[
 
     field_config = {
         "id": {"name": "ID", "style": "dim", "key": "album_id", "justify": "right", "formatter": str},
-        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": str},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": str},
         "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "last_played": {"name": "Last Played", "style": "blue", "key": "last_played", "justify": "left", "formatter": format_timestamp},
@@ -501,13 +499,7 @@ def format_albums_search(albums: list[dict], console: Console, fields: Optional[
         for field in valid_fields:
             config = field_config[field]
             value = album.get(config["key"])
-            if value and config["formatter"]:
-                value = config["formatter"](value)
-            elif value is not None:
-                value = str(value)
-            else:
-                value = "-"
-            row_data.append(value)
+            row_data.append(_format_value(value, config["formatter"]))
         table.add_row(*row_data)
 
     console.print(table)
@@ -587,8 +579,8 @@ def format_top_albums(albums: list[dict], console: Console, since: str = None, u
 
     field_config = {
         "rank": {"name": "Rank", "style": "dim", "key": "rank", "justify": "right", "formatter": str},
-        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": str},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": str},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "percentage": {"name": "%", "style": "blue", "key": "percentage", "justify": "right", "formatter": lambda x: f"{x:.1f}%"},
     }
@@ -621,13 +613,7 @@ def format_top_albums(albums: list[dict], console: Console, since: str = None, u
         for field in valid_fields:
             config = field_config[field]
             value = album.get(config["key"])
-            if value is not None and config["formatter"]:
-                value = config["formatter"](value)
-            elif value is not None:
-                value = str(value)
-            else:
-                value = "-"
-            row_data.append(value)
+            row_data.append(_format_value(value, config["formatter"]))
         table.add_row(*row_data)
 
     console.print(table)
@@ -678,8 +664,8 @@ def format_albums_list(albums: list[dict], console: Console, fields: Optional[li
 
     field_config = {
         "id": {"name": "ID", "style": "dim", "key": "album_id", "justify": "right", "formatter": str},
-        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": str},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": str},
         "tracks": {"name": "Tracks", "style": "green", "key": "track_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "last_played": {"name": "Last Played", "style": "blue", "key": "last_played", "justify": "left", "formatter": format_timestamp},
@@ -703,13 +689,7 @@ def format_albums_list(albums: list[dict], console: Console, fields: Optional[li
         for field in valid_fields:
             config = field_config[field]
             value = album.get(config["key"])
-            if value and config["formatter"]:
-                value = config["formatter"](value)
-            elif value is not None:
-                value = str(value)
-            else:
-                value = "-"
-            row_data.append(value)
+            row_data.append(_format_value(value, config["formatter"]))
         table.add_row(*row_data)
 
     console.print(table)
@@ -730,9 +710,9 @@ def format_tracks_search(tracks: list[dict], console: Console, fields: Optional[
 
     field_config = {
         "id": {"name": "ID", "style": "dim", "key": "track_id", "justify": "right", "formatter": str},
-        "track": {"name": "Track", "style": "green", "key": "track_title", "justify": "left", "formatter": None},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
-        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
+        "track": {"name": "Track", "style": "green", "key": "track_title", "justify": "left", "formatter": str},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": str},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": str},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "last_played": {"name": "Last Played", "style": "blue", "key": "last_played", "justify": "left", "formatter": format_timestamp},
     }
@@ -755,13 +735,7 @@ def format_tracks_search(tracks: list[dict], console: Console, fields: Optional[
         for field in valid_fields:
             config = field_config[field]
             value = track.get(config["key"])
-            if value and config["formatter"]:
-                value = config["formatter"](value)
-            elif value is not None:
-                value = str(value)
-            else:
-                value = "-"
-            row_data.append(value)
+            row_data.append(_format_value(value, config["formatter"]))
         table.add_row(*row_data)
 
     console.print(table)
@@ -784,9 +758,9 @@ def format_top_tracks(tracks: list[dict], console: Console, since: str = None, u
 
     field_config = {
         "rank": {"name": "Rank", "style": "dim", "key": "rank", "justify": "right", "formatter": str},
-        "track": {"name": "Track", "style": "green", "key": "track_title", "justify": "left", "formatter": None},
-        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": None},
-        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": None},
+        "track": {"name": "Track", "style": "green", "key": "track_title", "justify": "left", "formatter": str},
+        "artist": {"name": "Artist", "style": "cyan", "key": "artist_name", "justify": "left", "formatter": str},
+        "album": {"name": "Album", "style": "magenta", "key": "album_title", "justify": "left", "formatter": str},
         "plays": {"name": "Plays", "style": "yellow", "key": "play_count", "justify": "right", "formatter": lambda x: f"{x:,}"},
         "percentage": {"name": "%", "style": "blue", "key": "percentage", "justify": "right", "formatter": lambda x: f"{x:.1f}%"},
     }
@@ -819,13 +793,7 @@ def format_top_tracks(tracks: list[dict], console: Console, since: str = None, u
         for field in valid_fields:
             config = field_config[field]
             value = track.get(config["key"])
-            if value is not None and config["formatter"]:
-                value = config["formatter"](value)
-            elif value is not None:
-                value = str(value)
-            else:
-                value = "-"
-            row_data.append(value)
+            row_data.append(_format_value(value, config["formatter"]))
         table.add_row(*row_data)
 
     console.print(table)

@@ -5,7 +5,8 @@ import sqlite_utils
 import time
 from pathlib import Path
 from platformdirs import user_data_dir, user_config_dir
-from importlib.metadata import version as get_version
+import re
+from importlib.metadata import version as get_version, metadata as get_metadata
 
 from loguru_config import LoguruConfig
 from rich.console import Console
@@ -35,15 +36,19 @@ APP_NAME = "dev.pirateninja.scrobbledb"
 console = Console()
 
 
+def _get_pkg_version() -> str:
+    """Return the installed package version, or 'unknown' if unavailable."""
+    try:
+        return get_version("scrobbledb")
+    except Exception:
+        return "unknown"
+
+
 def version_callback(ctx, param, value):
     """Callback to handle version option."""
     if not value or ctx.resilient_parsing:
         return
-    try:
-        pkg_version = get_version("scrobbledb")
-    except Exception:
-        pkg_version = "unknown"
-    click.echo(f"scrobbledb, version {pkg_version}")
+    console.print(f"scrobbledb, version {_get_pkg_version()}")
     ctx.exit()
 
 
@@ -52,25 +57,30 @@ def get_data_dir():
     return Path(user_data_dir(APP_NAME))
 
 
-def get_default_auth_path():
-    """Get the default path for the auth.json file in XDG compliant directory."""
+def _ensure_data_dir() -> Path:
+    """Create the app data directory if it doesn't exist and return it.
+
+    Call this only from commands that actually write to the data directory.
+    Pure read or display operations should use get_data_dir() directly.
+    """
     data_dir = get_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
-    return str(data_dir / "auth.json")
+    return data_dir
+
+
+def get_default_auth_path():
+    """Get the default path for the auth.json file in XDG compliant directory."""
+    return str(get_data_dir() / "auth.json")
 
 
 def get_default_db_path():
     """Get the default path for the database in XDG compliant directory."""
-    data_dir = get_data_dir()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return str(data_dir / "scrobbledb.db")
+    return str(get_data_dir() / "scrobbledb.db")
 
 
 def get_default_log_config_path():
     """Get the default path for the log config file in XDG compliant directory."""
-    data_dir = get_data_dir()
-    data_dir.mkdir(parents=True, exist_ok=True)
-    return str(data_dir / "loguru_config.toml")
+    return str(get_data_dir() / "loguru_config.toml")
 
 
 def ensure_default_log_config():
@@ -79,6 +89,7 @@ def ensure_default_log_config():
     Returns:
         Path to the default log config file.
     """
+    _ensure_data_dir()
     config_path = Path(get_default_log_config_path())
 
     if not config_path.exists():
@@ -567,11 +578,51 @@ def version():
 
     Shows the currently installed version of scrobbledb.
     """
+    console.print(f"scrobbledb, version {_get_pkg_version()}")
+
+
+def _parse_pkg_metadata():
+    """Return (summary, repository_url, authors_string) from package metadata."""
     try:
-        pkg_version = get_version("scrobbledb")
+        meta = get_metadata("scrobbledb")
+        summary = meta["Summary"] or ""
+        repo_url = ""
+        for entry in (meta.get_all("Project-URL") or []):
+            label, _, link = entry.partition(", ")
+            if label.strip().lower() == "repository":
+                repo_url = link.strip()
+                break
+        author_email_field = meta["Author-email"] or ""
+        names = re.findall(r'"?([^"<,]+?)"?\s*<[^>]+>', author_email_field)
+        authors = "; ".join(n.strip() for n in names)
     except Exception:
-        pkg_version = "unknown"
-    click.echo(f"scrobbledb, version {pkg_version}")
+        summary = repo_url = authors = "unknown"
+    return summary, repo_url, authors
+
+
+@cli.command()
+def about():
+    """
+    Display information about the scrobbledb project.
+
+    Shows project summary, version, repository URL, and default storage paths.
+    """
+    summary, repo_url, authors = _parse_pkg_metadata()
+    data_dir = get_data_dir()
+
+    lines = [
+        "scrobbledb",
+        f"version: {_get_pkg_version()}",
+        f"summary: {summary}",
+        f"repository: {repo_url}",
+        f"authors: {authors}",
+        f"data directory: {data_dir}",
+        f"default database: {data_dir / 'scrobbledb.db'}",
+        f"default auth file: {data_dir / 'auth.json'}",
+        "next steps: scrobbledb auth | scrobbledb config init | scrobbledb ingest",
+    ]
+    for line in lines:
+        console.print(line, soft_wrap=True)
 
 
 @cli.command()
@@ -594,6 +645,7 @@ def auth(auth, network):
     "Save authentication credentials to a JSON file"
 
     if auth is None:
+        _ensure_data_dir()
         auth = get_default_auth_path()
 
     console.print(
@@ -832,6 +884,7 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
             LoguruConfig.load(default_config)
 
     if database is None:
+        _ensure_data_dir()
         database = get_default_db_path()
 
     if auth is None:
@@ -1461,10 +1514,12 @@ def import_data(
         # Show errors if any
         if stats["errors"]:
             console.print("\n[red]Errors:[/red]")
-            for i, error in enumerate(stats["errors"][:10], 1):  # Show first 10
-                console.print(f"  {i}. {error}")
-            if len(stats["errors"]) > 10:
-                console.print(f"  ... and {len(stats['errors']) - 10} more errors")
+            errors = stats["errors"]
+            if isinstance(errors, list):
+                for i, error in enumerate(errors[:10], 1):  # Show first 10
+                    console.print(f"  {i}. {error}")
+                if len(errors) > 10:
+                    console.print(f"  ... and {len(errors) - 10} more errors")
 
         # Show database info
         if not dry_run:
