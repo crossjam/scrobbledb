@@ -1484,10 +1484,12 @@ def import_data(
         # Show errors if any
         if stats["errors"]:
             console.print("\n[red]Errors:[/red]")
-            for i, error in enumerate(stats["errors"][:10], 1):  # Show first 10
-                console.print(f"  {i}. {error}")
-            if len(stats["errors"]) > 10:
-                console.print(f"  ... and {len(stats['errors']) - 10} more errors")
+            errors = stats["errors"]
+            if isinstance(errors, list):
+                for i, error in enumerate(errors[:10], 1):  # Show first 10
+                    console.print(f"  {i}. {error}")
+                if len(errors) > 10:
+                    console.print(f"  ... and {len(errors) - 10} more errors")
 
         # Show database info
         if not dry_run:
