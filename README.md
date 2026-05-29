@@ -154,6 +154,7 @@ scrobbledb provides a comprehensive set of commands for managing and exploring y
 
 ### Advanced
 
+- **`about`** - Display project metadata and default paths ([docs](docs/commands/about.md))
 - **`sql`** - Direct access to sqlite-utils commands for power users ([docs](docs/commands/sql.md))
 - **`version`** - Display the installed version ([docs](docs/commands/version.md))
 

@@ -575,6 +575,29 @@ def version():
 
 
 @cli.command()
+def about():
+    """
+    Display information about the scrobbledb project.
+
+    Shows project summary, version, repository URL, and default storage paths.
+    """
+    try:
+        pkg_version = get_version("scrobbledb")
+    except Exception:
+        pkg_version = "unknown"
+
+    click.echo("scrobbledb")
+    click.echo(f"version: {pkg_version}")
+    click.echo("summary: Save data from last.fm/libre.fm to a SQLite database")
+    click.echo("repository: https://github.com/crossjam/scrobbledb")
+    click.echo("authors: Jacob Kaplan-Moss; Brian M. Dennis")
+    click.echo(f"data directory: {get_data_dir()}")
+    click.echo(f"default database: {get_default_db_path()}")
+    click.echo(f"default auth file: {get_default_auth_path()}")
+    click.echo("next steps: scrobbledb auth | scrobbledb config init | scrobbledb ingest")
+
+
+@cli.command()
 @click.option(
     "-a",
     "--auth",

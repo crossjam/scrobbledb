@@ -52,6 +52,43 @@ def temp_auth():
         os.unlink(path)
 
 
+def test_about_command_exists(runner):
+    """Test that the about command exists and exits cleanly."""
+    result = runner.invoke(cli.cli, ["about"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert "scrobbledb" in result.output
+
+
+def test_about_command_includes_project_identity(runner):
+    """Test that the about command includes project metadata."""
+    result = runner.invoke(cli.cli, ["about"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert "scrobbledb" in result.output
+    assert f"version: {cli.get_version('scrobbledb')}" in result.output
+    assert "https://github.com/crossjam/scrobbledb" in result.output
+
+
+def test_about_command_includes_default_paths(runner):
+    """Test that the about command shows the default storage paths."""
+    result = runner.invoke(cli.cli, ["about"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert f"data directory: {cli.get_data_dir()}" in result.output
+    assert f"default database: {cli.get_default_db_path()}" in result.output
+    assert f"default auth file: {cli.get_default_auth_path()}" in result.output
+
+
+def test_about_help_is_available(runner):
+    """Test that the about command has helpful usage text."""
+    result = runner.invoke(cli.cli, ["about", "--help"])
+
+    assert result.exit_code == 0, f"Command failed: {result.output}"
+    assert "Display information about the scrobbledb project." in result.output
+    assert "Shows project summary, version, repository URL, and default storage paths." in result.output
+
+
 class TestTableExistsFix:
     """Tests for the table.exists() method call fix.
 

@@ -28,6 +28,7 @@ This guide orients you to the `scrobbledb` command-line interface and links to d
 | `sql` | sqlite-utils passthrough commands | [SQL](commands/sql.md) |
 | `stats` | Overview, monthly, and yearly listening stats | [Stats](commands/stats.md) |
 | `tracks` | Search tracks, view top tracks, and track details | [Tracks](commands/tracks.md) |
+| `about` | Display project metadata and default paths | [About](commands/about.md) |
 | `version` | Print the installed package version | [Version](commands/version.md) |
 
 ## Regenerating help snippets

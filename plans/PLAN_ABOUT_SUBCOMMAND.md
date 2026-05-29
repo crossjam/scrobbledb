@@ -296,6 +296,47 @@ Possible later additions after the MVP lands:
 - Show install location or Python environment details
 - Add `--json` output if machine-readable metadata ever becomes useful
 
+## Phased Progress Checklist
+
+### Phase 1: Test Definition
+- [x] Add `test_about_command_exists()` to `tests/test_cli.py`
+- [x] Add `test_about_command_includes_project_identity()` to `tests/test_cli.py`
+- [x] Add `test_about_command_includes_default_paths()` to `tests/test_cli.py`
+- [x] Add `test_about_help_is_available()` to `tests/test_cli.py`
+- [x] Run `uv run pytest tests/test_cli.py -q` and confirm the new tests fail for the expected reason
+
+### Phase 2: CLI Implementation
+- [x] Add a root-level `about` command in `src/scrobbledb/cli.py`
+- [x] Reuse `get_version("scrobbledb")` for version resolution
+- [x] Reuse `get_data_dir()`, `get_default_db_path()`, and `get_default_auth_path()` for path output
+- [x] Render output with Rich or stable plain text that remains easy to test
+- [x] Verify `scrobbledb about` works without auth, network, or an initialized database
+
+### Phase 3: Command Documentation
+- [x] Create `docs/commands/about.md`
+- [x] Add a cog-generated `--help` snippet for `scrobbledb about`
+- [x] Add at least one usage example (`uv run scrobbledb about`)
+- [x] Describe when the command should be used
+
+### Phase 4: README and Command Index Updates
+- [x] Add `about` to the command overview in `README.md`
+- [x] Verify whether `docs/cli.md` or other command index files also need an explicit update
+- [x] Make any required docs index adjustments so the new command is discoverable
+
+### Phase 5: Docs Regeneration and Verification
+- [x] Run `uv run poe docs:cli`
+- [x] Confirm generated help output is embedded correctly in `docs/commands/about.md`
+- [x] Run `uv run pytest tests/test_docs_generation.py -q`
+- [x] Run `uv run pytest tests/test_cli.py -q`
+- [x] Optionally run `uv run poe test:quick`
+
+### Phase 6: Final Review and Commit
+- [x] Verify `about` complements `version` rather than duplicating or replacing it
+- [x] Verify test assertions rely on stable text content, not Rich border formatting
+- [x] Review changed files for scope creep beyond issue #14
+- [ ] Commit implementation changes with `feat: add about subcommand`
+- [ ] Push the branch and prepare for PR creation
+
 ---
 
 This plan intentionally keeps the first implementation small, useful, and consistent with the existing CLI architecture.
