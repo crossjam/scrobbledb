@@ -6,6 +6,7 @@ import tempfile
 import os
 from datetime import datetime, timedelta
 from click.testing import CliRunner
+from rich.console import Console
 import sqlite_utils
 
 from scrobbledb import cli
@@ -17,6 +18,8 @@ from scrobbledb.domain_queries import (
 )
 from scrobbledb.domain_format import (
     format_output,
+    format_artists_list,
+    format_plays_list,
 )
 
 
@@ -362,6 +365,50 @@ class TestFormatOutput:
         assert format_output([], "json") == "[]"
         assert format_output([], "jsonl") == ""
         assert format_output([], "csv") == ""
+
+
+class TestDomainFormatters:
+    """Tests for rich table field formatting."""
+
+    def test_format_artists_list_formats_zero_counts(self):
+        """Numeric zero values should still be formatted and displayed."""
+        console = Console(record=True, width=100)
+        artists = [
+            {
+                "artist_name": "Silent Artist",
+                "play_count": 0,
+                "track_count": 0,
+                "album_count": 0,
+                "last_played": None,
+            }
+        ]
+
+        format_artists_list(artists=artists, console=console)
+
+        output = console.export_text()
+        assert "Silent Artist" in output
+        assert output.count("0") >= 3
+        assert "-" in output
+
+    def test_format_plays_list_formats_plain_text_fields_without_custom_formatter(self):
+        """Plain string fields should still render when using identity formatting."""
+        console = Console(record=True, width=100)
+        plays = [
+            {
+                "timestamp": "2024-03-20T16:00:00",
+                "artist_name": "Artist Zero",
+                "track_title": "Track Zero",
+                "album_title": "Album Zero",
+            }
+        ]
+
+        format_plays_list(plays=plays, console=console)
+
+        output = console.export_text()
+        assert "Artist Zero" in output
+        assert "Track Zero" in output
+        assert "Album Zero" in output
+        assert "2024-03-20 16:00:00" in output
 
 
 class TestStatsCommands:
