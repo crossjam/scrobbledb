@@ -286,7 +286,7 @@ def format_plays_list(plays: list[dict], console: Console, fields: Optional[list
             config = field_config[field]
             value = play.get(config["key"], "")
             if config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             row_data.append(str(value) if value else "-")
         table.add_row(*row_data)
 
@@ -334,7 +334,7 @@ def format_artists_list(artists: list[dict], console: Console, fields: Optional[
             config = field_config[field]
             value = artist.get(config["key"])
             if value and config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             elif value is not None:
                 value = str(value)
             else:
@@ -397,7 +397,7 @@ def format_top_artists(artists: list[dict], console: Console, since: str = None,
             config = field_config[field]
             value = artist.get(config["key"])
             if value is not None and config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             elif value is not None:
                 value = str(value)
             else:
@@ -450,7 +450,7 @@ def format_artists_search(artists: list[dict], console: Console, fields: Optiona
             config = field_config[field]
             value = artist.get(config["key"])
             if value and config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             elif value is not None:
                 value = str(value)
             else:
@@ -502,7 +502,7 @@ def format_albums_search(albums: list[dict], console: Console, fields: Optional[
             config = field_config[field]
             value = album.get(config["key"])
             if value and config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             elif value is not None:
                 value = str(value)
             else:
@@ -622,7 +622,7 @@ def format_top_albums(albums: list[dict], console: Console, since: str = None, u
             config = field_config[field]
             value = album.get(config["key"])
             if value is not None and config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             elif value is not None:
                 value = str(value)
             else:
@@ -704,7 +704,7 @@ def format_albums_list(albums: list[dict], console: Console, fields: Optional[li
             config = field_config[field]
             value = album.get(config["key"])
             if value and config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             elif value is not None:
                 value = str(value)
             else:
@@ -756,7 +756,7 @@ def format_tracks_search(tracks: list[dict], console: Console, fields: Optional[
             config = field_config[field]
             value = track.get(config["key"])
             if value and config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             elif value is not None:
                 value = str(value)
             else:
@@ -820,7 +820,7 @@ def format_top_tracks(tracks: list[dict], console: Console, since: str = None, u
             config = field_config[field]
             value = track.get(config["key"])
             if value is not None and config["formatter"]:
-                value = config["formatter"](value)
+                value = config["formatter"](value)  # ty: ignore[call-non-callable]
             elif value is not None:
                 value = str(value)
             else:
