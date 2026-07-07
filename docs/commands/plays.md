@@ -22,7 +22,7 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  list  List recent plays with filtering and pagination.
+  list*  List recent plays with filtering and pagination.
 ```
 <!-- [[[end]]] -->
 

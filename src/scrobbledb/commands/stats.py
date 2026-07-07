@@ -8,6 +8,7 @@ This module provides CLI commands for viewing scrobble statistics:
 """
 
 import click
+from click_default_group import DefaultGroup
 from rich.console import Console
 
 from ..command_utils import (
@@ -33,7 +34,7 @@ from ..domain_format import (
 console = Console()
 
 
-@click.group()
+@click.group(cls=DefaultGroup, default="overview", default_if_no_args=True)
 def stats():
     """
     Descriptive statistics about your scrobbles.

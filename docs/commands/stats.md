@@ -33,9 +33,9 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  monthly   Display scrobble statistics rolled up by month.
-  overview  Display overall scrobble statistics.
-  yearly    Display scrobble statistics rolled up by year.
+  overview*  Display overall scrobble statistics.
+  monthly    Display scrobble statistics rolled up by month.
+  yearly     Display scrobble statistics rolled up by year.
 ```
 <!-- [[[end]]] -->
 
