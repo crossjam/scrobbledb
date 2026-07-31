@@ -101,10 +101,10 @@ Options:
                                   Predefined period
   -u, --until TEXT                End date/time for analysis period (ISO 8601 or
                                   natural language: yesterday, last month,
-                                  Monday)
+                                  Monday, 3 weeks ago, last Tuesday)
   -s, --since TEXT                Start date/time for analysis period (ISO 8601
                                   or natural language: yesterday, last month,
-                                  Monday)
+                                  Monday, 3 weeks ago, last Tuesday)
   --artist TEXT                   Filter by artist name
   -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]

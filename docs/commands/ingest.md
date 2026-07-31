@@ -24,9 +24,11 @@ Options:
   -a, --auth FILE       Path to read auth token from (default: XDG data
                         directory)
   --since-date DATE     Pull new posts since DATE (ISO 8601 or natural language:
-                        yesterday, last month, Monday)
+                        yesterday, last month, Monday, 3 weeks ago, last
+                        Tuesday)
   --until-date DATE     Pull new posts until DATE (ISO 8601 or natural language:
-                        yesterday, last month, Monday)
+                        yesterday, last month, Monday, 3 weeks ago, last
+                        Tuesday)
   --limit INTEGER       Maximum number of tracks to import
   --batch-size INTEGER  Number of records to insert in each batch (default: 100)
                         [default: 100]

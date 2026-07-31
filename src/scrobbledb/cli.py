@@ -830,13 +830,13 @@ def _ingest_batch(db, history, expected_count, batch_size):
     "--since-date",
     default=None,
     metavar="DATE",
-    help="Pull new posts since DATE (ISO 8601 or natural language: yesterday, last month, Monday)",
+    help="Pull new posts since DATE (ISO 8601 or natural language: yesterday, last month, Monday, 3 weeks ago, last Tuesday)",
 )
 @click.option(
     "--until-date",
     default=None,
     metavar="DATE",
-    help="Pull new posts until DATE (ISO 8601 or natural language: yesterday, last month, Monday)",
+    help="Pull new posts until DATE (ISO 8601 or natural language: yesterday, last month, Monday, 3 weeks ago, last Tuesday)",
 )
 @click.option(
     "--limit",
