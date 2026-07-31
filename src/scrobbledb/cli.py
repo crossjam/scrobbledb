@@ -30,6 +30,7 @@ from .commands import plays as plays_command
 from .commands import albums as albums_command
 from .commands import artists as artists_command
 from .commands import tracks as tracks_command
+from .domain_queries import parse_relative_time
 import dateutil.parser
 
 APP_NAME = "dev.pirateninja.scrobbledb"
@@ -895,10 +896,10 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
     if not since_date and db["plays"].exists():
         since_date = db.conn.execute("select max(timestamp) from plays").fetchone()[0]
     if since_date:
-        since_date = dateutil.parser.parse(since_date)
+        since_date = parse_relative_time(since_date)
 
     if until_date:
-        until_date = dateutil.parser.parse(until_date)
+        until_date = parse_relative_time(until_date)
 
     if since_date and until_date:
         console.print(f"[green]Fetching scrobbles from {since_date.isoformat()} to {until_date.isoformat()}[/green]")
