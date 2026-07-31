@@ -8,3 +8,6 @@ __pycache__/
 .venv/
 sys.stderr
 /.claude/
+# roborev snapshots
+/.roborev/
+.kata.local.toml
