@@ -62,8 +62,12 @@ Options:
   -l, --limit INTEGER             Maximum results  [default: 50]
   --period [week|month|quarter|year|all-time]
                                   Predefined period
-  -u, --until TEXT                End date/time for analysis period
-  -s, --since TEXT                Start date/time for analysis period
+  -u, --until TEXT                End date/time for analysis period (ISO 8601 or
+                                  natural language: yesterday, last month,
+                                  Monday)
+  -s, --since TEXT                Start date/time for analysis period (ISO 8601
+                                  or natural language: yesterday, last month,
+                                  Monday)
   --artist TEXT                   Filter by artist name
   --album TEXT                    Filter by album title
   --track TEXT                    Filter by track title

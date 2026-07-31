@@ -105,8 +105,12 @@ Options:
   -l, --limit INTEGER             Maximum results  [default: 20]
   --period [week|month|quarter|year|all-time]
                                   Predefined period
-  -u, --until TEXT                End date/time for analysis period
-  -s, --since TEXT                Start date/time for analysis period
+  -u, --until TEXT                End date/time for analysis period (ISO 8601 or
+                                  natural language: yesterday, last month,
+                                  Monday)
+  -s, --since TEXT                Start date/time for analysis period (ISO 8601
+                                  or natural language: yesterday, last month,
+                                  Monday)
   -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
   --fields TEXT                   Fields to include. Available: rank, artist,

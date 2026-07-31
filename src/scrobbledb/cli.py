@@ -827,10 +827,16 @@ def _ingest_batch(db, history, expected_count, batch_size):
     help="Path to read auth token from (default: XDG data directory)",
 )
 @click.option(
-    "--since-date", default=None, metavar="DATE", help="Pull new posts since DATE"
+    "--since-date",
+    default=None,
+    metavar="DATE",
+    help="Pull new posts since DATE (ISO 8601 or natural language: yesterday, last month, Monday)",
 )
 @click.option(
-    "--until-date", default=None, metavar="DATE", help="Pull new posts until DATE"
+    "--until-date",
+    default=None,
+    metavar="DATE",
+    help="Pull new posts until DATE (ISO 8601 or natural language: yesterday, last month, Monday)",
 )
 @click.option(
     "--limit",

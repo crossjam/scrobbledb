@@ -70,14 +70,14 @@ def time_range_options(f):
         "--since",
         type=str,
         default=None,
-        help="Start date/time for analysis period",
+        help="Start date/time for analysis period (ISO 8601 or natural language: yesterday, last month, Monday)",
     )(f)
     f = click.option(
         "-u",
         "--until",
         type=str,
         default=None,
-        help="End date/time for analysis period",
+        help="End date/time for analysis period (ISO 8601 or natural language: yesterday, last month, Monday)",
     )(f)
     f = click.option(
         "--period",

@@ -103,8 +103,12 @@ Options:
   -d, --database FILE             Database path (default: XDG data directory)
   --period [week|month|quarter|year|all-time]
                                   Predefined period
-  -u, --until TEXT                End date/time for analysis period
-  -s, --since TEXT                Start date/time for analysis period
+  -u, --until TEXT                End date/time for analysis period (ISO 8601 or
+                                  natural language: yesterday, last month,
+                                  Monday)
+  -s, --since TEXT                Start date/time for analysis period (ISO 8601
+                                  or natural language: yesterday, last month,
+                                  Monday)
   -l, --limit INTEGER             Maximum results
   -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
@@ -142,8 +146,12 @@ Options:
   -d, --database FILE             Database path (default: XDG data directory)
   --period [week|month|quarter|year|all-time]
                                   Predefined period
-  -u, --until TEXT                End date/time for analysis period
-  -s, --since TEXT                Start date/time for analysis period
+  -u, --until TEXT                End date/time for analysis period (ISO 8601 or
+                                  natural language: yesterday, last month,
+                                  Monday)
+  -s, --since TEXT                Start date/time for analysis period (ISO 8601
+                                  or natural language: yesterday, last month,
+                                  Monday)
   -l, --limit INTEGER             Maximum results
   -f, --format [table|csv|json|jsonl]
                                   Output format  [default: table]
