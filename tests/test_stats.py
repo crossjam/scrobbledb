@@ -211,6 +211,54 @@ class TestDomainQueries:
         for row in rows:
             assert row["year"] == 2024
 
+    def test_get_monthly_rollup_since_filters_correctly_on_non_utc_host(
+        self, temp_db
+    ):
+        """since/until bounds must be normalized to UTC before comparison,
+        so filtering plays.timestamp (stored UTC-aware, e.g. "...+00:00",
+        see lastfm._extract_track_data) is correct even when the host's
+        local timezone isn't UTC.
+        """
+        import os
+        import time
+
+        path, db = temp_db
+        db.execute("CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+        db.execute(
+            "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT NOT NULL, artist_id TEXT NOT NULL)"
+        )
+        db.execute(
+            "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT NOT NULL, album_id TEXT NOT NULL)"
+        )
+        db.execute(
+            "CREATE TABLE plays (timestamp TEXT NOT NULL, track_id TEXT NOT NULL, PRIMARY KEY (timestamp, track_id))"
+        )
+        db.execute("INSERT INTO artists VALUES ('a1', 'Artist One')")
+        db.execute("INSERT INTO albums VALUES ('alb1', 'Album One', 'a1')")
+        db.execute("INSERT INTO tracks VALUES ('t1', 'Track One', 'alb1')")
+
+        # "2024-01-01T05:00:00+00:00" is the same instant as
+        # "2024-01-01T00:00:00-05:00" (EST midnight).
+        db.execute("INSERT INTO plays VALUES ('2024-01-01T04:59:59+00:00', 't1')")
+        db.execute("INSERT INTO plays VALUES ('2024-01-01T05:00:00+00:00', 't1')")
+        db.conn.commit()
+
+        original_tz = os.environ.get("TZ")
+        os.environ["TZ"] = "America/New_York"
+        time.tzset()
+        try:
+            since = parse_relative_time("2024-01-01T00:00:00-05:00")
+            rows = get_monthly_rollup(db, since=since)
+        finally:
+            if original_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = original_tz
+            time.tzset()
+
+        assert len(rows) == 1
+        assert rows[0]["scrobbles"] == 1
+
     def test_get_yearly_rollup(self, populated_db):
         """Test yearly rollup query."""
         path, db = populated_db

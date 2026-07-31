@@ -60,10 +60,70 @@ class TestNaturalLanguageCases:
         assert result <= datetime.now()
 
     def test_last_weekday_name(self):
+        now = datetime.now()
         result = parse_relative_time("last Tuesday")
         assert result is not None
         assert result.strftime("%A") == "Tuesday"
-        assert result < datetime.now()
+        assert result.date() < now.date()
+
+        # "last Tuesday" must resolve to the immediately preceding Tuesday,
+        # even when today itself is Tuesday (in which case the naive
+        # "most recent Tuesday" resolution would otherwise land on today).
+        days_since_tuesday = (now.weekday() - 1) % 7 or 7
+        expected_date = (now - timedelta(days=days_since_tuesday)).date()
+        assert result.date() == expected_date
+
+    def test_last_weekday_name_when_today_matches(self, monkeypatch):
+        """"last <weekday>" must not resolve to today.
+
+        dateparser resolves a bare weekday name that matches today to
+        today itself (at midnight); simulate that response regardless of
+        the actual day the test happens to run on, and confirm
+        parse_relative_time() steps back an extra week.
+        """
+        import scrobbledb.domain_queries as domain_queries
+
+        today_midnight = datetime.now().replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        monkeypatch.setattr(
+            domain_queries.dateparser, "parse", lambda *args, **kwargs: today_midnight
+        )
+
+        result = parse_relative_time("last Tuesday")
+        assert result is not None
+        assert result.date() == (today_midnight - timedelta(weeks=1)).date()
+
+    def test_explicit_utc_offset_is_not_discarded(self):
+        """An explicit offset must shift the instant, not just get dropped.
+
+        "-05:00" and "+00:00" five hours apart must resolve to the same
+        instant, not to the same literal wall-clock digits. The result is
+        returned timezone-aware (normalized to UTC) so the instant stays
+        unambiguous.
+        """
+        offset_minus_five = parse_relative_time("2024-01-01T00:00:00-05:00")
+        equivalent_utc = parse_relative_time("2024-01-01T05:00:00+00:00")
+        utc_midnight = parse_relative_time("2024-01-01T00:00:00+00:00")
+
+        assert offset_minus_five is not None
+        assert offset_minus_five.tzinfo is not None
+        assert offset_minus_five == equivalent_utc
+        assert offset_minus_five != utc_midnight
+
+    def test_explicit_offset_disambiguates_dst_fallback_overlap(self):
+        """During the US DST fall-back on 2024-11-03, local clocks show
+        01:30 twice (first EDT, then EST an hour later). An explicit
+        offset must resolve each to its own distinct instant rather than
+        collapsing both onto the same ambiguous local wall-clock value.
+        """
+        first_occurrence = parse_relative_time("2024-11-03T01:30:00-04:00")
+        second_occurrence = parse_relative_time("2024-11-03T01:30:00-05:00")
+
+        assert first_occurrence is not None
+        assert second_occurrence is not None
+        assert first_occurrence != second_occurrence
+        assert (second_occurrence - first_occurrence) == timedelta(hours=1)
 
     def test_n_weeks_ago(self):
         result = parse_relative_time("3 weeks ago")

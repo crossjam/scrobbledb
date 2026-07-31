@@ -6,7 +6,7 @@ including statistics, filtering, and aggregation queries.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 import dateparser
 import dateutil.parser
@@ -21,6 +21,11 @@ _WEEKDAY_NAMES = (
     "saturday",
     "sunday",
 )
+
+# Matches a trailing "Z" or numeric UTC offset (e.g. "-05:00", "+0530"),
+# used to detect when an input explicitly pins an instant in time rather
+# than describing a local wall-clock date/time.
+_TZ_OFFSET_RE = re.compile(r"(?i)(Z|[+-]\d{2}:?\d{2})$")
 
 
 def get_overview_stats(db: sqlite_utils.Database) -> dict:
@@ -85,11 +90,11 @@ def get_monthly_rollup(
 
     if since:
         conditions.append("plays.timestamp >= ?")
-        params.append(since.isoformat() if isinstance(since, datetime) else since)
+        params.append(_to_utc_iso(since))
 
     if until:
         conditions.append("plays.timestamp <= ?")
-        params.append(until.isoformat() if isinstance(until, datetime) else until)
+        params.append(_to_utc_iso(until))
 
     where_clause = ""
     if conditions:
@@ -160,11 +165,11 @@ def get_yearly_rollup(
 
     if since:
         conditions.append("plays.timestamp >= ?")
-        params.append(since.isoformat() if isinstance(since, datetime) else since)
+        params.append(_to_utc_iso(since))
 
     if until:
         conditions.append("plays.timestamp <= ?")
-        params.append(until.isoformat() if isinstance(until, datetime) else until)
+        params.append(_to_utc_iso(until))
 
     where_clause = ""
     if conditions:
@@ -221,22 +226,63 @@ def parse_relative_time(time_str: str) -> Optional[datetime]:
 
     # dateparser resolves a bare weekday name to its most recent past
     # occurrence, but doesn't understand the "last <weekday>" phrasing --
-    # strip the "last" so it falls back to that same resolution.
+    # strip the "last" so it falls back to that same resolution. That
+    # resolution lands on *today* when today is that weekday, so
+    # "last <weekday>" needs an extra week subtracted in that case (see
+    # below) to actually mean the previous occurrence.
     last_weekday = re.match(r"(?i)^last\s+(\w+)$", normalized)
-    if last_weekday and last_weekday.group(1).lower() in _WEEKDAY_NAMES:
+    is_last_weekday_phrase = bool(
+        last_weekday and last_weekday.group(1).lower() in _WEEKDAY_NAMES
+    )
+    if is_last_weekday_phrase:
         normalized = last_weekday.group(1)
+
+    # An explicit offset (e.g. "-05:00" or "Z") pins a specific instant;
+    # parse it timezone-aware so the offset isn't silently discarded, then
+    # normalize below to UTC. This is returned aware (unlike the naive
+    # local wall-clock values this function returns for relative/local
+    # expressions) so the instant stays unambiguous -- converting it to a
+    # naive local value instead would be lossy across a DST fall-back,
+    # where a given local wall-clock time occurs twice.
+    has_explicit_offset = bool(_TZ_OFFSET_RE.search(normalized))
 
     result = dateparser.parse(
         normalized,
-        settings={"RETURN_AS_TIMEZONE_AWARE": False, "PREFER_DAY_OF_MONTH": "first"},
+        settings={
+            "RETURN_AS_TIMEZONE_AWARE": has_explicit_offset,
+            "PREFER_DAY_OF_MONTH": "first",
+        },
     )
-    if result:
-        return result
 
-    try:
-        return dateutil.parser.parse(time_str)
-    except (ValueError, TypeError):
-        return None
+    if result is None:
+        try:
+            result = dateutil.parser.parse(time_str)
+        except (ValueError, TypeError):
+            return None
+
+    if result.tzinfo is not None:
+        result = result.astimezone(timezone.utc)
+
+    if is_last_weekday_phrase and result.date() >= datetime.now().date():
+        result -= timedelta(weeks=1)
+
+    return result
+
+
+def _to_utc_iso(value):
+    """
+    Convert a since/until filter bound to a UTC ISO 8601 string for SQL
+    comparison against plays.timestamp, which is stored as UTC-aware ISO
+    8601 (see lastfm._extract_track_data). Naive datetimes -- the
+    convention returned by parse_relative_time() and parse_period_to_dates()
+    -- are assumed to represent local wall-clock time and are converted
+    accordingly, so filtering is correct on non-UTC hosts.
+    """
+    if not isinstance(value, datetime):
+        return value
+    if value.tzinfo is None:
+        value = value.astimezone()
+    return value.astimezone(timezone.utc).isoformat()
 
 
 def parse_period_to_dates(period: str) -> tuple[Optional[datetime], Optional[datetime]]:
@@ -301,11 +347,11 @@ def get_plays_with_filters(
 
     if since:
         conditions.append("plays.timestamp >= ?")
-        params.append(since.isoformat() if isinstance(since, datetime) else since)
+        params.append(_to_utc_iso(since))
 
     if until:
         conditions.append("plays.timestamp <= ?")
-        params.append(until.isoformat() if isinstance(until, datetime) else until)
+        params.append(_to_utc_iso(until))
 
     if artist:
         conditions.append("artists.name LIKE ?")
@@ -381,11 +427,11 @@ def get_artists_with_stats(
     # Date filters apply to plays
     if since:
         conditions.append("plays.timestamp >= ?")
-        params.append(since.isoformat() if isinstance(since, datetime) else since)
+        params.append(_to_utc_iso(since))
 
     if until:
         conditions.append("plays.timestamp <= ?")
-        params.append(until.isoformat() if isinstance(until, datetime) else until)
+        params.append(_to_utc_iso(until))
 
     where_clause = ""
     if conditions:
@@ -766,11 +812,11 @@ def get_top_artists(
 
     if since:
         conditions.append("plays.timestamp >= ?")
-        params.append(since.isoformat() if isinstance(since, datetime) else since)
+        params.append(_to_utc_iso(since))
 
     if until:
         conditions.append("plays.timestamp <= ?")
-        params.append(until.isoformat() if isinstance(until, datetime) else until)
+        params.append(_to_utc_iso(until))
 
     where_clause = ""
     if conditions:
@@ -860,11 +906,11 @@ def get_top_tracks(
 
     if since:
         conditions.append("plays.timestamp >= ?")
-        params.append(since.isoformat() if isinstance(since, datetime) else since)
+        params.append(_to_utc_iso(since))
 
     if until:
         conditions.append("plays.timestamp <= ?")
-        params.append(until.isoformat() if isinstance(until, datetime) else until)
+        params.append(_to_utc_iso(until))
 
     if artist:
         conditions.append("artists.name LIKE ?")
@@ -1464,11 +1510,11 @@ def get_top_albums(
 
     if since:
         conditions.append("plays.timestamp >= ?")
-        params.append(since.isoformat() if isinstance(since, datetime) else since)
+        params.append(_to_utc_iso(since))
 
     if until:
         conditions.append("plays.timestamp <= ?")
-        params.append(until.isoformat() if isinstance(until, datetime) else until)
+        params.append(_to_utc_iso(until))
 
     if artist:
         conditions.append("artists.name LIKE ?")

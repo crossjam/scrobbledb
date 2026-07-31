@@ -902,10 +902,22 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
     if not since_date and db["plays"].exists():
         since_date = db.conn.execute("select max(timestamp) from plays").fetchone()[0]
     if since_date:
-        since_date = parse_relative_time(since_date)
+        parsed_since = parse_relative_time(since_date)
+        if parsed_since is None:
+            raise click.ClickException(
+                f"Invalid date format: {since_date}\n"
+                "Use ISO 8601 (YYYY-MM-DD) or relative time (e.g., '7 days ago')"
+            )
+        since_date = parsed_since
 
     if until_date:
-        until_date = parse_relative_time(until_date)
+        parsed_until = parse_relative_time(until_date)
+        if parsed_until is None:
+            raise click.ClickException(
+                f"Invalid date format: {until_date}\n"
+                "Use ISO 8601 (YYYY-MM-DD) or relative time (e.g., '7 days ago')"
+            )
+        until_date = parsed_until
 
     if since_date and until_date:
         console.print(f"[green]Fetching scrobbles from {since_date.isoformat()} to {until_date.isoformat()}[/green]")
