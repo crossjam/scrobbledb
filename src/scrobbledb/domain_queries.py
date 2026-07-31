@@ -5,9 +5,22 @@ This module provides shared query functions for domain-specific CLI commands,
 including statistics, filtering, and aggregation queries.
 """
 
+import re
 from datetime import datetime
 from typing import Optional
+import dateparser
+import dateutil.parser
 import sqlite_utils
+
+_WEEKDAY_NAMES = (
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday",
+)
 
 
 def get_overview_stats(db: sqlite_utils.Database) -> dict:
@@ -195,62 +208,31 @@ def get_yearly_rollup(
 
 def parse_relative_time(time_str: str) -> Optional[datetime]:
     """
-    Parse relative time expressions like '7 days ago' or absolute dates.
+    Parse relative time expressions and absolute dates via dateparser.
 
-    Supports:
-    - "N days/weeks/months/years ago"
-    - "yesterday", "today"
-    - "last week/month/year"
-    - ISO 8601 and other common date formats (via dateutil)
+    Supports natural language ("yesterday", "last month", "Monday",
+    "3 weeks ago", "January 2024") as well as ISO 8601 and other common
+    date formats.
 
     Returns:
         datetime object or None if parsing fails
     """
-    import re
-    from datetime import timedelta
-    from dateutil.relativedelta import relativedelta
-    import dateutil.parser
+    normalized = time_str.strip()
 
-    time_str = time_str.strip().lower()
+    # dateparser resolves a bare weekday name to its most recent past
+    # occurrence, but doesn't understand the "last <weekday>" phrasing --
+    # strip the "last" so it falls back to that same resolution.
+    last_weekday = re.match(r"(?i)^last\s+(\w+)$", normalized)
+    if last_weekday and last_weekday.group(1).lower() in _WEEKDAY_NAMES:
+        normalized = last_weekday.group(1)
 
-    # Handle "today" and "yesterday"
-    if time_str == "today":
-        now = datetime.now()
-        return datetime(now.year, now.month, now.day)
+    result = dateparser.parse(
+        normalized,
+        settings={"RETURN_AS_TIMEZONE_AWARE": False, "PREFER_DAY_OF_MONTH": "first"},
+    )
+    if result:
+        return result
 
-    if time_str == "yesterday":
-        now = datetime.now()
-        yesterday = now - timedelta(days=1)
-        return datetime(yesterday.year, yesterday.month, yesterday.day)
-
-    # Handle "last week/month/year"
-    last_pattern = re.match(r"last\s+(week|month|year)", time_str)
-    if last_pattern:
-        unit = last_pattern.group(1)
-        now = datetime.now()
-        if unit == "week":
-            return now - timedelta(weeks=1)
-        elif unit == "month":
-            return now - relativedelta(months=1)
-        elif unit == "year":
-            return now - relativedelta(years=1)
-
-    # Handle "N days/weeks/months/years ago"
-    ago_pattern = re.match(r"(\d+)\s+(day|week|month|year)s?\s+ago", time_str)
-    if ago_pattern:
-        amount = int(ago_pattern.group(1))
-        unit = ago_pattern.group(2)
-        now = datetime.now()
-        if unit == "day":
-            return now - timedelta(days=amount)
-        elif unit == "week":
-            return now - timedelta(weeks=amount)
-        elif unit == "month":
-            return now - relativedelta(months=amount)
-        elif unit == "year":
-            return now - relativedelta(years=amount)
-
-    # Fall back to dateutil parser for absolute dates
     try:
         return dateutil.parser.parse(time_str)
     except (ValueError, TypeError):
