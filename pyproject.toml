@@ -12,7 +12,7 @@ authors = [
 ]
 license = {text = "Apache-2.0"}
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
     "pylast>=3.1.0",
     "sqlite-utils>=1.12.1",
