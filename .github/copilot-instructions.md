@@ -50,7 +50,7 @@ uv run pytest tests/test_cli.py -v
 **Technology Stack:**
 - **Package Manager**: `uv` - Modern, fast Python package installer and resolver
 - **Task Runner**: `poe` (Poe the Poet) - Defined in pyproject.toml
-- **Language**: Python 3.11+
+- **Language**: Python 3.13+
 - **CLI Framework**: Click
 - **UI/Output**: Rich (for tables, progress bars, styled output) and Textual (for TUI)
 - **Database**: SQLite via sqlite-utils
@@ -222,7 +222,7 @@ scrobbledb
 
 ### Style
 
-- **Python Version**: 3.11+ (use modern syntax where appropriate)
+- **Python Version**: 3.13+ (use modern syntax where appropriate)
 - **Type Hints**: Gradually adding type hints (lenient ty configuration)
 - **Docstrings**: Use for public functions and classes
 - **Line Length**: Follow ruff defaults (~88 characters)

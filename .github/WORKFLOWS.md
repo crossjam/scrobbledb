@@ -6,7 +6,7 @@ This document describes the GitHub Actions workflows configured for this project
 
 The project uses modern GitHub Actions workflows with:
 - **uv** for fast, reliable Python package management
-- **Python 3.11, 3.12, 3.13** (the project requires 3.11+)
+- **Python 3.13, 3.14** (the project requires 3.13+)
 - **poe** (Poe the Poet) task runner for consistent QA checks
 - Latest action versions (checkout@v4, setup-python@v5, etc.)
 
@@ -28,7 +28,7 @@ The project uses modern GitHub Actions workflows with:
    - Set to `continue-on-error: true` to not block builds on audit warnings
 7. **Tests**: Runs `poe test` (pytest with verbose output)
 
-**Python versions tested:** 3.11, 3.12, 3.13
+**Python versions tested:** 3.13, 3.14
 
 **Matrix strategy:** `fail-fast: false` ensures all Python versions are tested even if one fails
 
@@ -67,7 +67,7 @@ This workflow uses PyPI's trusted publishing feature which is more secure than A
 - Manual PyPI token management
 
 **After (current):**
-- Python 3.11, 3.12, 3.13 (current supported versions)
+- Python 3.13, 3.14 (current supported versions)
 - uv (modern, fast package manager)
 - actions/checkout@v4, setup-python@v5, setup-uv@v4
 - Full QA suite: lint, type check, security audit, tests
