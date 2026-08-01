@@ -63,7 +63,7 @@ Original concept and implementation by Jacob Kaplan-Moss. Current development by
 
 ## Installation
 
-scrobbledb requires Python 3.11 or later and uses [uv](https://github.com/astral-sh/uv) for dependency management.
+scrobbledb requires Python 3.13 or later and uses [uv](https://github.com/astral-sh/uv) for dependency management.
 
 ```bash
 # Clone the repository
