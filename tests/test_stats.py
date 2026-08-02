@@ -15,6 +15,8 @@ from scrobbledb.domain_queries import (
     get_monthly_rollup,
     get_yearly_rollup,
     parse_relative_time,
+    get_top_artists,
+    get_top_tracks,
 )
 from scrobbledb.domain_format import (
     format_output,
@@ -579,3 +581,118 @@ class TestStatsCommands:
         assert "overview" in result.output
         assert "monthly" in result.output
         assert "yearly" in result.output
+    def test_get_top_artists_with_timezone_aware_since(self, populated_db):
+        """Test get_top_artists with timezone-aware since date.
+        
+        This verifies the fix for the bug where using --since with an explicit
+        UTC offset (e.g., "2024-01-01T00:00:00-05:00") caused a TypeError
+        when subtracting datetime.now() (naive) from the timezone-aware since.
+        """
+        from datetime import timezone, timedelta
+        
+        path, db = populated_db
+        # Create a timezone-aware since date (EST midnight = UTC 5am)
+        since = parse_relative_time("2024-01-01T00:00:00-05:00")
+        assert since is not None
+        assert since.tzinfo is not None
+        
+        # This should NOT raise TypeError
+        result = get_top_artists(db, since=since, limit=2)
+        
+        assert len(result) == 2
+        for artist in result:
+            assert "rank" in artist
+            assert "artist_name" in artist
+            assert "play_count" in artist
+            assert "avg_plays_per_day" in artist
+
+    def test_get_top_artists_with_timezone_aware_until(self, populated_db):
+        """Test get_top_artists with timezone-aware until date.
+        
+        This verifies the fix for the bug where using --until with an explicit
+        UTC offset caused a TypeError when calculating days.
+        """
+        from datetime import timezone, timedelta
+        
+        path, db = populated_db
+        # Create a timezone-aware until date (EST noon = UTC 17:00)
+        until = parse_relative_time("2024-03-25T12:00:00-05:00")
+        assert until is not None
+        assert until.tzinfo is not None
+        
+        # This should NOT raise TypeError
+        result = get_top_artists(db, until=until, limit=2)
+        
+        assert len(result) == 2
+        for artist in result:
+            assert "rank" in artist
+            assert "artist_name" in artist
+            assert "play_count" in artist
+            assert "avg_plays_per_day" in artist
+
+    def test_get_top_tracks_with_timezone_aware_since(self, populated_db):
+        """Test get_top_tracks with timezone-aware since date.
+        
+        This verifies the function works correctly with timezone-aware dates
+        and doesn't have the same days calculation issue that get_top_artists had.
+        """
+        path, db = populated_db
+        since = parse_relative_time("2024-01-01T00:00:00-05:00")
+        assert since is not None
+        assert since.tzinfo is not None
+        
+        # This should NOT raise TypeError
+        result = get_top_tracks(db, since=since, limit=2)
+        
+        assert len(result) == 2
+        for track in result:
+            assert "rank" in track
+            assert "track_title" in track
+            assert "play_count" in track
+            assert "percentage" in track
+
+    def test_get_top_artists_with_timezone_aware_since_and_until(self, populated_db):
+        """Test get_top_artists with both timezone-aware since and until dates.
+        
+        This verifies the fix handles the case where both since and until
+        are timezone-aware with potential incompatible types.
+        """
+        from datetime import timezone, timedelta
+        
+        path, db = populated_db
+        since = parse_relative_time("2024-01-01T00:00:00-05:00")
+        until = parse_relative_time("2024-03-25T12:00:00-05:00")
+        assert since is not None
+        assert until is not None
+        assert since.tzinfo is not None
+        assert until.tzinfo is not None
+        
+        # This should NOT raise TypeError
+        result = get_top_artists(db, since=since, until=until, limit=2)
+        
+        assert len(result) == 2
+        for artist in result:
+            assert "rank" in artist
+            assert "artist_name" in artist
+            assert "play_count" in artist
+            assert "avg_plays_per_day" in artist
+
+    def test_get_top_artists_with_naive_since_and_timezone_aware_until(self, populated_db):
+        """Test get_top_artists with naive since and timezone-aware until.
+        
+        This verifies the fix handles mixed timezone types correctly.
+        """
+        from datetime import timezone, timedelta
+        
+        path, db = populated_db
+        # Naive since (treated as local time)
+        since = datetime(2024, 1, 1, 0, 0, 0)
+        # Timezone-aware until (EST)
+        until = parse_relative_time("2024-03-25T12:00:00-05:00")
+        assert until is not None
+        assert until.tzinfo is not None
+        
+        # This should NOT raise TypeError
+        result = get_top_artists(db, since=since, until=until, limit=2)
+        
+        assert len(result) == 2
