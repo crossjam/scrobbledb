@@ -588,7 +588,6 @@ class TestStatsCommands:
         UTC offset (e.g., "2024-01-01T00:00:00-05:00") caused a TypeError
         when subtracting datetime.now() (naive) from the timezone-aware since.
         """
-        from datetime import timezone, timedelta
         
         path, db = populated_db
         # Create a timezone-aware since date (EST midnight = UTC 5am)
@@ -612,7 +611,6 @@ class TestStatsCommands:
         This verifies the fix for the bug where using --until with an explicit
         UTC offset caused a TypeError when calculating days.
         """
-        from datetime import timezone, timedelta
         
         path, db = populated_db
         # Create a timezone-aware until date (EST noon = UTC 17:00)
@@ -657,7 +655,6 @@ class TestStatsCommands:
         This verifies the fix handles the case where both since and until
         are timezone-aware with potential incompatible types.
         """
-        from datetime import timezone, timedelta
         
         path, db = populated_db
         since = parse_relative_time("2024-01-01T00:00:00-05:00")
@@ -682,7 +679,6 @@ class TestStatsCommands:
         
         This verifies the fix handles mixed timezone types correctly.
         """
-        from datetime import timezone, timedelta
         
         path, db = populated_db
         # Naive since (treated as local time)
