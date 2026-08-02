@@ -848,12 +848,23 @@ def get_top_artists(
     rows = db.execute(query, params).fetchall()
 
     # Calculate days in period for avg plays/day
+    # Use UTC-aware datetimes to handle timezone-aware since/until values
+    now = datetime.now(timezone.utc)
     if since and until:
-        days = (until - since).days or 1
+        # Convert both to UTC-aware datetimes for consistent subtraction
+        if since.tzinfo is None:
+            since = since.astimezone()
+        if until.tzinfo is None:
+            until = until.astimezone()
+        days = (until.astimezone(timezone.utc) - since.astimezone(timezone.utc)).days or 1
     elif since:
-        days = (datetime.now() - since).days or 1
+        if since.tzinfo is None:
+            since = since.astimezone()
+        days = (now - since.astimezone(timezone.utc)).days or 1
     elif until:
-        days = (until - datetime.now()).days or 1
+        if until.tzinfo is None:
+            until = until.astimezone()
+        days = (until.astimezone(timezone.utc) - now).days or 1
     else:
         # All time - calculate from first to last play
         import dateutil.parser
