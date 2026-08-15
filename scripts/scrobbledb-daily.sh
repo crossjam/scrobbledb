@@ -13,7 +13,7 @@ mkdir -p "$DATA_DIR"
     exec "$PROJECT_DIR/.venv/bin/scrobbledb" \
         --log-config "$DATA_DIR/loguru_config.toml" \
         ingest \
-        --database "$DATA_DIR/scrobbledb.db" \
+        "$DATA_DIR/scrobbledb.db" \
         --auth "$DATA_DIR/auth.json" \
         --verbose
 } >>"$LOG_FILE" 2>&1
