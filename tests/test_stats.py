@@ -473,7 +473,21 @@ class TestStatsCommands:
         assert "Scrobble Overview" in result.output
         assert "10" in result.output  # Total scrobbles
 
-    def test_stats_overview_json(self, runner, populated_db):
+    def test_stats_overview_without_subcommand(self, runner, populated_db):
+        """Invoking stats without a subcommand matches explicit overview."""
+        path, db = populated_db
+
+        default_result = runner.invoke(
+            cli.cli, ["stats", "--database", path, "--format", "json"]
+        )
+        explicit_result = runner.invoke(
+            cli.cli, ["stats", "overview", "--database", path, "--format", "json"]
+        )
+
+        assert default_result.exit_code == 0, default_result.output
+        assert explicit_result.exit_code == 0, explicit_result.output
+        assert json.loads(default_result.output) == json.loads(explicit_result.output)
+
         """Test stats overview with JSON output."""
         path, db = populated_db
         result = runner.invoke(cli.cli, ["stats", "overview", "-d", path, "-f", "json"])

@@ -5,6 +5,7 @@ Commands for viewing play history with filtering and pagination.
 """
 
 import click
+from click_default_group import DefaultGroup
 from rich.console import Console
 
 from ..command_utils import (
@@ -23,7 +24,7 @@ from .. import domain_format
 console = Console()
 
 
-@click.group()
+@click.group(cls=DefaultGroup, default="list", default_if_no_args=True)
 def plays():
     """
     Play history commands.

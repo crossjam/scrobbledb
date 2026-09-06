@@ -958,6 +958,7 @@ version = "1.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
+    { name = "click-default-group" },
     { name = "dateparser" },
     { name = "loguru" },
     { name = "loguru-config" },
@@ -993,6 +994,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "click", specifier = ">=7.0" },
+    { name = "click-default-group", specifier = ">=1.2.4" },
     { name = "cogapp", marker = "extra == 'dev'", specifier = ">=3.4.1" },
     { name = "dateparser", specifier = ">=1.1.0" },
     { name = "loguru", specifier = ">=0.7.3" },

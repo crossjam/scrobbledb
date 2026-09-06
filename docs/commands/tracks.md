@@ -22,7 +22,7 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  list    List tracks with optional filters.
+  list*   List tracks with optional filters.
   search  Search for tracks using fuzzy matching.
   show    Display detailed information about a specific track.
   top     Show top tracks with flexible time range support.
