@@ -5,7 +5,7 @@ import json
 import tempfile
 import os
 from click.testing import CliRunner
-from scrobbledb.commands import albums, tracks, artists
+from scrobbledb.commands import albums, tracks, artists, plays
 import sqlite_utils
 
 @pytest.fixture
@@ -123,7 +123,6 @@ def test_tracks_list_default_sort(runner, temp_db):
 
 def test_plays_list_default_sort(runner, temp_db):
     """Test that plays list defaults to sorting by recent (last played)."""
-    from scrobbledb.commands import plays
     result = runner.invoke(plays.plays, ["list", "--database", temp_db, "--format", "json"])
     assert result.exit_code == 0
     data = json.loads(result.output)
@@ -135,3 +134,25 @@ def test_plays_list_default_sort(runner, temp_db):
     assert len(data) == 15
     assert "2024-02-01" in data[0]["timestamp"]
     assert "2024-01-01" in data[-1]["timestamp"]
+
+
+@pytest.mark.parametrize(
+    ("command", "default_args"),
+    [
+        (albums.albums, ["--database", "{db}", "--format", "json"]),
+        (artists.artists, ["--database", "{db}", "--format", "json"]),
+        (plays.plays, ["--database", "{db}", "--format", "json"]),
+        (tracks.tracks, ["--database", "{db}", "--format", "json"]),
+    ],
+    ids=["albums", "artists", "plays", "tracks"],
+)
+def test_list_group_defaults_to_list(runner, temp_db, command, default_args):
+    """Invoking a list group without a subcommand matches explicit list."""
+    args = [arg.format(db=temp_db) for arg in default_args]
+
+    default_result = runner.invoke(command, args)
+    explicit_result = runner.invoke(command, ["list", *args])
+
+    assert default_result.exit_code == 0, default_result.output
+    assert explicit_result.exit_code == 0, explicit_result.output
+    assert json.loads(default_result.output) == json.loads(explicit_result.output)
