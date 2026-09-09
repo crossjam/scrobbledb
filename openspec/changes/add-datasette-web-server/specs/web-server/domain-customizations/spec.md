@@ -207,6 +207,19 @@ album.
 - **WHEN** two different artists each have an album with the same title
 - **THEN** they appear as two rows, each attributed to its own artist
 
+#### Scenario: Every album aggregate obeys this
+
+- **WHEN** any stored query aggregates albums — the album listing, top albums, or any
+  other
+- **THEN** it collapses the same album’s duplicate identifiers and separates albums that
+  merely share a title, rather than one query doing so and another not
+
+#### Scenario: An aggregated album resolves to all of its tracks
+
+- **WHEN** a caller takes an aggregated album row and asks for the tracks behind it
+- **THEN** it receives the tracks of every identifier the row’s counts covered, so the
+  track list never disagrees with the track count reported beside it
+
 #### Scenario: Reported fields describe one album
 
 - **WHEN** a stored query reports an album identifier alongside an artist name, track

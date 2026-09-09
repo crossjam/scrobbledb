@@ -194,6 +194,20 @@ Grouping by `albums.artist_id, albums.title COLLATE
 NOCASE` yields 20,093 rows, so the md5-duplicate deduplication the grouping was meant to
 provide only ever affected 31 albums — the other 17,878 merges were collateral damage.
 
+Two consequences follow that the first pass missed.
+The correction applies to **every** album aggregate, not just the listing —
+`get_top_albums` groups by `albums.id,
+albums.title, artists.name`, so an album under several synthesized ids still yields
+several top-album rows; 12 alias groups in the live database have plays and would show
+this. And once a row’s counts span an alias group, a single `MAX(albums.id)` no longer
+identifies what those counts describe: `albums list --expand` calls
+`get_album_tracks(db, album['album_id'])` on that one id (`commands/albums.py:251-252`)
+and can therefore list fewer tracks than the `track_count` printed beside it, across 31
+alias groups. So the builders also return `album_ids` (`group_concat`) beside the
+representative `album_id`, and expansion paths consume the full set.
+`album_id` stays a stable single value for linking; `album_ids` is what the counts
+actually refer to.
+
 The shared builder therefore emits the corrected grouping, and the CLI adopts it.
 This is the one place in this change where CLI output deliberately changes, so the
 existing album-listing tests must be updated to the corrected expectations rather than

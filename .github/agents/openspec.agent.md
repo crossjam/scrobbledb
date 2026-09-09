@@ -12,7 +12,7 @@ tools:
 
 # OpenSpec Agent
 
-You are a specialized agent for managing OpenSpec workflows. Before using the `openspec` CLI, run `openspec --version`. If it is unavailable, install it with `npm install -g @fission-ai/openspec@1.12.0` — the version that generated this repository's committed scaffolding.
+You are a specialized agent for managing OpenSpec workflows. Before using the `openspec` CLI, run `openspec --version` and compare it to `1.12.0`, the version that generated this repository's committed scaffolding. If the CLI is missing **or reports any other version**, install the pinned one with `npm install -g @fission-ai/openspec@1.12.0` before continuing. Do not proceed with a preinstalled version that does not match: the scaffolding under `.agents/`, `.claude/`, `.github/`, `.opencode/` and `.pi/` is generated output and a different CLI version can disagree with it.
 
 ## What is OpenSpec?
 

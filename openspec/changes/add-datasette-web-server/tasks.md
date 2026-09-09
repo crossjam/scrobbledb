@@ -43,24 +43,41 @@
   reports an artist that does not own its album id.
   Against the live database this moves the result from 2,215 rows to ~20,093 and
   eliminates 909 mismatched rows
-- [ ] 2.6 Update the existing album-listing tests to the corrected expectations — this
+- [ ] 2.6 Apply the same corrected grouping to `get_top_albums`, which currently groups
+  by `albums.id, albums.title, artists.name` and therefore reports an album existing
+  under several synthesized ids as several separate top-album rows; verify the 12 alias
+  groups in the live database that have plays merge into one row each, and that the
+  requirement “album aggregates identify exactly one album” now holds for every album
+  aggregate rather than only the listing
+- [ ] 2.7 Update the existing album-listing tests to the corrected expectations — this
   is the one deliberate CLI output change in this change, so failures here are the
   intended new behavior, not regressions; verify the full suite passes afterward
-- [ ] 2.7 Fold `get_top_artists`, `get_top_tracks` and `get_top_albums` into
+- [ ] 2.8 Return the group’s constituent album ids alongside the representative one —
+  `group_concat(albums.id)` as `album_ids` — so callers that resolve an album back to
+  its tracks can cover the whole alias group instead of one arbitrary `MAX(albums.id)`;
+  verify `album_ids` contains every id in the group and that `album_id` remains a stable
+  representative for linking
+- [ ] 2.9 Fix `scrobbledb albums list --expand`, which calls
+  `get_album_tracks(db, album['album_id'])` on the representative id alone
+  (`commands/albums.py:251-252`) while `track_count` and `play_count` cover the whole
+  group, so an expanded album can list fewer tracks than its own count claims; make it
+  expand across `album_ids`. Verify against the 31 alias groups in the live database
+  that expanded track counts equal the reported `track_count`
+- [ ] 2.10 Fold `get_top_artists`, `get_top_tracks` and `get_top_albums` into
   single-statement builders, moving the `percentage` total into a scalar subquery
   (`COUNT(*) * 100.0 / (SELECT COUNT(*) FROM plays ...)`) per design D4; keep the
   `avg_plays_per_day` date-range probe on the CLI executor path only.
   Verify the existing tests assert identical output before and after
-- [ ] 2.8 Render optional predicates in the guarded named form of design D5 and run
+- [ ] 2.11 Render optional predicates in the guarded named form of design D5 and run
   `EXPLAIN QUERY PLAN` on a time-ranged query to check whether the guard defeats
   `sqlite_autoindex_plays_1` on `plays(timestamp, track_id)`; if it does, have the
   builder render both a guarded named form and a dynamic positional form from one SELECT
   body, and record the finding in `design.md`
-- [ ] 2.9 Verify no builder or shaper imports `sqlite_utils` or touches a connection — a
-  test asserting every `build_*` function is callable with no database argument and
+- [ ] 2.12 Verify no builder or shaper imports `sqlite_utils` or touches a connection —
+  a test asserting every `build_*` function is callable with no database argument and
   returns a `(str, dict)` pair whose dict keys exactly match the named placeholders in
   the SQL
-- [ ] 2.10 Verify the parameter mapping is a `dict` and not a sequence: named
+- [ ] 2.13 Verify the parameter mapping is a `dict` and not a sequence: named
   placeholders with a sequence are a `DeprecationWarning` on Python 3.13 and a
   `sqlite3.ProgrammingError` on 3.14, which the CI matrix covers (design D4). Add a test
   that executes every builder’s output against the `populated_db` fixture with
@@ -79,9 +96,11 @@
   (`tests/test_stats.py:47-144`)
 - [ ] 3.3 Verify optional bounds behave correctly through the hook: omitting both covers
   the full history, supplying both applies an inclusive range on each end
-- [ ] 3.4 Confirm album aggregates group by `albums.title COLLATE NOCASE`
-  (`domain_queries.py:670`) in the shared builders; verify a title duplicated across
-  synthesized `md5:` album ids collapses to one row
+- [ ] 3.4 Confirm every album aggregate in the shared builders groups by
+  `albums.artist_id, albums.title COLLATE NOCASE` per task 2.5 — never by title alone,
+  which merges across artists, and never by `albums.id` alone, which fails to collapse
+  synthesized aliases; verify same-artist duplicate ids collapse to one row and
+  same-title different-artist albums stay separate
 - [ ] 3.5 Add builders for the analytics the CLI lacks — daily rollup, hour-of-day
   distribution, day-of-week distribution, consecutive-day streaks (gap-and-islands over
   `julianday(date(timestamp))`), per-artist first-play discovery dates — in the same
