@@ -128,13 +128,29 @@ SQL, executing it against a `sqlite_utils.Database`, and shaping rows into dicts
 Split the first and third out as pure functions and leave a thin executor behind:
 
 ```python
-def build_top_artists_sql(limit=10, since=None, until=None) -> tuple[str, list]: ...   # pure
+def build_top_artists_sql(limit=10, since=None, until=None) -> tuple[str, dict]: ...   # pure
 def shape_top_artists(rows, total_plays, days) -> list[dict]: ...                      # pure
 
 def get_top_artists(db, **kw):          # signature and behavior unchanged
     sql, params = build_top_artists_sql(**kw)
     return shape_top_artists(db.execute(sql, params).fetchall(), ...)
 ```
+
+**Builders return a parameter `dict`, not a list.** D5’s canned-query form uses named
+placeholders (`:since`), and Python’s `sqlite3` requires a mapping for those.
+Supplying a sequence alongside named placeholders is a `DeprecationWarning` on 3.13 and
+becomes a `sqlite3.ProgrammingError` on 3.14 — verified locally:
+
+> `DeprecationWarning: Binding 1 (':a') is a named parameter, but you supplied a sequence
+> which requires nameless (qmark) placeholders. Starting with Python 3.14 an
+> sqlite3.ProgrammingError will be raised.`
+
+This project’s CI matrix covers 3.14, so a `(str, list)` contract would be a guaranteed
+runtime failure there, not a style preference.
+If task 2.6 concludes the guarded form costs an index and the builders must also emit a
+positional variant, that variant returns `(str, list)` with `?` placeholders and is used
+only on the CLI and MCP paths — the named form and its dict stay the canned-query
+contract.
 
 The plugin imports the same builder and shaper and executes through Datasette:
 
@@ -214,13 +230,23 @@ as **local** wall clock, while the import path’s `parse_timestamp` (`lastfm.py
 treats naive input as **UTC**. `parse_when` deliberately follows `_to_utc_iso`, because
 it is reproducing `--since`/`--until`, not the importer.
 
-### D7: Enforce read-only with `PRAGMA query_only=ON`, not by trusting the open mode
+### D7: Enforce read-only with `PRAGMA query_only=ON` **and** a SQLite authorizer
 
-`prepare_connection` issues `PRAGMA query_only=ON` on every connection, in addition to
-whatever mode Datasette opens the file in.
+`prepare_connection` issues `PRAGMA query_only=ON` on every connection **and** installs
+a `sqlite3` authorizer (`conn.set_authorizer`) that rejects `SQLITE_ATTACH`,
+`SQLITE_DETACH`, extension loading, and every mutating action, in addition to whatever
+mode Datasette opens the file in.
 
-*Why:* it is a positive, testable guarantee that does not depend on getting a
-Datasette-alpha constructor argument right.
+`query_only` alone is not sufficient and must not be described as if it were: it does
+not block `ATTACH`, which can expose any other SQLite file the server process can read,
+and it is itself resettable via `PRAGMA query_only=OFF`. Datasette’s
+`validate_sql_select()` happens to reject both at the view layer, but the whole point of
+this decision is a guarantee that does not depend on a layer above it.
+The spec requires `ATTACH` to be rejected (`web-server/serve-command`, “Write statement
+is rejected”), so the authorizer is what actually satisfies it.
+
+*Why:* together they are a positive, testable guarantee that does not depend on getting
+a Datasette-alpha constructor argument right, nor on Datasette’s SQL validation.
 It also matches the read-only policy already written down in
 `plans/PLAN_AI_CHAT_APPLICATION.md` (single-statement `SELECT`/`WITH`/`EXPLAIN`,
 `PRAGMA query_only=ON`, authorizer rejecting `ATTACH` and extension loading), so the two

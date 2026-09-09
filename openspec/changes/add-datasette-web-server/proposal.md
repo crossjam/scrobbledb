@@ -23,9 +23,9 @@ plugin, so the generic tools become scrobbledb-aware.
 - **New `scrobbledb serve` command** that boots Datasette **in-process** (not by
   shelling out to the `datasette` CLI) against the resolved scrobbledb database —
   `--database` if given, otherwise the XDG default from `get_default_db_path()`. Binds
-  `127.0.0.1` by default, opens the database **immutable/read-only**, and imports
-  `datasette` lazily inside the command body so `scrobbledb --help` and the cog docs
-  build keep working without the extra installed.
+  `127.0.0.1` by default, opens the database **read-only** (deliberately not immutable —
+  see design D7), and imports `datasette` lazily inside the command body so
+  `scrobbledb --help` and the cog docs build keep working without the extra installed.
 - **New optional `serve` extra** (`datasette>=1.0a38`, `datasette-mcp>=0.2`) under
   `[project.optional-dependencies]`, plus the same packages in the `dev` dependency
   group so `uv sync` and CI can exercise them.
@@ -137,8 +137,9 @@ with an actionable install hint rather than an ImportError traceback.
 - The repo already has an explicit SQL-injection stance (`sql.py:_is_safe_order_clause`,
   `plans/SECURITY_REMEDIATION.md`) and `plans/PLAN_AI_CHAT_APPLICATION.md` specifies a
   read-only SQL policy.
-  `serve` extends that to a network listener: localhost-only default bind, immutable
-  database connections, and no write endpoints.
+  `serve` extends that to a network listener: localhost-only default bind, read-only
+  connections enforced by both `PRAGMA query_only=ON` and a SQLite authorizer, and no
+  write endpoints.
 
 **Testing**
 - No `conftest.py` exists today and fixtures are copy-pasted per module; the

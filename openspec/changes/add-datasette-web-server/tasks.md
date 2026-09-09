@@ -48,7 +48,14 @@
   body, and record the finding in `design.md`
 - [ ] 2.7 Verify no builder or shaper imports `sqlite_utils` or touches a connection — a
   test asserting every `build_*` function is callable with no database argument and
-  returns a `(str, list)` pair
+  returns a `(str, dict)` pair whose dict keys exactly match the named placeholders in
+  the SQL
+- [ ] 2.8 Verify the parameter mapping is a `dict` and not a sequence: named
+  placeholders with a sequence are a `DeprecationWarning` on Python 3.13 and a
+  `sqlite3.ProgrammingError` on 3.14, which the CI matrix covers (design D4). Add a test
+  that executes every builder’s output against the `populated_db` fixture with
+  `-W error::DeprecationWarning` so a regression fails on 3.13 rather than waiting for
+  3.14
 
 ## 3. Plugin query catalog
 
@@ -97,12 +104,17 @@
 ## 5. Read-only enforcement
 
 - [ ] 5.1 Issue `PRAGMA query_only=ON` in `prepare_connection` per design D7; verify
-  `INSERT`, `UPDATE`, `DELETE`, `DROP` and `ATTACH` submitted through the query
-  interface are each rejected
-- [ ] 5.2 Open the database as a regular file rather than via
+  `INSERT`, `UPDATE`, `DELETE` and `DROP` submitted through the query interface are each
+  rejected
+- [ ] 5.2 Install a `sqlite3` authorizer via `conn.set_authorizer` in
+  `prepare_connection` rejecting `SQLITE_ATTACH`, `SQLITE_DETACH`, extension loading and
+  every mutating action (design D7); verify `ATTACH` is rejected — `query_only` alone
+  does not block it — and that `PRAGMA query_only=OFF` followed by a write is still
+  refused
+- [ ] 5.3 Open the database as a regular file rather than via
   `Datasette(immutables=...)`, per the alternative rejected in D7; verify the server
   still starts and serves after the database file is modified by an out-of-band `ingest`
-- [ ] 5.3 Verify a full session — start, browse tables, run every canned query, shut
+- [ ] 5.4 Verify a full session — start, browse tables, run every canned query, shut
   down — leaves the database file byte-identical (hash before and after), including when
   the analytics indexes are absent
 

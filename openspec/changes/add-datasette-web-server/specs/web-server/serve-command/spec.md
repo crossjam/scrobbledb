@@ -74,9 +74,16 @@ any endpoint that writes to it.
 
 #### Scenario: Write statement is rejected
 
-- **WHEN** a client submits an `INSERT`, `UPDATE`, `DELETE`, `DROP` or `ATTACH`
-  statement through any query interface the server exposes
+- **WHEN** a client submits an `INSERT`, `UPDATE`, `DELETE`, `DROP`, `ATTACH` or
+  `DETACH` statement through any query interface the server exposes
 - **THEN** the statement is rejected with an error and the database file is unchanged
+
+#### Scenario: Read-only cannot be switched off
+
+- **WHEN** a client attempts to disable the connection’s read-only enforcement and then
+  submits a write
+- **THEN** the write is still rejected, and no other database file becomes reachable
+  through the connection
 
 #### Scenario: Serving never mutates the database
 
