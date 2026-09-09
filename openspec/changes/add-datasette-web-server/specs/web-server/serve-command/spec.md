@@ -81,9 +81,10 @@ any endpoint that writes to it.
 #### Scenario: Read-only cannot be switched off
 
 - **WHEN** a client attempts to disable the connection’s read-only enforcement and then
-  submits a write
-- **THEN** the write is still rejected, and no other database file becomes reachable
-  through the connection
+  submits any statement that would create, alter, drop, or write to a table, attach or
+  detach a database, load an extension, or produce a file on disk
+- **THEN** every such statement is still rejected, and no other database file becomes
+  reachable through the connection
 
 #### Scenario: Serving never mutates the database
 

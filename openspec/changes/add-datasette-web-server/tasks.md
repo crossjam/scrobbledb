@@ -113,18 +113,30 @@
 
 ## 5. Read-only enforcement
 
-- [ ] 5.1 Issue `PRAGMA query_only=ON` in `prepare_connection` per design D7; verify
+- [ ] 5.1 Register the database with an explicit SQLite open mode of `ro` —
+  `Database(ds, path=..., mode="ro")` — so the read-only property is stated rather than
+  inherited from Datasette’s default, and so the `write=True` branch that clears the URI
+  query string cannot produce a read-write handle (design D7); verify the connection URI
+  carries `mode=ro` and that `db.execute_write()` fails rather than succeeding
+- [ ] 5.2 Issue `PRAGMA query_only=ON` in `prepare_connection` per design D7; verify
   `INSERT`, `UPDATE`, `DELETE` and `DROP` submitted through the query interface are each
   rejected
-- [ ] 5.2 Install a `sqlite3` authorizer via `conn.set_authorizer` in
+- [ ] 5.3 Install a `sqlite3` authorizer via `conn.set_authorizer` in
   `prepare_connection` rejecting `SQLITE_ATTACH`, `SQLITE_DETACH`, extension loading and
-  every mutating action (design D7); verify `ATTACH` is rejected — `query_only` alone
-  does not block it — and that `PRAGMA query_only=OFF` followed by a write is still
-  refused
-- [ ] 5.3 Open the database as a regular file rather than via
-  `Datasette(immutables=...)`, per the alternative rejected in D7; verify the server
-  still starts and serves after the database file is modified by an out-of-band `ingest`
-- [ ] 5.4 Verify a full session — start, browse tables, run every canned query, shut
+  every mutating action (design D7)
+- [ ] 5.4 Prove the authorizer policy is complete with a table-driven test that runs
+  with `query_only` deliberately disabled, so each case exercises the authorizer rather
+  than being masked by `query_only`. Cover at minimum: `INSERT`, `UPDATE`, `DELETE`,
+  `REPLACE`; DDL — `CREATE TABLE`, `CREATE INDEX`, `CREATE VIEW`, `CREATE TRIGGER`,
+  `ALTER TABLE`, `DROP` of each; `ATTACH` and `DETACH`; filesystem-producing statements
+  — `VACUUM INTO`, and `PRAGMA journal_mode=WAL`; `load_extension()` and
+  `PRAGMA load_extension`; and a `SELECT` control case that must still succeed.
+  Verify every denied case raises and the control case passes, so an authorizer omitting
+  a class fails the suite
+- [ ] 5.5 Open the database non-immutably despite the `ro` mode, per the alternative
+  rejected in D7; verify the server still starts and serves after the database file is
+  modified by an out-of-band `ingest`
+- [ ] 5.6 Verify a full session — start, browse tables, run every canned query, shut
   down — leaves the database file byte-identical (hash before and after), including when
   the analytics indexes are absent
 

@@ -246,12 +246,36 @@ as **local** wall clock, while the import path’s `parse_timestamp` (`lastfm.py
 treats naive input as **UTC**. `parse_when` deliberately follows `_to_utc_iso`, because
 it is reproducing `--since`/`--until`, not the importer.
 
-### D7: Enforce read-only with `PRAGMA query_only=ON` **and** a SQLite authorizer
+### D7: Enforce read-only at three layers — `mode=ro`, `query_only`, and an authorizer
 
-`prepare_connection` issues `PRAGMA query_only=ON` on every connection **and** installs
-a `sqlite3` authorizer (`conn.set_authorizer`) that rejects `SQLITE_ATTACH`,
-`SQLITE_DETACH`, extension loading, and every mutating action, in addition to whatever
-mode Datasette opens the file in.
+The database is registered with an explicit SQLite open mode of `ro`, and
+`prepare_connection` additionally issues `PRAGMA query_only=ON` on every connection and
+installs a `sqlite3` authorizer (`conn.set_authorizer`) rejecting `SQLITE_ATTACH`,
+`SQLITE_DETACH`, extension loading, and every mutating action.
+
+**On the open mode specifically.** Datasette’s `Database.connect()` builds its URI like
+this (`datasette/database.py`):
+
+```python
+if self.is_mutable:
+    qs = "?mode=ro"
+else:
+    qs = "?immutable=1"
+assert not (write and not self.is_mutable)
+if write:
+    qs = ""                       # write connections drop mode=ro entirely
+if self.mode is not None:
+    qs = f"?mode={self.mode}"     # explicit mode wins over everything above
+```
+
+So a mutable database’s *read* connections are already opened `mode=ro` — it is not true
+that they are read-write at the open-mode level.
+The real gap is narrower and worth closing anyway: the `write=True` branch clears the
+query string entirely, so any caller of `db.execute_write()` gets a read-write handle,
+and the read-only property otherwise rests on an implicit default rather than something
+this design states. Passing `mode="ro"` to `Database(...)` takes final precedence over
+both branches, which makes the guarantee explicit and closes the write path without
+reaching for `immutable=1`.
 
 `query_only` alone is not sufficient and must not be described as if it were: it does
 not block `ATTACH`, which can expose any other SQLite file the server process can read,
@@ -272,7 +296,8 @@ non-CLI surfaces converge on one posture.
 `immutable=1` is stronger and lets Datasette cache row counts, but it is a promise that
 the file will not change while open — and a user running `scrobbledb ingest` in another
 terminal during a serve session would break that promise with undefined results.
-Regular open plus `query_only` degrades gracefully instead.
+Explicit `mode="ro"` plus `query_only` plus the authorizer degrades gracefully instead:
+read-only at the open-mode level, without promising the file will not change.
 
 **Concurrency, measured.** Serving while an ingest is in flight is normal usage here,
 not an edge case — a typical run is
