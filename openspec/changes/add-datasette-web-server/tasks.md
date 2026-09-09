@@ -143,19 +143,33 @@
 - [ ] 5.3 Install a `sqlite3` authorizer via `conn.set_authorizer` in
   `prepare_connection` rejecting `SQLITE_ATTACH`, `SQLITE_DETACH`, extension loading and
   every mutating action (design D7)
-- [ ] 5.4 Prove the authorizer policy is complete with a table-driven test that runs
-  with `query_only` deliberately disabled, so each case exercises the authorizer rather
-  than being masked by `query_only`. Cover at minimum: `INSERT`, `UPDATE`, `DELETE`,
-  `REPLACE`; DDL — `CREATE TABLE`, `CREATE INDEX`, `CREATE VIEW`, `CREATE TRIGGER`,
-  `ALTER TABLE`, `DROP` of each; `ATTACH` and `DETACH`; filesystem-producing statements
-  — `VACUUM INTO`, and `PRAGMA journal_mode=WAL`; `load_extension()` and
-  `PRAGMA load_extension`; and a `SELECT` control case that must still succeed.
-  Verify every denied case raises and the control case passes, so an authorizer omitting
-  a class fails the suite
-- [ ] 5.5 Open the database non-immutably despite the `ro` mode, per the alternative
+- [ ] 5.4 Prove the authorizer policy in isolation, on a **writable temporary database**
+  with `query_only` off, so neither `mode=ro` nor `query_only` can mask a missing rule —
+  verified necessary: on a `mode=ro` connection with `query_only=OFF`, SQLite still
+  rejects `INSERT` itself with “attempt to write a readonly database”, so a test run
+  against the served connection would pass even with no authorizer installed at all.
+  Table-driven over the denied action set: `SQLITE_INSERT`, `SQLITE_UPDATE`,
+  `SQLITE_DELETE`, `SQLITE_ALTER_TABLE`, every `SQLITE_CREATE_*` and `SQLITE_DROP_*`
+  including the `_TEMP_TABLE`/`_TEMP_INDEX`/`_TEMP_TRIGGER`/`_TEMP_VIEW` and `_VTABLE`
+  variants, `SQLITE_REINDEX`, `SQLITE_ANALYZE`, `SQLITE_ATTACH`, `SQLITE_DETACH`.
+  Include a `SELECT` control that must still succeed.
+  Verify that removing any single rule fails the suite
+- [ ] 5.5 Cover the three statements that reach the database unless the authorizer stops
+  them, since these are the cases with no second line of defence: `REINDEX` is allowed
+  by both `mode=ro` and `query_only=ON`, and `ATTACH`/`DETACH` are allowed by both;
+  verify each is denied on the real served connection, not only on the isolated test
+  connection
+- [ ] 5.6 Distinguish authorizer denial from Python’s default refusal for extension
+  loading: `SELECT load_extension(...)` raises “not authorized” on a connection with
+  **no** authorizer at all, so the naive case proves nothing.
+  Call `enable_load_extension(True)` first, then verify the authorizer still denies it
+- [ ] 5.7 Verify `VACUUM INTO` and `PRAGMA journal_mode=WAL` are rejected on the served
+  connection — both produce files on disk rather than writing rows, so they are not
+  covered by the row-mutation cases above
+- [ ] 5.8 Open the database non-immutably despite the `ro` mode, per the alternative
   rejected in D7; verify the server still starts and serves after the database file is
   modified by an out-of-band `ingest`
-- [ ] 5.6 Verify a full session — start, browse tables, run every canned query, shut
+- [ ] 5.9 Verify a full session — start, browse tables, run every canned query, shut
   down — leaves the database file byte-identical (hash before and after), including when
   the analytics indexes are absent
 

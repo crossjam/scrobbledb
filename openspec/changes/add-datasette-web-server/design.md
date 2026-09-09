@@ -299,6 +299,26 @@ this decision is a guarantee that does not depend on a layer above it.
 The spec requires `ATTACH` to be rejected (`web-server/serve-command`, “Write statement
 is rejected”), so the authorizer is what actually satisfies it.
 
+**What each layer actually stops.** Measured on Python 3.13 / SQLite 3.47.1 against a
+`mode=ro` connection:
+
+| statement | `mode=ro` alone | `query_only=ON` | authorizer needed? |
+| --- | --- | --- | --- |
+| `INSERT`/`UPDATE`/`DELETE`, DDL on main | blocked | blocked | defence in depth |
+| `CREATE TEMP TABLE` / `TEMP VIEW` | **allowed** | blocked | no |
+| `REINDEX` | **allowed** | **allowed** | **yes — only layer** |
+| `ANALYZE` | blocked | blocked | defence in depth |
+| `ATTACH` / `DETACH` | allowed | allowed | **yes — only layer** |
+| `load_extension()` | refused by Python’s default | — | belt and braces |
+
+So the three layers are not redundant restatements of one another.
+`REINDEX`, `ATTACH` and `DETACH` reach the database unless the authorizer stops them,
+and temp-object creation is stopped only by `query_only`. The authorizer must therefore
+deny, at minimum: `SQLITE_INSERT`, `SQLITE_UPDATE`, `SQLITE_DELETE`,
+`SQLITE_ALTER_TABLE`, the `SQLITE_CREATE_*` and `SQLITE_DROP_*` families **including
+their `_TEMP_` and `_VTABLE` variants**, `SQLITE_REINDEX`, `SQLITE_ANALYZE`,
+`SQLITE_ATTACH`, `SQLITE_DETACH`, and extension loading.
+
 *Why:* together they are a positive, testable guarantee that does not depend on getting
 a Datasette-alpha constructor argument right, nor on Datasette’s SQL validation.
 It also matches the read-only policy already written down in
