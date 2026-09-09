@@ -188,9 +188,28 @@ the scrobbledb database, and SHALL hide internal storage tables from the table l
 - **WHEN** a client browses the `plays` table without specifying a sort
 - **THEN** rows are ordered most recent first
 
-#### Scenario: Album identity is collapsed consistently
+### Requirement: Album aggregates identify exactly one album
 
-- **WHEN** a stored query aggregates by album
-- **THEN** albums whose identifiers were synthesized from their titles are grouped
-  case-insensitively by title, matching how the scrobbledb CLI groups them, so a single
-  album does not appear as several rows
+Because roughly half of all album identifiers are synthesized from the album title, the
+same album can exist under several identifiers.
+Aggregating by album SHALL collapse those duplicates without merging albums that merely
+share a title, and every field reported for an aggregated album SHALL describe the same
+album.
+
+#### Scenario: Duplicate identifiers for one album collapse
+
+- **WHEN** a stored query aggregates by album and an album exists under more than one
+  synthesized identifier for the same artist
+- **THEN** it appears as a single row whose counts cover all of its identifiers
+
+#### Scenario: Albums sharing a title across artists stay separate
+
+- **WHEN** two different artists each have an album with the same title
+- **THEN** they appear as two rows, each attributed to its own artist
+
+#### Scenario: Reported fields describe one album
+
+- **WHEN** a stored query reports an album identifier alongside an artist name, track
+  count, play count or last-played timestamp
+- **THEN** every one of those fields belongs to the album identified, never to a
+  different album that happened to share its title

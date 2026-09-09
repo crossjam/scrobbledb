@@ -33,6 +33,15 @@ plugin, so the generic tools become scrobbledb-aware.
   **programmatically** with `datasette.plugins.pm` inside `serve` only.
   No `datasette.plugins` entry point, so the plugin never leaks into unrelated Datasette
   processes sharing the environment.
+- **BREAKING: corrects album aggregation in `domain_queries.get_albums_list`.** It
+  groups by `albums.title COLLATE NOCASE` with no artist in the grouping, while
+  selecting `MAX(albums.id)` and `MAX(artists.name)` as independent aggregates.
+  Against the live database that collapses 20,124 albums into 2,215 rows — 89% of albums
+  merged away — and 909 of those rows report an artist name that does not belong to the
+  album id reported beside it (for example, an album actually by Kaskade reported as by
+  “traxsource”). Grouping by artist identity plus title instead yields 20,093 rows, so
+  the deduplication the grouping was actually meant to perform affects only 31 albums.
+  `scrobbledb albums list` output changes substantially as a result.
 - **An internal refactor of `domain_queries.py`** splitting each query function into a
   pure SQL builder, a pure row shaper, and a thin executor.
   Public signatures and return shapes are unchanged, so every existing caller and test
@@ -109,8 +118,10 @@ with an actionable install hint rather than an ImportError traceback.
 **Modified code**
 - `src/scrobbledb/domain_queries.py` — internal split into pure builders, pure shapers,
   and thin executors across all 23 query functions.
-  No public signature or return-shape changes; the existing suites are the regression
-  net.
+  No public signature or return-shape changes.
+  One deliberate behavior change: `get_albums_list`’s corrected grouping (above), which
+  alters `scrobbledb albums list` output and therefore requires updating the existing
+  album-listing tests rather than treating them as a regression net.
 - `src/scrobbledb/cli.py` — `cli.add_command(serve_command.serve)` alongside the
   existing block; `--analytics` flag on the `index` command.
 - `pyproject.toml` — `[project.optional-dependencies] serve`, `[dependency-groups] dev`

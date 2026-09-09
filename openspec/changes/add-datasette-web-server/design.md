@@ -185,6 +185,22 @@ other existing suites are the regression net for the refactor.
    single-statement form so there is still one source of SQL; its externally observable
    output is unchanged, which the existing tests verify.
 
+**One deliberate parity-breaking fix.** `get_albums_list` groups by title alone
+(`domain_queries.py:670`) while selecting `MAX(albums.id)` and `MAX(artists.name)` as
+independent aggregates, so the two can describe different rows.
+Measured against the live database: 20,124 albums collapse to 2,215 rows, and 909 of
+those rows report an artist that does not own the album id beside it.
+Grouping by `albums.artist_id, albums.title COLLATE
+NOCASE` yields 20,093 rows, so the md5-duplicate deduplication the grouping was meant to
+provide only ever affected 31 albums — the other 17,878 merges were collateral damage.
+
+The shared builder therefore emits the corrected grouping, and the CLI adopts it.
+This is the one place in this change where CLI output deliberately changes, so the
+existing album-listing tests must be updated to the corrected expectations rather than
+treated as a regression net.
+With `artist_id` in the grouping, `artists.name` is functionally dependent and can be
+selected directly instead of via `MAX()`, which removes the mismatch at its source.
+
 *Alternative rejected:* a separate SQL catalog in the plugin with parity tests against
 the CLI. Smaller blast radius, but it duplicates every query and the parity tests only
 catch drift after it happens.

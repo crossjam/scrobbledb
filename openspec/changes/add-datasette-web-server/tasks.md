@@ -36,21 +36,31 @@
 - [ ] 2.4 Split the search functions `get_albums_by_search`, `get_tracks_by_search` and
   `get_artists_by_search`, keeping the Python-side rapidfuzz re-rank in the shaper;
   verify search behavior is unchanged
-- [ ] 2.5 Fold `get_top_artists`, `get_top_tracks` and `get_top_albums` into
+- [ ] 2.5 Correct `get_albums_list`’s grouping to
+  `albums.artist_id, albums.title COLLATE NOCASE` and select `artists.name` directly
+  rather than via `MAX()` (design D4); verify albums sharing a title across artists
+  return as separate rows, same-artist duplicate identifiers still collapse, and no row
+  reports an artist that does not own its album id.
+  Against the live database this moves the result from 2,215 rows to ~20,093 and
+  eliminates 909 mismatched rows
+- [ ] 2.6 Update the existing album-listing tests to the corrected expectations — this
+  is the one deliberate CLI output change in this change, so failures here are the
+  intended new behavior, not regressions; verify the full suite passes afterward
+- [ ] 2.7 Fold `get_top_artists`, `get_top_tracks` and `get_top_albums` into
   single-statement builders, moving the `percentage` total into a scalar subquery
   (`COUNT(*) * 100.0 / (SELECT COUNT(*) FROM plays ...)`) per design D4; keep the
   `avg_plays_per_day` date-range probe on the CLI executor path only.
   Verify the existing tests assert identical output before and after
-- [ ] 2.6 Render optional predicates in the guarded named form of design D5 and run
+- [ ] 2.8 Render optional predicates in the guarded named form of design D5 and run
   `EXPLAIN QUERY PLAN` on a time-ranged query to check whether the guard defeats
   `sqlite_autoindex_plays_1` on `plays(timestamp, track_id)`; if it does, have the
   builder render both a guarded named form and a dynamic positional form from one SELECT
   body, and record the finding in `design.md`
-- [ ] 2.7 Verify no builder or shaper imports `sqlite_utils` or touches a connection — a
+- [ ] 2.9 Verify no builder or shaper imports `sqlite_utils` or touches a connection — a
   test asserting every `build_*` function is callable with no database argument and
   returns a `(str, dict)` pair whose dict keys exactly match the named placeholders in
   the SQL
-- [ ] 2.8 Verify the parameter mapping is a `dict` and not a sequence: named
+- [ ] 2.10 Verify the parameter mapping is a `dict` and not a sequence: named
   placeholders with a sequence are a `DeprecationWarning` on Python 3.13 and a
   `sqlite3.ProgrammingError` on 3.14, which the CI matrix covers (design D4). Add a test
   that executes every builder’s output against the `populated_db` fixture with
