@@ -12,6 +12,7 @@ same text would select different rows.
 """
 
 import functools
+import time
 from typing import Optional
 
 from datasette import hookimpl
@@ -24,10 +25,37 @@ from scrobbledb import domain_format, domain_queries
 # keeps it down to a handful of distinct arguments per query.
 _PARSE_CACHE_SIZE = 512
 
+# The cache key carries a coarse clock reading as well as the text, because
+# relative expressions resolve against "now". Keyed on text alone, a
+# long-running `serve` process would answer "yesterday" with whatever yesterday
+# meant when the process started, and every later request would silently select
+# the wrong range.
+#
+# One second is short enough that no bound is meaningfully stale -- the CLI's
+# own `--since` reads the clock at an arbitrary instant anyway -- and long
+# enough to keep the per-row protection the cache exists for, since a statement
+# evaluating this function thousands of times does so well within a second.
+_CACHE_GRANULARITY_SECONDS = 1
+
+
+def _cache_generation() -> int:
+    """
+    Current cache generation, changing once per `_CACHE_GRANULARITY_SECONDS`.
+
+    Factored out as a function so tests can pin it and observe cache behavior
+    deterministically.
+    """
+    return int(time.time()) // _CACHE_GRANULARITY_SECONDS
+
 
 @functools.lru_cache(maxsize=_PARSE_CACHE_SIZE)
-def _parse_when_cached(text: str) -> Optional[str]:
-    """Resolve one time expression to a UTC ISO 8601 string, or None."""
+def _parse_when_cached(text: str, _generation: int) -> Optional[str]:
+    """
+    Resolve one time expression to a UTC ISO 8601 string, or None.
+
+    `_generation` is not used in the body; it is part of the key so a new
+    generation forces a fresh parse. See `_cache_generation`.
+    """
     parsed = domain_queries.parse_relative_time(text)
     if parsed is None:
         return None
@@ -56,7 +84,7 @@ def parse_when(text) -> Optional[str]:
     if not text.strip():
         return None
     try:
-        return _parse_when_cached(text)
+        return _parse_when_cached(text, _cache_generation())
     except Exception:
         # A SQL function that raises aborts the whole statement. Anything the
         # parser can throw on hostile input becomes NULL instead.

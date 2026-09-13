@@ -36,12 +36,16 @@ plugin, so the generic tools become scrobbledb-aware.
 - **BREAKING: corrects album aggregation in `domain_queries.get_albums_list`.** It
   groups by `albums.title COLLATE NOCASE` with no artist in the grouping, while
   selecting `MAX(albums.id)` and `MAX(artists.name)` as independent aggregates.
-  Against the live database that collapses 20,124 albums into 2,215 rows — 89% of albums
-  merged away — and 909 of those rows report an artist name that does not belong to the
-  album id reported beside it (for example, an album actually by Kaskade reported as by
-  “traxsource”). Grouping by artist identity plus title instead yields 20,093 rows, so
-  the deduplication the grouping was actually meant to perform affects only 31 albums.
-  `scrobbledb albums list` output changes substantially as a result.
+  Against the live database, 909 of the 2,215 rows report an artist name that does not
+  belong to the album id reported beside it (for example, an album actually by Kaskade
+  reported as by “traxsource”). The defect is the attribution, not the merge: grouping
+  stays on title — so a compilation remains one row, per GitHub #47 — and `artist_name`
+  is instead derived from the group, naming the owning artist when the group resolves to
+  one name and `Various Artists` when it spans several.
+  No row names an artist that does not own it.
+  Live result: 2,215 rows, 972 of them `Various Artists`, zero attribution defects.
+  See design D4 for why a compilation and two same-titled albums cannot be told apart in
+  this schema.
 - **An internal refactor of `domain_queries.py`** splitting each query function into a
   pure SQL builder, a pure row shaper, and a thin executor.
   Public signatures and return shapes are unchanged, so every existing caller and test

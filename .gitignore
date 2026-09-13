@@ -16,3 +16,10 @@ sys.stderr
 /.roborev.toml
 
 .kata.local.toml
+
+# setuptools build tree. Ignored here as well as in most global
+# gitignores, because a stale build/lib can silently inject a deleted file
+# into a freshly built wheel.
+build/
+dist/
+*.egg-info/

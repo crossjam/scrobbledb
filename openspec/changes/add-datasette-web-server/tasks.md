@@ -97,10 +97,11 @@
 - [ ] 3.3 Verify optional bounds behave correctly through the hook: omitting both covers
   the full history, supplying both applies an inclusive range on each end
 - [ ] 3.4 Confirm every album aggregate in the shared builders groups by
-  `albums.artist_id, albums.title COLLATE NOCASE` per task 2.5 — never by title alone,
-  which merges across artists, and never by `albums.id` alone, which fails to collapse
-  synthesized aliases; verify same-artist duplicate ids collapse to one row and
-  same-title different-artist albums stay separate
+  `albums.title COLLATE NOCASE` and derives `artist_name` from the group per task 2.5 —
+  never by `albums.id`, which fails to collapse synthesized aliases, and never naming a
+  single contributor as the album’s artist; verify a compilation stays one row,
+  duplicate ids collapse, one artist under several ids is still named, and any group
+  spanning several artist names reports `Various Artists`
 - [ ] 3.5 Add builders for the analytics the CLI lacks — daily rollup, hour-of-day
   distribution, day-of-week distribution, consecutive-day streaks (gap-and-islands over
   `julianday(date(timestamp))`), per-artist first-play discovery dates — in the same

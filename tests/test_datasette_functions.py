@@ -213,13 +213,22 @@ def test_the_guard_idiom_short_circuits_an_empty_bound():
 # --------------------------------------------------------------------------
 
 
-def test_repeated_parses_hit_the_cache(monkeypatch):
+@pytest.fixture
+def pinned_generation(monkeypatch):
     """
-    The underlying dateparser path runs once per distinct argument.
+    Freeze the cache generation.
 
-    Without this, a `parse_when` that SQLite evaluates per row would cost
-    milliseconds per row.
+    Without this, a test counting cache misses is flaky: a run that happens to
+    straddle a generation boundary sees an extra parse.
     """
+    generation = fns._cache_generation()
+    monkeypatch.setattr(fns, "_cache_generation", lambda: generation)
+    return generation
+
+
+@pytest.fixture
+def count_parses(monkeypatch):
+    """Count calls reaching the underlying dateparser path."""
     calls = []
     real = domain_queries.parse_relative_time
 
@@ -228,23 +237,93 @@ def test_repeated_parses_hit_the_cache(monkeypatch):
         return real(text)
 
     monkeypatch.setattr(domain_queries, "parse_relative_time", counting)
+    return calls
 
+
+def test_repeated_parses_hit_the_cache(pinned_generation, count_parses):
+    """
+    The underlying dateparser path runs once per distinct argument.
+
+    Without this, a `parse_when` that SQLite evaluates per row would cost
+    milliseconds per row.
+    """
     first = fns.parse_when("3 weeks ago")
     for _ in range(20):
         assert fns.parse_when("3 weeks ago") == first
 
-    assert len(calls) == 1, f"expected one underlying parse, got {len(calls)}"
+    assert len(count_parses) == 1, f"expected one parse, got {len(count_parses)}"
 
     fns.parse_when("2024-01-01")
-    assert len(calls) == 2
+    assert len(count_parses) == 2
 
 
-def test_cache_is_keyed_per_expression():
+def test_cache_is_keyed_per_expression(pinned_generation):
     fns.parse_when("2024-01-01")
     fns.parse_when("2025-01-01")
     info = fns._parse_when_cached.cache_info()
     assert info.currsize == 2
     assert info.misses == 2
+
+
+def test_relative_expressions_do_not_stay_cached_across_generations(
+    monkeypatch, count_parses
+):
+    """
+    A relative bound is re-parsed when the clock moves on.
+
+    Keyed on the text alone, a long-running `serve` process would answer
+    "yesterday" with whatever yesterday meant at startup, and every later
+    request would silently select the wrong range. Regression test for that.
+    """
+    generation = fns._cache_generation()
+
+    monkeypatch.setattr(fns, "_cache_generation", lambda: generation)
+    for _ in range(5):
+        fns.parse_when("yesterday")
+    assert len(count_parses) == 1
+
+    # Same expression, a later generation: must reach the parser again.
+    monkeypatch.setattr(fns, "_cache_generation", lambda: generation + 1)
+    fns.parse_when("yesterday")
+    assert len(count_parses) == 2
+
+
+def test_a_moved_clock_yields_a_moved_answer(monkeypatch):
+    """
+    The refreshed parse actually reflects the new "now", not just a cache miss.
+
+    Counting misses alone would pass even if the value were somehow still
+    stale, so this asserts the returned instant moves.
+    """
+    from datetime import timedelta
+
+    import dateutil.parser
+
+    real = domain_queries.parse_relative_time
+    generation = fns._cache_generation()
+
+    monkeypatch.setattr(fns, "_cache_generation", lambda: generation)
+    before = fns.parse_when("yesterday")
+
+    monkeypatch.setattr(fns, "_cache_generation", lambda: generation + 86400)
+    monkeypatch.setattr(
+        domain_queries, "parse_relative_time", lambda t: real(t) + timedelta(days=1)
+    )
+    after = fns.parse_when("yesterday")
+
+    assert after != before
+    delta = dateutil.parser.parse(after) - dateutil.parser.parse(before)
+    assert timedelta(hours=23) < delta < timedelta(hours=25)
+
+
+def test_absolute_expressions_are_unaffected_by_the_generation(monkeypatch):
+    """An absolute date resolves identically whatever the clock says."""
+    generation = fns._cache_generation()
+
+    monkeypatch.setattr(fns, "_cache_generation", lambda: generation)
+    first = fns.parse_when("2024-01-01")
+    monkeypatch.setattr(fns, "_cache_generation", lambda: generation + 999_999)
+    assert fns.parse_when("2024-01-01") == first
 
 
 # --------------------------------------------------------------------------

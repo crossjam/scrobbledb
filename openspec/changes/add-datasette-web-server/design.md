@@ -185,35 +185,30 @@ other existing suites are the regression net for the refactor.
    single-statement form so there is still one source of SQL; its externally observable
    output is unchanged, which the existing tests verify.
 
-**One deliberate parity-breaking fix.** `get_albums_list` groups by title alone
-(`domain_queries.py:670`) while selecting `MAX(albums.id)` and `MAX(artists.name)` as
-independent aggregates, so the two can describe different rows.
-Measured against the live database: 20,124 albums collapse to 2,215 rows, and 909 of
-those rows report an artist that does not own the album id beside it.
-Grouping by `albums.artist_id, albums.title COLLATE
-NOCASE` yields 20,093 rows, so the md5-duplicate deduplication the grouping was meant to
-provide only ever affected 31 albums — the other 17,878 merges were collateral damage.
+**One deliberate parity-breaking fix.** `get_albums_list` grouped by title alone while
+selecting `MAX(albums.id)` and `MAX(artists.name)` as independent aggregates, so the two
+could describe different rows.
+Measured against the live database: of 2,215 rows, 909 reported an artist that does not
+own the album id beside it.
 
-Two consequences follow that the first pass missed.
-The correction applies to **every** album aggregate, not just the listing —
-`get_top_albums` groups by `albums.id,
-albums.title, artists.name`, so an album under several synthesized ids still yields
-several top-album rows; 12 alias groups in the live database have plays and would show
-this. And once a row’s counts span an alias group, a single `MAX(albums.id)` no longer
-identifies what those counts describe: `albums list --expand` calls
-`get_album_tracks(db, album['album_id'])` on that one id (`commands/albums.py:251-252`)
-and can therefore list fewer tracks than the `track_count` printed beside it, across 31
-alias groups. So the builders also return `album_ids` (`group_concat`) beside the
-representative `album_id`, and expansion paths consume the full set.
+The fix keeps the title grouping and corrects the attribution, which is where the defect
+actually was. It applies to **every** album aggregate, not just the listing —
+`get_top_albums` grouped by `albums.id, albums.title, artists.name`, so an album held
+under several synthesized ids was ranked as several separate rows with its plays split
+between them.
+
+And once a row’s counts span a group of ids, a single `MAX(albums.id)` no longer
+identifies what those counts describe: `albums list --expand` called
+`get_album_tracks(db, album['album_id'])` on that one id and could therefore list fewer
+tracks than the `track_count` printed beside it.
+So the builders also return `album_ids` (`group_concat`) beside the representative
+`album_id`, and expansion paths consume the full set.
 `album_id` stays a stable single value for linking; `album_ids` is what the counts
 actually refer to.
 
-The shared builder therefore emits the corrected grouping, and the CLI adopts it.
 This is the one place in this change where CLI output deliberately changes, so the
-existing album-listing tests must be updated to the corrected expectations rather than
-treated as a regression net.
-With `artist_id` in the grouping, `artists.name` is functionally dependent and can be
-selected directly instead of via `MAX()`, which removes the mismatch at its source.
+existing album-listing tests were replaced with tests for the corrected expectations
+rather than treated as a regression net.
 
 #### Resolved: group on title, and decline to name an artist when the group spans several
 
