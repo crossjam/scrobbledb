@@ -248,12 +248,15 @@ def list_albums(ctx, database, limit, artist, artist_id, sort, order, min_plays,
             console.print("[yellow]![/yellow] No albums found in database.")
         ctx.exit(0)
 
-    # Fetch tracks if expand is requested
+    # Fetch tracks if expand is requested. A listed album's counts can span a
+    # group of alias ids, so expand across album_ids rather than the single
+    # representative album_id -- otherwise an expanded album can show fewer
+    # tracks than its own track_count claims.
     if expand:
         for album in albums:
             try:
-                album_tracks = domain_queries.get_album_tracks(db, album['album_id'])
-                album['tracks'] = album_tracks
+                group_ids = album.get('album_ids') or [album['album_id']]
+                album['tracks'] = domain_queries.get_album_tracks_for_ids(db, group_ids)
             except Exception:
                 album['tracks'] = []
 

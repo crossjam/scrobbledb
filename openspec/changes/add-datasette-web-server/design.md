@@ -238,6 +238,51 @@ the request path.
 guard must short-circuit before the comparison.
 Both are covered by spec scenarios.
 
+#### Measured: the guard does defeat the index, so builders emit both forms
+
+Task 2.11 ran `EXPLAIN QUERY PLAN` against the live 48,400-play database.
+The positional form uses the primary-key index:
+
+```
+SEARCH plays USING COVERING INDEX sqlite_autoindex_plays_1 (timestamp>? AND timestamp<?)
+```
+
+while the guarded named form, with both bounds supplied, degrades to `SCAN plays`.
+SQLite cannot use an index for `(:since = '' OR plays.timestamp >= :since)` because the
+disjunction is not sargable — it must evaluate the `OR` per row.
+
+The cost depends entirely on how much of the table the range excludes.
+Top-artists over a range, best of 7, results identical in every case:
+
+| Range | Positional | Guarded | Slowdown |
+| --- | --- | --- | --- |
+| one day | 0.1 ms | 6.2 ms | **116x** |
+| one week | 0.5 ms | 6.7 ms | 15x |
+| one month | 2.5 ms | 8.5 ms | 3.4x |
+| one year | 26.7 ms | 30.5 ms | 1.1x |
+| all time | 196.4 ms | 180.1 ms | 0.9x |
+
+Narrow ranges — the common interactive case — are where the guard hurts most, and they
+are exactly the queries that should feel instant.
+At full-table width the guard is free, and marginally faster, because a scan is what an
+unbounded query does anyway.
+
+So the builders render **both forms from one SELECT body**, as D4 anticipated.
+The body, the joins, the grouping and the ordering are written once; only the optional
+predicates differ:
+
+- **named/guarded** (`(:since = '' OR plays.timestamp >= :since)`, params as a `dict`) —
+  the canned-query contract, where parameters arrive from the URL and the SQL must be a
+  static string.
+- **positional** (`plays.timestamp >= ?` emitted only when the bound is present, params
+  as a `list`) — the CLI and MCP paths, which build SQL per call and can therefore omit
+  absent predicates entirely and keep the index.
+
+This keeps one source of SQL per query while letting each consumer pay only the cost its
+execution model forces.
+The canned queries remain unindexed on narrow ranges; the analytics indexes of D10 are
+the answer there, not a second SQL catalog.
+
 ### D6: Custom SQL functions registered via `prepare_connection`, with caching
 
 Four functions, all lifted from logic that currently only exists in Python:

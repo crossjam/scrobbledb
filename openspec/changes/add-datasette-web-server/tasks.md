@@ -21,11 +21,11 @@
 
 ## 2. Refactor domain_queries.py into builders and shapers
 
-- [ ] 2.1 Split `get_overview_stats`, `get_monthly_rollup` and `get_yearly_rollup` into
+- [x] 2.1 Split `get_overview_stats`, `get_monthly_rollup` and `get_yearly_rollup` into
   `build_*_sql() -> (sql, params)`, `shape_*(rows) -> list[dict]`, and a thin executor
   keeping the current signature (design D4); verify the existing `tests/test_stats.py`
   suite passes unchanged
-- [ ] 2.2 Apply the same split to `get_plays_with_filters`, `get_artists_with_stats`,
+- [x] 2.2 Apply the same split to `get_plays_with_filters`, `get_artists_with_stats`,
   `get_albums_list` and `get_tracks_list`; verify `tests/test_list_sorting.py` and
   `tests/test_plays_unify.py` pass unchanged
 - [ ] 2.3 Apply the same split to `get_artist_details`, `get_artist_top_tracks`,
@@ -36,7 +36,7 @@
 - [ ] 2.4 Split the search functions `get_albums_by_search`, `get_tracks_by_search` and
   `get_artists_by_search`, keeping the Python-side rapidfuzz re-rank in the shaper;
   verify search behavior is unchanged
-- [ ] 2.5 Correct `get_albums_list`’s grouping to
+- [x] 2.5 Correct `get_albums_list`’s grouping to
   `albums.artist_id, albums.title COLLATE NOCASE` and select `artists.name` directly
   rather than via `MAX()` (design D4); verify albums sharing a title across artists
   return as separate rows, same-artist duplicate identifiers still collapse, and no row
@@ -49,15 +49,15 @@
   groups in the live database that have plays merge into one row each, and that the
   requirement “album aggregates identify exactly one album” now holds for every album
   aggregate rather than only the listing
-- [ ] 2.7 Update the existing album-listing tests to the corrected expectations — this
+- [x] 2.7 Update the existing album-listing tests to the corrected expectations — this
   is the one deliberate CLI output change in this change, so failures here are the
   intended new behavior, not regressions; verify the full suite passes afterward
-- [ ] 2.8 Return the group’s constituent album ids alongside the representative one —
+- [x] 2.8 Return the group’s constituent album ids alongside the representative one —
   `group_concat(albums.id)` as `album_ids` — so callers that resolve an album back to
   its tracks can cover the whole alias group instead of one arbitrary `MAX(albums.id)`;
   verify `album_ids` contains every id in the group and that `album_id` remains a stable
   representative for linking
-- [ ] 2.9 Fix `scrobbledb albums list --expand`, which calls
+- [x] 2.9 Fix `scrobbledb albums list --expand`, which calls
   `get_album_tracks(db, album['album_id'])` on the representative id alone
   (`commands/albums.py:251-252`) while `track_count` and `play_count` cover the whole
   group, so an expanded album can list fewer tracks than its own count claims; make it
@@ -68,7 +68,7 @@
   (`COUNT(*) * 100.0 / (SELECT COUNT(*) FROM plays ...)`) per design D4; keep the
   `avg_plays_per_day` date-range probe on the CLI executor path only.
   Verify the existing tests assert identical output before and after
-- [ ] 2.11 Render optional predicates in the guarded named form of design D5 and run
+- [x] 2.11 Render optional predicates in the guarded named form of design D5 and run
   `EXPLAIN QUERY PLAN` on a time-ranged query to check whether the guard defeats
   `sqlite_autoindex_plays_1` on `plays(timestamp, track_id)`; if it does, have the
   builder render both a guarded named form and a dynamic positional form from one SELECT
