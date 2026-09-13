@@ -48,10 +48,11 @@ plugin, so the generic tools become scrobbledb-aware.
   this schema.
 - **An internal refactor of `domain_queries.py`** splitting each query function into a
   pure SQL builder, a pure row shaper, and a thin executor.
-  Public signatures and return shapes are unchanged, so every existing caller and test
-  keeps working; the point is that the web and MCP surfaces can then reuse the *same*
-  SQL rather than duplicating it, while executing through Datasette’s connection pool,
-  query timeout and truncation handling.
+  Public signatures are unchanged, and return shapes change only additively — album
+  aggregates gain an `album_ids` field, which appears in unfiltered JSON/JSONL output —
+  so every existing caller and test keeps working; the point is that the web and MCP
+  surfaces can then reuse the *same* SQL rather than duplicating it, while executing
+  through Datasette’s connection pool, query timeout and truncation handling.
 - **Canned queries** contributed via the `canned_queries()` hook, built from those
   shared builders and covering the aggregates already implemented in `domain_queries.py`
   (overview, monthly/yearly rollups, top artists/albums/tracks with percentage,

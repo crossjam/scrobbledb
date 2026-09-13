@@ -398,19 +398,22 @@ is rejected”), so the authorizer is what actually satisfies it.
 | statement | `mode=ro` alone | `query_only=ON` | authorizer needed? |
 | --- | --- | --- | --- |
 | `INSERT`/`UPDATE`/`DELETE`, DDL on main | blocked | blocked | defence in depth |
-| `CREATE TEMP TABLE` / `TEMP VIEW` | **allowed** | blocked | no |
+| `CREATE TEMP TABLE` / `TEMP VIEW` | **allowed** | blocked | **yes — `query_only` is resettable** |
 | `REINDEX` | **allowed** | **allowed** | **yes — only layer** |
 | `ANALYZE` | blocked | blocked | defence in depth |
 | `ATTACH` / `DETACH` | allowed | allowed | **yes — only layer** |
 | `load_extension()` | refused by Python’s default | — | belt and braces |
 
 So the three layers are not redundant restatements of one another.
-`REINDEX`, `ATTACH` and `DETACH` reach the database unless the authorizer stops them,
-and temp-object creation is stopped only by `query_only`. The authorizer must therefore
-deny, at minimum: `SQLITE_INSERT`, `SQLITE_UPDATE`, `SQLITE_DELETE`,
-`SQLITE_ALTER_TABLE`, the `SQLITE_CREATE_*` and `SQLITE_DROP_*` families **including
-their `_TEMP_` and `_VTABLE` variants**, `SQLITE_REINDEX`, `SQLITE_ANALYZE`,
-`SQLITE_ATTACH`, `SQLITE_DETACH`, and extension loading.
+`REINDEX`, `ATTACH` and `DETACH` reach the database unless the authorizer stops them.
+Temp-object creation is stopped by `query_only` during normal operation, but
+`query_only` is resettable via `PRAGMA query_only=OFF`, so under a guarantee that must
+not depend on a layer above it the authorizer is the only durable protection there too —
+which is why the deny list below includes the `_TEMP_` variants.
+The authorizer must therefore deny, at minimum: `SQLITE_INSERT`, `SQLITE_UPDATE`,
+`SQLITE_DELETE`, `SQLITE_ALTER_TABLE`, the `SQLITE_CREATE_*` and `SQLITE_DROP_*`
+families **including their `_TEMP_` and `_VTABLE` variants**, `SQLITE_REINDEX`,
+`SQLITE_ANALYZE`, `SQLITE_ATTACH`, `SQLITE_DETACH`, and extension loading.
 
 *Why:* together they are a positive, testable guarantee that does not depend on getting
 a Datasette-alpha constructor argument right, nor on Datasette’s SQL validation.

@@ -10,7 +10,9 @@
 - [x] 1.3 Add explicit `[tool.setuptools.packages.find] where = ["src"]` (the project
   currently relies on implicit src-layout discovery) and extend
   `[tool.setuptools.package-data]` for the plugin’s config file; verify `uv build`
-  produces a wheel containing `scrobbledb/datasette_plugin/` and the config file
+  produces a wheel containing `scrobbledb/datasette_plugin/`. The package-data pattern
+  matches nothing until task 6.1 adds the config file, so it was verified by building
+  against a temporary scaffold; 6.1 re-verifies with the real file
 - [x] 1.4 Confirm `datasette` 1.0a39 installs on Python 3.14 (the CI matrix in
   `.github/workflows/qa.yml` covers 3.13 and 3.14); if it does not, record the
   constraint and plan to gate serve tests with `pytest.importorskip("datasette")` rather

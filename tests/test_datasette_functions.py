@@ -313,7 +313,10 @@ def test_a_moved_clock_yields_a_moved_answer(monkeypatch):
 
     assert after != before
     delta = dateutil.parser.parse(after) - dateutil.parser.parse(before)
-    assert timedelta(hours=23) < delta < timedelta(hours=25)
+    # Inclusive bounds: across a daylight-saving transition, adding one
+    # calendar day legitimately moves the UTC instant by exactly 23 or 25
+    # hours, which strict bounds would reject twice a year.
+    assert timedelta(hours=23) <= delta <= timedelta(hours=25)
 
 
 def test_absolute_expressions_are_unaffected_by_the_generation(monkeypatch):
@@ -447,3 +450,40 @@ async def test_guarded_bound_filters_over_http(registered_plugin, plays_db):
     assert await count("") == 2
     assert await count("2024-06-01") == 1
     assert await count("not a date") == 0
+
+
+def test_one_statement_sees_one_resolved_bound(populated_db_conn=None):
+    """
+    A relative bound is resolved once per statement, not once per row.
+
+    Registered non-deterministic, SQLite calls the function per row, so a scan
+    crossing a cache-generation boundary would compare early rows against one
+    instant and later rows against another — a result that depends on scan
+    order. The deterministic flag is what pins it for the statement.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE plays (timestamp TEXT)")
+    conn.executemany(
+        "INSERT INTO plays VALUES (?)",
+        [(f"2024-01-{day:02d}T00:00:00+00:00",) for day in range(1, 29)],
+    )
+
+    calls = []
+
+    def counting(text):
+        calls.append(text)
+        return fns.parse_when(text)
+
+    # Registered the way prepare_connection registers it.
+    conn.create_function("parse_when", 1, counting, deterministic=True)
+
+    sql = (
+        "SELECT COUNT(*) FROM plays"
+        " WHERE (:since = '' OR plays.timestamp >= parse_when(:since))"
+    )
+    conn.execute(sql, {"since": "2024-01-10"}).fetchone()
+
+    assert len(calls) == 1, (
+        f"parse_when ran {len(calls)} times for one statement over 28 rows; "
+        "a bound must be resolved once per statement"
+    )

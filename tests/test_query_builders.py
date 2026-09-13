@@ -220,7 +220,9 @@ def test_limit_is_bound_not_interpolated():
     get_track_plays previously interpolated it.
     """
     sql, params = domain_queries.build_track_plays_sql(track_id="trk-1", limit=5)
-    assert "LIMIT :limit" in sql
+    # The placeholder is wrapped so a blank or string-typed value from a canned
+    # query still behaves as a number, so match the placeholder, not the clause.
+    assert ":limit" in sql
     assert params["limit"] == 5
     assert "LIMIT 5" not in sql
 
@@ -279,3 +281,91 @@ def test_builders_bind_values_rather_than_embedding_them():
     conn.execute("CREATE TABLE plays (track_id TEXT, timestamp TEXT)")
     assert conn.execute(sql, params).fetchall() == []
     assert conn.execute("SELECT COUNT(*) FROM plays").fetchone()[0] == 0
+
+
+# Datasette hands canned-query parameters to SQLite as strings, and a parameter
+# the user left blank arrives as the empty string. Builders whose named form is
+# destined for a canned query must therefore survive both, or every canned
+# query breaks the moment it is wired up. Blank numerics used to raise
+# "datatype mismatch" on LIMIT and silently filter every row out of a HAVING.
+_BLANK_TOLERANT_EXCEPTIONS = {
+    # A blank FTS match term is not a meaningful query; the search entry's
+    # behavior for an empty term is task 3.6/3.7's concern.
+    "build_artist_fts_candidates_sql",
+}
+
+
+@pytest.mark.parametrize("name,builder", BUILDERS, ids=BUILDER_IDS)
+def test_named_form_survives_blank_string_parameters(name, builder, populated_db):
+    """Every parameter blank, exactly as a canned query with nothing filled in."""
+    if name in _BLANK_TOLERANT_EXCEPTIONS:
+        pytest.skip("blank input is not meaningful for this builder")
+
+    _sql, params = builder(**_EXECUTION_ARGS.get(name, {}))
+    sql, _ = builder(**_EXECUTION_ARGS.get(name, {}))
+    populated_db.execute(sql, {key: "" for key in params}).fetchall()
+
+
+@pytest.mark.parametrize("name,builder", BUILDERS, ids=BUILDER_IDS)
+def test_named_form_survives_string_typed_parameters(name, builder, populated_db):
+    """Every parameter a string, as Datasette binds them even when numeric."""
+    if name in _BLANK_TOLERANT_EXCEPTIONS:
+        pytest.skip("blank input is not meaningful for this builder")
+
+    sql, params = builder(**_EXECUTION_ARGS.get(name, {}))
+    as_strings = {
+        key: ("" if value in ("", None) else str(value))
+        for key, value in params.items()
+    }
+    populated_db.execute(sql, as_strings).fetchall()
+
+
+def test_blank_limit_falls_back_to_the_builders_default():
+    """A blank LIMIT means the builder's own default, not a datatype error."""
+    sql, params = domain_queries.build_monthly_rollup_sql(limit=5)
+    assert params["limit"] == 5
+
+    db = sqlite_utils.Database(memory=True)
+    for statement in (
+        "CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT)",
+        "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT, artist_id TEXT)",
+        "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, album_id TEXT)",
+        "CREATE TABLE plays (track_id TEXT, timestamp TEXT)",
+    ):
+        db.execute(statement)
+    db["artists"].insert({"id": "a", "name": "A"})
+    db["albums"].insert({"id": "b", "title": "B", "artist_id": "a"})
+    db["tracks"].insert({"id": "t", "title": "T", "album_id": "b"})
+    db["plays"].insert_all(
+        [{"track_id": "t", "timestamp": f"202{y}-01-01T00:00:00+00:00"} for y in range(4)]
+    )
+
+    # Blank: no datatype error, and the default limit still applies.
+    blank = dict(params, limit="")
+    assert len(db.execute(sql, blank).fetchall()) == 4
+
+
+def test_blank_min_plays_does_not_filter_every_row():
+    """
+    A blank min_plays must behave as zero.
+
+    `COUNT(*) >= ''` is always false in SQLite, so binding a blank straight
+    through made the HAVING clause silently discard every row.
+    """
+    db = sqlite_utils.Database(memory=True)
+    for statement in (
+        "CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT)",
+        "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT, artist_id TEXT)",
+        "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, album_id TEXT)",
+        "CREATE TABLE plays (track_id TEXT, timestamp TEXT)",
+    ):
+        db.execute(statement)
+    db["artists"].insert({"id": "a", "name": "A"})
+    db["albums"].insert({"id": "b", "title": "B", "artist_id": "a"})
+    db["tracks"].insert({"id": "t", "title": "T", "album_id": "b"})
+    db["plays"].insert({"track_id": "t", "timestamp": "2024-01-01T00:00:00+00:00"})
+
+    sql, params = domain_queries.build_albums_list_sql()
+    assert db.execute(sql, dict(params, min_plays="")).fetchall(), (
+        "blank min_plays filtered every row out"
+    )
