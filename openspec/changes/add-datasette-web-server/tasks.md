@@ -115,20 +115,22 @@
 
 ## 4. Custom SQL functions
 
-- [ ] 4.1 Implement `datasette_plugin/functions.py` with `parse_when`,
+- [x] 4.1 Implement `datasette_plugin/functions.py` with `parse_when`,
   `fuzz_partial_ratio`, `month_name` and `fmt_ts` per design D6, reusing
   `domain_queries.parse_relative_time` / `_to_utc_iso`, `rapidfuzz`, and
   `domain_format.py:219,240`; verify unit tests call each as a plain Python function
-- [ ] 4.2 Confirm `parse_when` follows `_to_utc_iso`’s local-wall-clock reading of naive
+- [x] 4.2 Confirm `parse_when` follows `_to_utc_iso`’s local-wall-clock reading of naive
   datetimes rather than `lastfm.parse_timestamp`’s UTC reading; verify with a test
   asserting a naive input resolves to the same UTC ISO string the CLI’s `--since`
   produces for that input
-- [ ] 4.3 Make `parse_when` return NULL on unparseable input instead of raising; verify
+- [x] 4.3 Make `parse_when` return NULL on unparseable input instead of raising; verify
   a SQL query containing `parse_when('not a date')` still executes and yields NULL
-- [ ] 4.4 Wrap the parser in `functools.lru_cache` per design D6; verify a test that
+- [x] 4.4 Wrap the parser in `functools.lru_cache` per design D6; verify a test that
   repeated calls with the same argument invoke the underlying `dateparser` path once
-- [ ] 4.5 Register all four via the `prepare_connection` hook; verify each resolves in
-  ad hoc SQL through `Datasette(...).client.get("/db.json?sql=...")`
+- [x] 4.5 Register all four via the `prepare_connection` hook; verify each resolves in
+  ad hoc SQL through `Datasette(...).client.get("/<db>/-/query.json?sql=...")` — the
+  1.0a query endpoint, since the 0.x `/<db>.json?sql=` form 302-redirects there (design
+  D9)
 
 ## 5. Read-only enforcement
 

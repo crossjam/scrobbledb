@@ -518,6 +518,12 @@ advisory for the SDK — the most recent, GHSA-vj7q-gjh5-988w, tops out at `< 1.
 Both install and import on **Python 3.14.0** as well as 3.13, so the CI matrix needs no
 `pytest.importorskip("datasette")` gate and the project is not pinned back.
 
+**Ad hoc SQL moved in 1.0a.** Queries are served from `/<db>/-/query` (JSON at
+`/<db>/-/query.json?sql=...`); the 0.x `/<db>.json?sql=...` form still works but
+**302-redirects** there.
+Any test asserting `status_code == 200` against the old URL fails on the redirect rather
+than on anything real — found while verifying task 4.5, whose text named the old form.
+
 **The 1.0 config split, settled empirically — descriptions stay in `metadata=`.**
 `Datasette.__init__` calls `move_table_config(metadata, config)`, which relocates
 exactly these keys out of `metadata` and into `config`:
