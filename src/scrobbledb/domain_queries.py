@@ -256,9 +256,14 @@ def _numeric_param(params: _Params, name: str, value, default=None) -> str:
     runtime, but the interpolated fallback is coerced to an integer first --
     it lands in SQL text, not in a parameter.
     """
-    placeholder = params.add(name, value)
     if params.form != SQL_FORM_NAMED:
-        return placeholder
+        # Coerced here too, so both forms reject the same inputs. Left
+        # unvalidated, a bad value reached SQLite and surfaced as "datatype
+        # mismatch" from the database rather than as an error naming the
+        # parameter.
+        return params.add(name, _as_int(value, name))
+
+    placeholder = params.add(name, value)
     fallback = default if default is not None else value
     return _numeric(placeholder, _as_int(fallback, name))
 
@@ -275,7 +280,7 @@ def _limit_clause(params: _Params, limit: Optional[int]) -> str:
         return f"LIMIT {_numeric_param(params, 'limit', value, default=value)}"
     if limit is None:
         return ""
-    return f"LIMIT {params.add('limit', limit)}"
+    return f"LIMIT {params.add('limit', _as_int(limit, 'limit'))}"
 
 
 def build_overview_stats_sql(form: str = SQL_FORM_NAMED) -> tuple[str, object]:

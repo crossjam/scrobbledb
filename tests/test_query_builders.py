@@ -404,16 +404,22 @@ _NUMERIC_PARAM_BUILDERS = [
         "abc",
     ],
 )
-def test_numeric_params_refuse_non_integers(builder_name, param, payload):
+@pytest.mark.parametrize(
+    "form", [domain_queries.SQL_FORM_NAMED, domain_queries.SQL_FORM_POSITIONAL]
+)
+def test_numeric_params_refuse_non_integers(builder_name, param, payload, form):
     """
-    A non-integer numeric parameter is refused, never interpolated.
+    A non-integer numeric parameter is refused in *both* forms.
 
     The CLI screens these with click's int type, but the builders are shared
-    with the MCP tools and the plugin, where nothing has.
+    with the MCP tools and the plugin, where nothing has. Checking only the
+    named form left the positional path -- the one the CLI and MCP execute --
+    passing the value through to SQLite, which reported "datatype mismatch"
+    instead of naming the parameter.
     """
     builder = getattr(domain_queries, builder_name)
     with pytest.raises(ValueError, match=param):
-        builder(**{param: payload})
+        builder(**{param: payload, "form": form})
 
 
 @pytest.mark.parametrize(

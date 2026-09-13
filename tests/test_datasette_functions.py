@@ -546,3 +546,42 @@ def test_a_canned_query_needing_one_bound_must_resolve_it_in_sql():
         {"s": "x"},
     ).fetchone()
     assert len(calls) == 1, "a materialized CTE resolves the bound exactly once"
+
+
+def test_determinism_flags_are_justified():
+    """
+    Each function's determinism flag matches what the function actually does.
+
+    SQLite's contract covers every accepted input, not the expected ones, and a
+    SQL function accepts whatever an ad hoc query passes it. Two of these read
+    the clock for some inputs and must not claim determinism.
+    """
+    flags = {name: flag for name, (_a, _f, flag) in fns.SQL_FUNCTIONS.items()}
+
+    assert flags["parse_when"] is False, "parse_when resolves against now"
+    assert flags["fmt_ts"] is False, (
+        "fmt_ts defers to dateutil.parser.parse, which fills missing date "
+        "components from today"
+    )
+    assert flags["month_name"] is True
+    assert flags["fuzz_partial_ratio"] is True
+
+
+def test_fmt_ts_is_date_dependent_for_partial_input():
+    """
+    Evidence for the flag above: a partial timestamp picks up today's date.
+
+    This is why fmt_ts cannot claim determinism, even though it is stable for
+    the full ISO timestamps the schema actually stores.
+    """
+    from datetime import date
+
+    today = date.today()
+
+    # A bare time takes today's date entirely.
+    assert fns.fmt_ts("12:00").startswith(today.isoformat())
+    # A bare month takes today's day and year.
+    assert fns.fmt_ts("March").startswith(f"{today.year}-03-{today.day:02d}")
+
+    # Stable for what the schema stores, which is why this is easy to miss.
+    assert fns.fmt_ts("2024-01-01T12:00:00+00:00") == "2024-01-01 12:00:00"

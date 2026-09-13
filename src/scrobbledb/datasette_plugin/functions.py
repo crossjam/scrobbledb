@@ -124,15 +124,27 @@ def fmt_ts(ts) -> Optional[str]:
 
 #: Registered on every connection, name -> (arity, implementation, deterministic).
 #:
-#: `deterministic` asserts SQLite's contract: the same inputs always give the
-#: same answer. Three of these qualify. `parse_when` does not -- it reads the
-#: wall clock, which is the whole point of its cache generation -- so it is
-#: registered without the flag even though that costs the optimizer a hoist.
+#: `deterministic` asserts SQLite's contract: the same inputs *always* give the
+#: same answer, for every accepted input rather than the expected ones. Two of
+#: these qualify.
+#:
+#: `parse_when` does not -- it reads the wall clock, which is the whole point of
+#: its cache generation.
+#:
+#: `fmt_ts` does not either, which is less obvious: it defers to
+#: `dateutil.parser.parse`, which fills missing components from today's date, so
+#: `fmt_ts('12:00')` and `fmt_ts('March')` both change from one day to the next.
+#: It is deterministic for the full ISO timestamps the schema stores, but a SQL
+#: function accepts whatever an ad hoc query passes it, and the contract covers
+#: all of them.
+#:
+#: Both forgo the optimizer's hoist, which costs nothing that matters: neither
+#: is used in a predicate by any builder.
 SQL_FUNCTIONS = {
     "parse_when": (1, parse_when, False),
     "fuzz_partial_ratio": (2, fuzz_partial_ratio, True),
     "month_name": (1, month_name, True),
-    "fmt_ts": (1, fmt_ts, True),
+    "fmt_ts": (1, fmt_ts, False),
 }
 
 
