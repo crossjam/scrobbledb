@@ -54,9 +54,15 @@ jobs:
       - name: Run type checking
         run: uv run poe type
       
-      - name: Run security audit
-        run: uv run poe audit
-        continue-on-error: true  # Don't fail the build on audit warnings
-      
       - name: Run tests
         run: uv run poe test
+
+      # Blocking: a known-vulnerable dependency fails the build. Runs after the
+      # tests deliberately -- a new third-party advisory can appear on a day
+      # nothing here changed, and halting before the tests would hide their
+      # result behind it. If an advisory ever has no fixed release available,
+      # record the decision explicitly with
+      #   pip-audit --ignore-vuln <ID>
+      # rather than making this step advisory again.
+      - name: Run security audit
+        run: uv run poe audit
