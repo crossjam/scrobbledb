@@ -215,6 +215,31 @@ treated as a regression net.
 With `artist_id` in the grouping, `artists.name` is functionally dependent and can be
 selected directly instead of via `MAX()`, which removes the mismatch at its source.
 
+#### Measured consequence: compilations fragment, and that is the correct reading
+
+Verifying 2.6 against the live database turned up an effect this design did not call
+out. `albums.artist_id` is derived from the *track* artist, so a compilation has one
+album row per contributing artist.
+“Mushroom Jazz 7” exists as **16 album rows under 16 different artist ids** — Tommy
+Largo, Jazz Spastiks, Slakah The Beatchild, and so on — all with the identical title.
+
+Under the old title-only grouping those 16 collapsed into a single row, attributed to
+whichever artist won `MAX(artists.name)`. That looked tidy and was wrong: the row
+reported one arbitrary contributor as the album’s artist.
+Under the corrected grouping they stay 16 rows, and the two that genuinely share an
+artist merge — Tommy Largo’s `md5:` id and MBID `099f044a…` combine to 76 plays, which
+is the merge task 2.6 exists to produce.
+
+So the correction is behaving as specified: album identity is artist plus title, and for
+a compilation that legitimately means several rows.
+But it is a **larger user-visible change than “2,215 rows becomes 20,093” suggests** — a
+compilation that used to occupy one line in `albums list` and `stats top-albums` now
+occupies one line per contributing artist.
+That is the honest representation of what the schema stores; collapsing compilations
+back into one album would require an album-level artist the data model does not have, or
+an “is compilation” notion it also lacks.
+Out of scope here, and worth its own issue rather than a silent workaround.
+
 *Alternative rejected:* a separate SQL catalog in the plugin with parity tests against
 the CLI. Smaller blast radius, but it duplicates every query and the parity tests only
 catch drift after it happens.

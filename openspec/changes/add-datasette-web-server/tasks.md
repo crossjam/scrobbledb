@@ -43,7 +43,7 @@
   reports an artist that does not own its album id.
   Against the live database this moves the result from 2,215 rows to ~20,093 and
   eliminates 909 mismatched rows
-- [ ] 2.6 Apply the same corrected grouping to `get_top_albums`, which currently groups
+- [x] 2.6 Apply the same corrected grouping to `get_top_albums`, which currently groups
   by `albums.id, albums.title, artists.name` and therefore reports an album existing
   under several synthesized ids as several separate top-album rows; verify the 12 alias
   groups in the live database that have plays merge into one row each, and that the
@@ -63,7 +63,7 @@
   group, so an expanded album can list fewer tracks than its own count claims; make it
   expand across `album_ids`. Verify against the 31 alias groups in the live database
   that expanded track counts equal the reported `track_count`
-- [ ] 2.10 Fold `get_top_artists`, `get_top_tracks` and `get_top_albums` into
+- [x] 2.10 Fold `get_top_artists`, `get_top_tracks` and `get_top_albums` into
   single-statement builders, moving the `percentage` total into a scalar subquery
   (`COUNT(*) * 100.0 / (SELECT COUNT(*) FROM plays ...)`) per design D4; keep the
   `avg_plays_per_day` date-range probe on the CLI executor path only.
@@ -73,11 +73,11 @@
   `sqlite_autoindex_plays_1` on `plays(timestamp, track_id)`; if it does, have the
   builder render both a guarded named form and a dynamic positional form from one SELECT
   body, and record the finding in `design.md`
-- [ ] 2.12 Verify no builder or shaper imports `sqlite_utils` or touches a connection —
+- [x] 2.12 Verify no builder or shaper imports `sqlite_utils` or touches a connection —
   a test asserting every `build_*` function is callable with no database argument and
   returns a `(str, dict)` pair whose dict keys exactly match the named placeholders in
   the SQL
-- [ ] 2.13 Verify the parameter mapping is a `dict` and not a sequence: named
+- [x] 2.13 Verify the parameter mapping is a `dict` and not a sequence: named
   placeholders with a sequence are a `DeprecationWarning` on Python 3.13 and a
   `sqlite3.ProgrammingError` on 3.14, which the CI matrix covers (design D4). Add a test
   that executes every builder’s output against the `populated_db` fixture with

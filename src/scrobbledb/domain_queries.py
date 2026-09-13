@@ -1094,6 +1094,110 @@ def get_artists_by_search(
     )
 
 
+def _days_in_period(
+    db: sqlite_utils.Database,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+) -> int:
+    """
+    Number of days the requested period spans, for avg_plays_per_day.
+
+    Deliberately left on the executor path rather than folded into the shared
+    SQL: with no bounds it has to probe the database for the first and last
+    play, which a single-statement canned query cannot do. Naive bounds are
+    read as local wall-clock time, matching `_to_utc_iso`.
+    """
+    now = datetime.now(timezone.utc)
+    if since and until:
+        if since.tzinfo is None:
+            since = since.astimezone()
+        if until.tzinfo is None:
+            until = until.astimezone()
+        return (
+            until.astimezone(timezone.utc) - since.astimezone(timezone.utc)
+        ).days or 1
+    if since:
+        if since.tzinfo is None:
+            since = since.astimezone()
+        return (now - since.astimezone(timezone.utc)).days or 1
+    if until:
+        if until.tzinfo is None:
+            until = until.astimezone()
+        return (until.astimezone(timezone.utc) - now).days or 1
+
+    # All time - calculate from first to last play
+    date_range = db.execute(
+        "SELECT MIN(timestamp), MAX(timestamp) FROM plays"
+    ).fetchone()
+    if not (date_range[0] and date_range[1]):
+        return 1
+    first = (
+        dateutil.parser.parse(date_range[0])
+        if isinstance(date_range[0], str)
+        else date_range[0]
+    )
+    last = (
+        dateutil.parser.parse(date_range[1])
+        if isinstance(date_range[1], str)
+        else date_range[1]
+    )
+    return (last - first).days or 1
+
+
+def build_top_artists_sql(
+    limit: int = 10,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the top-artists query as a single statement. Pure.
+
+    The period total that `percentage` divides by is a scalar subquery rather
+    than a second round trip, so one statement serves a canned query. NULLIF
+    keeps an empty period from raising; the shaper reads NULL back as zero.
+    Note the placeholders are added in the order they appear in the SQL text,
+    which is what the positional form requires.
+    """
+    params = _Params(form)
+    total_conditions = _time_bound_conditions(params, since, until)
+    row_conditions = _time_bound_conditions(params, since, until)
+
+    sql = f"""
+        SELECT
+            artists.id as artist_id,
+            artists.name as artist_name,
+            COUNT(*) as play_count,
+            COUNT(*) * 1.0 / NULLIF((
+                SELECT COUNT(*) FROM plays {_where_clause(total_conditions)}
+            ), 0) * 100 as percentage
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {_where_clause(row_conditions)}
+        GROUP BY artists.id, artists.name
+        ORDER BY play_count DESC
+        LIMIT {params.add("limit", limit)}
+    """
+    return sql, params.values
+
+
+def shape_top_artists(rows, days: int = 1) -> list[dict]:
+    """Shape top-artist rows into ranked dicts. Pure."""
+    return [
+        {
+            "rank": i + 1,
+            "artist_id": row[0],
+            "artist_name": row[1],
+            "play_count": row[2],
+            "percentage": row[3] or 0,
+            "avg_plays_per_day": row[2] / days,
+        }
+        for i, row in enumerate(rows)
+    ]
+
+
 def get_top_artists(
     db: sqlite_utils.Database,
     limit: int = 10,
@@ -1112,86 +1216,71 @@ def get_top_artists(
     Returns:
         List of dicts with artist statistics including rank and percentage
     """
-    conditions = []
-    params = []
+    sql, params = build_top_artists_sql(
+        limit=limit, since=since, until=until, form=SQL_FORM_POSITIONAL
+    )
+    rows = db.execute(sql, params).fetchall()
+    return shape_top_artists(rows, days=_days_in_period(db, since, until))
 
-    if since:
-        conditions.append("plays.timestamp >= ?")
-        params.append(_to_utc_iso(since))
 
-    if until:
-        conditions.append("plays.timestamp <= ?")
-        params.append(_to_utc_iso(until))
-
-    where_clause = ""
-    if conditions:
-        where_clause = "WHERE " + " AND ".join(conditions)
-
-    # First get total plays in period
-    total_query = f"""
-        SELECT COUNT(*) FROM plays {where_clause}
-    """
-    total_plays = db.execute(total_query, params).fetchone()[0]
-
-    # Get top artists
-    query = f"""
-        SELECT
-            artists.id as artist_id,
-            artists.name as artist_name,
-            COUNT(*) as play_count
+# The join chain every play-scoped aggregate walks, shared so the scalar-subquery
+# total and the ranked set cannot drift apart.
+_PLAYS_JOINS = """
         FROM plays
         JOIN tracks ON plays.track_id = tracks.id
         JOIN albums ON tracks.album_id = albums.id
         JOIN artists ON albums.artist_id = artists.id
-        {where_clause}
-        GROUP BY artists.id, artists.name
+"""
+
+
+def build_top_tracks_sql(
+    limit: int = 10,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    artist: Optional[str] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the top-tracks query as a single statement. Pure. See D4."""
+    params = _Params(form)
+
+    def filters():
+        conditions = _time_bound_conditions(params, since, until)
+        conditions += _like_conditions(params, {"artist": ("artists.name", artist)})
+        return _where_clause(conditions)
+
+    total_where = filters()
+    row_where = filters()
+
+    sql = f"""
+        SELECT
+            tracks.id as track_id,
+            tracks.title as track_title,
+            artists.name as artist_name,
+            albums.title as album_title,
+            COUNT(*) as play_count,
+            COUNT(*) * 1.0 / NULLIF((
+                SELECT COUNT(*) {_PLAYS_JOINS} {total_where}
+            ), 0) * 100 as percentage
+        {_PLAYS_JOINS}
+        {row_where}
+        GROUP BY tracks.id, tracks.title, artists.name, albums.title
         ORDER BY play_count DESC
-        LIMIT ?
+        LIMIT {params.add("limit", limit)}
     """
-    params.append(limit)
+    return sql, params.values
 
-    rows = db.execute(query, params).fetchall()
 
-    # Calculate days in period for avg plays/day
-    # Use UTC-aware datetimes to handle timezone-aware since/until values
-    now = datetime.now(timezone.utc)
-    if since and until:
-        # Convert both to UTC-aware datetimes for consistent subtraction
-        if since.tzinfo is None:
-            since = since.astimezone()
-        if until.tzinfo is None:
-            until = until.astimezone()
-        days = (until.astimezone(timezone.utc) - since.astimezone(timezone.utc)).days or 1
-    elif since:
-        if since.tzinfo is None:
-            since = since.astimezone()
-        days = (now - since.astimezone(timezone.utc)).days or 1
-    elif until:
-        if until.tzinfo is None:
-            until = until.astimezone()
-        days = (until.astimezone(timezone.utc) - now).days or 1
-    else:
-        # All time - calculate from first to last play
-        import dateutil.parser
-
-        date_range = db.execute(
-            "SELECT MIN(timestamp), MAX(timestamp) FROM plays"
-        ).fetchone()
-        if date_range[0] and date_range[1]:
-            first = dateutil.parser.parse(date_range[0]) if isinstance(date_range[0], str) else date_range[0]
-            last = dateutil.parser.parse(date_range[1]) if isinstance(date_range[1], str) else date_range[1]
-            days = (last - first).days or 1
-        else:
-            days = 1
-
+def shape_top_tracks(rows) -> list[dict]:
+    """Shape top-track rows into ranked dicts. Pure."""
     return [
         {
             "rank": i + 1,
-            "artist_id": row[0],
-            "artist_name": row[1],
-            "play_count": row[2],
-            "percentage": (row[2] / total_plays * 100) if total_plays > 0 else 0,
-            "avg_plays_per_day": row[2] / days,
+            "track_id": row[0],
+            "track_title": row[1],
+            "artist_name": row[2],
+            "album_title": row[3],
+            "play_count": row[4],
+            "percentage": row[5] or 0,
         }
         for i, row in enumerate(rows)
     ]
@@ -1217,67 +1306,11 @@ def get_top_tracks(
     Returns:
         List of dicts with track statistics including rank and percentage
     """
-    conditions = []
-    params = []
-
-    if since:
-        conditions.append("plays.timestamp >= ?")
-        params.append(_to_utc_iso(since))
-
-    if until:
-        conditions.append("plays.timestamp <= ?")
-        params.append(_to_utc_iso(until))
-
-    if artist:
-        conditions.append("artists.name LIKE ?")
-        params.append(f"%{artist}%")
-
-    where_clause = ""
-    if conditions:
-        where_clause = "WHERE " + " AND ".join(conditions)
-
-    # First get total plays in period
-    total_query = f"""
-        SELECT COUNT(*) FROM plays
-        JOIN tracks ON plays.track_id = tracks.id
-        JOIN albums ON tracks.album_id = albums.id
-        JOIN artists ON albums.artist_id = artists.id
-        {where_clause}
-    """
-    total_plays = db.execute(total_query, params[:]).fetchone()[0]
-
-    # Get top tracks
-    query = f"""
-        SELECT
-            tracks.id as track_id,
-            tracks.title as track_title,
-            artists.name as artist_name,
-            albums.title as album_title,
-            COUNT(*) as play_count
-        FROM plays
-        JOIN tracks ON plays.track_id = tracks.id
-        JOIN albums ON tracks.album_id = albums.id
-        JOIN artists ON albums.artist_id = artists.id
-        {where_clause}
-        GROUP BY tracks.id, tracks.title, artists.name, albums.title
-        ORDER BY play_count DESC
-        LIMIT ?
-    """
-    params.append(limit)
-
-    rows = db.execute(query, params).fetchall()
-    return [
-        {
-            "rank": i + 1,
-            "track_id": row[0],
-            "track_title": row[1],
-            "artist_name": row[2],
-            "album_title": row[3],
-            "play_count": row[4],
-            "percentage": (row[4] / total_plays * 100) if total_plays > 0 else 0,
-        }
-        for i, row in enumerate(rows)
-    ]
+    sql, params = build_top_tracks_sql(
+        limit=limit, since=since, until=until, artist=artist,
+        form=SQL_FORM_POSITIONAL,
+    )
+    return shape_top_tracks(db.execute(sql, params).fetchall())
 
 
 def build_artist_lookup_sql(
@@ -1940,6 +1973,69 @@ def get_tracks_list(
     return shape_tracks_list(db.execute(sql, params).fetchall())
 
 
+def build_top_albums_sql(
+    limit: int = 10,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    artist: Optional[str] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the top-albums query as a single statement. Pure.
+
+    Uses the same corrected grouping as `build_albums_list_sql`:
+    ``albums.artist_id, albums.title COLLATE NOCASE``. Grouping by
+    ``albums.id`` -- as this query previously did -- reports one album held
+    under several synthesized `md5:` ids as several separate top-album rows,
+    splitting its play count across them. The requirement that an album
+    aggregate identify exactly one album has to hold here too, not only in the
+    listing. See design D4.
+    """
+    params = _Params(form)
+
+    def filters():
+        conditions = _time_bound_conditions(params, since, until)
+        conditions += _like_conditions(params, {"artist": ("artists.name", artist)})
+        return _where_clause(conditions)
+
+    total_where = filters()
+    row_where = filters()
+
+    sql = f"""
+        SELECT
+            MAX(albums.id) as album_id,
+            group_concat(DISTINCT albums.id) as album_ids,
+            albums.title as album_title,
+            artists.name as artist_name,
+            COUNT(*) as play_count,
+            COUNT(*) * 1.0 / NULLIF((
+                SELECT COUNT(*) {_PLAYS_JOINS} {total_where}
+            ), 0) * 100 as percentage
+        {_PLAYS_JOINS}
+        {row_where}
+        GROUP BY albums.artist_id, albums.title COLLATE NOCASE
+        ORDER BY play_count DESC
+        LIMIT {params.add("limit", limit)}
+    """
+    return sql, params.values
+
+
+def shape_top_albums(rows) -> list[dict]:
+    """Shape top-album rows into ranked dicts. Pure."""
+    return [
+        {
+            "rank": i + 1,
+            "album_id": row[0],
+            "album_ids": _split_ids(row[1]),
+            "album_title": row[2],
+            "artist_name": row[3],
+            "play_count": row[4],
+            "percentage": row[5] or 0,
+        }
+        for i, row in enumerate(rows)
+    ]
+
+
 def get_top_albums(
     db: sqlite_utils.Database,
     limit: int = 10,
@@ -1960,62 +2056,8 @@ def get_top_albums(
     Returns:
         List of dicts with album statistics including rank and percentage
     """
-    conditions = []
-    params = []
-
-    if since:
-        conditions.append("plays.timestamp >= ?")
-        params.append(_to_utc_iso(since))
-
-    if until:
-        conditions.append("plays.timestamp <= ?")
-        params.append(_to_utc_iso(until))
-
-    if artist:
-        conditions.append("artists.name LIKE ?")
-        params.append(f"%{artist}%")
-
-    where_clause = ""
-    if conditions:
-        where_clause = "WHERE " + " AND ".join(conditions)
-
-    # First get total plays in period
-    total_query = f"""
-        SELECT COUNT(*) FROM plays
-        JOIN tracks ON plays.track_id = tracks.id
-        JOIN albums ON tracks.album_id = albums.id
-        JOIN artists ON albums.artist_id = artists.id
-        {where_clause}
-    """
-    total_plays = db.execute(total_query, params[:]).fetchone()[0]
-
-    # Get top albums
-    query = f"""
-        SELECT
-            albums.id as album_id,
-            albums.title as album_title,
-            artists.name as artist_name,
-            COUNT(*) as play_count
-        FROM plays
-        JOIN tracks ON plays.track_id = tracks.id
-        JOIN albums ON tracks.album_id = albums.id
-        JOIN artists ON albums.artist_id = artists.id
-        {where_clause}
-        GROUP BY albums.id, albums.title, artists.name
-        ORDER BY play_count DESC
-        LIMIT ?
-    """
-    params.append(limit)
-
-    rows = db.execute(query, params).fetchall()
-    return [
-        {
-            "rank": i + 1,
-            "album_id": row[0],
-            "album_title": row[1],
-            "artist_name": row[2],
-            "play_count": row[3],
-            "percentage": (row[3] / total_plays * 100) if total_plays > 0 else 0,
-        }
-        for i, row in enumerate(rows)
-    ]
+    sql, params = build_top_albums_sql(
+        limit=limit, since=since, until=until, artist=artist,
+        form=SQL_FORM_POSITIONAL,
+    )
+    return shape_top_albums(db.execute(sql, params).fetchall())
