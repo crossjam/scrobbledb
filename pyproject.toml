@@ -15,7 +15,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "pylast>=3.1.0",
-    "sqlite-utils>=1.12.1",
+    "sqlite-utils>=4.0",
     "click>=7.0",
     "python-dateutil>=2.8.1",
     "platformdirs>=2.4.0",
@@ -35,6 +35,10 @@ dev = [
     "pytest-cov>=2.8.1",
     "cogapp>=3.4.1",
 ]
+serve = [
+    "datasette>=1.0a39",
+    "datasette-mcp>=0.2",
+]
 
 [project.scripts]
 scrobbledb = "scrobbledb.cli:cli"
@@ -52,10 +56,29 @@ dev = [
     "types-python-dateutil>=2.8.0",
     "pip-audit>=2.0.0",
     "cogapp>=3.4.1",
+    "datasette>=1.0a39",
+    "datasette-mcp>=0.2",
+    "pytest-asyncio>=0.23.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools.package-data]
 scrobbledb = ["default_loguru_config.toml"]
+"scrobbledb.datasette_plugin" = ["*.yaml", "*.json"]
+
+[tool.uv]
+# Security floors for packages nothing in the tree pins, so a future
+# re-resolution cannot silently drop back below a fixed release. Neither is a
+# direct dependency, hence constraints rather than entries in [project]:
+#   pip     - required unpinned by sqlite-utils and datasette (for their
+#             `install` subcommands). CVE-2026-8643 installs entry points
+#             outside the target directory; CVE-2026-13346 mishandles
+#             doubly-encoded index URLs. Fixed in 26.1.2 and 26.2.
+#   msgpack - via cachecontrol, for pip-audit's HTTP cache. CVE-2026-57585 is
+#             an out-of-bounds read crashing a reused Unpacker. Fixed in 1.2.1.
+constraint-dependencies = ["pip>=26.2", "msgpack>=1.2.1"]
 
 [tool.uv.sources]
 loguru-config = { git = "https://github.com/crossjam/loguru-config" }
@@ -114,5 +137,5 @@ cmd = "env PYTHONPATH=src COLUMNS=100 uv run cog -r docs/commands/*.md"
 # Combined QA - run all checks
 [tool.poe.tasks.qa]
 help = "Run all QA checks (lint, type, audit, test)"
-sequence = ["lint", "type", "audit", "test"]
+sequence = ["lint", "type", "test", "audit"]
 ignore_fail = false
