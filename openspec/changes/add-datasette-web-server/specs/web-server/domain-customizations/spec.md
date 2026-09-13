@@ -188,24 +188,43 @@ the scrobbledb database, and SHALL hide internal storage tables from the table l
 - **WHEN** a client browses the `plays` table without specifying a sort
 - **THEN** rows are ordered most recent first
 
-### Requirement: Album aggregates identify exactly one album
+### Requirement: Album aggregates are one row per album and never misattribute an artist
 
 Because roughly half of all album identifiers are synthesized from the album title, the
-same album can exist under several identifiers.
-Aggregating by album SHALL collapse those duplicates without merging albums that merely
-share a title, and every field reported for an aggregated album SHALL describe the same
-album.
+same album can exist under several identifiers; and because an album’s artist is derived
+from its *track* artists, a compilation or DJ mix exists as one identifier per
+contributor. Aggregating by album SHALL collapse both into a single row whose counts
+cover every identifier in the group, and SHALL NOT report any single artist as the
+album’s artist unless that artist owns the whole group.
+
+The schema carries no album-level artist and no compilation marker, so a compilation and
+two distinct albums that merely share a title are indistinguishable.
+Aggregation therefore groups on title and declines to name an artist when the group
+spans several, rather than guessing which contributor owns the album.
 
 #### Scenario: Duplicate identifiers for one album collapse
 
 - **WHEN** a stored query aggregates by album and an album exists under more than one
-  synthesized identifier for the same artist
+  synthesized identifier
 - **THEN** it appears as a single row whose counts cover all of its identifiers
 
-#### Scenario: Albums sharing a title across artists stay separate
+#### Scenario: A compilation is one album, not one album per contributor
 
-- **WHEN** two different artists each have an album with the same title
-- **THEN** they appear as two rows, each attributed to its own artist
+- **WHEN** an album’s tracks are credited to several different artists
+- **THEN** it appears as a single row whose counts cover every contributed track
+- **AND** its artist is reported as `Various Artists` rather than any one contributor
+
+#### Scenario: One artist under several identifiers is still named
+
+- **WHEN** every identifier in an aggregated album’s group resolves to the same artist
+  name, even across different artist identifiers
+- **THEN** that artist is named as the album’s artist rather than `Various Artists`
+
+#### Scenario: No aggregate names an artist that does not own it
+
+- **WHEN** a client reads any aggregated album row
+- **THEN** the reported artist either owns every identifier in the group or is the
+  `Various Artists` sentinel
 
 #### Scenario: Every album aggregate obeys this
 

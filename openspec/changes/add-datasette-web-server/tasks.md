@@ -36,19 +36,19 @@
 - [x] 2.4 Split the search functions `get_albums_by_search`, `get_tracks_by_search` and
   `get_artists_by_search`, keeping the Python-side rapidfuzz re-rank in the shaper;
   verify search behavior is unchanged
-- [x] 2.5 Correct `get_albums_list`’s grouping to
-  `albums.artist_id, albums.title COLLATE NOCASE` and select `artists.name` directly
-  rather than via `MAX()` (design D4); verify albums sharing a title across artists
-  return as separate rows, same-artist duplicate identifiers still collapse, and no row
-  reports an artist that does not own its album id.
-  Against the live database this moves the result from 2,215 rows to ~20,093 and
-  eliminates 909 mismatched rows
-- [x] 2.6 Apply the same corrected grouping to `get_top_albums`, which currently groups
-  by `albums.id, albums.title, artists.name` and therefore reports an album existing
-  under several synthesized ids as several separate top-album rows; verify the 12 alias
-  groups in the live database that have plays merge into one row each, and that the
-  requirement “album aggregates identify exactly one album” now holds for every album
-  aggregate rather than only the listing
+- [x] 2.5 Correct `get_albums_list`’s attribution: group on
+  `albums.title COLLATE NOCASE` so a compilation stays one row (GitHub #47), and derive
+  `artist_name` from the group — the owning artist when the group resolves to one name,
+  `Various Artists` otherwise — instead of an independent `MAX()` (design D4). Verify a
+  DJ mix returns one row, duplicate identifiers collapse, one artist under several ids
+  is still named, and no row reports an artist that does not own its group.
+  Against the live database: 2,215 rows, 972 `Various Artists`, and the 909
+  misattributed rows eliminated
+- [x] 2.6 Apply the same grouping and derived attribution to `get_top_albums`, which
+  grouped by `albums.id, albums.title, artists.name` and therefore split one album’s
+  plays across every identifier it was stored under; verify a DJ mix ranks as a single
+  row with its plays summed, and that the album-aggregate requirement holds for every
+  album aggregate rather than only the listing
 - [x] 2.7 Update the existing album-listing tests to the corrected expectations — this
   is the one deliberate CLI output change in this change, so failures here are the
   intended new behavior, not regressions; verify the full suite passes afterward

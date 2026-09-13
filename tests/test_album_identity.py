@@ -1,17 +1,21 @@
 """
 Tests for album aggregate identity.
 
-An album aggregate row must describe exactly one album by exactly one artist.
-Two distinct failures are possible and both are covered here:
+An album aggregate is one row per album title, and no row may name an artist
+that does not own it. Three failures are possible and all are covered here:
 
-- **Over-merging.** Grouping by title alone merges same-titled albums by
-  different artists, and when ``album_id`` and ``artist_name`` are independent
-  ``MAX()`` aggregates the pair can describe different rows -- so a row reports
-  an artist that does not own the album id beside it.
+- **Fragmentation.** A compilation or DJ mix credits each track to a different
+  artist, so grouping on artist gives one row per contributor -- the complaint
+  in GitHub #47. Such an album must be a single row.
 
 - **Under-merging.** The same album can exist under several synthesized ``md5:``
   ids. Those must collapse into one row, with ``album_ids`` carrying the whole
-  alias group, because that group is what the row's counts describe.
+  group, because that group is what the row's counts describe.
+
+- **False attribution.** The original defect: ``album_id`` and ``artist_name``
+  were independent ``MAX()`` aggregates, so a row could name an artist that did
+  not own the album id beside it (909 rows against the live database). A merged
+  row must either name the single owning artist or decline to name one.
 
 See design D4 of the add-datasette-web-server change.
 """
@@ -25,6 +29,7 @@ import sqlite_utils
 from click.testing import CliRunner
 
 from scrobbledb import domain_queries
+from scrobbledb.domain_queries import VARIOUS_ARTISTS
 from scrobbledb.commands import albums as albums_cmd
 
 
@@ -114,13 +119,24 @@ def _rows(path):
         db.close()
 
 
-def test_same_title_different_artists_stay_separate(alias_db):
-    """Two artists' identically titled albums are two rows, not one."""
+def test_same_title_across_artists_merges_without_naming_one(alias_db):
+    """
+    One title spanning several artists is one row, credited to nobody in
+    particular.
+
+    This is the deliberate trade recorded in design D4: a compilation and two
+    genuinely distinct same-titled albums are indistinguishable in this schema,
+    so both merge. What must not happen is the row picking one of the artists
+    and presenting it as the album's own.
+    """
     hits = [r for r in _rows(alias_db) if r["album_title"].lower() == "greatest hits"]
 
-    assert len(hits) == 2
-    assert {r["artist_name"] for r in hits} == {"Artist Alpha", "Artist Zulu"}
-    assert {r["album_id"] for r in hits} == {"zzz-hits", "aaa-hits"}
+    assert len(hits) == 1
+    row = hits[0]
+    assert row["artist_name"] == VARIOUS_ARTISTS
+    assert set(row["album_ids"]) == {"zzz-hits", "aaa-hits"}
+    # Specifically not the old behavior, where MAX() picked a real artist.
+    assert row["artist_name"] not in ("Artist Alpha", "Artist Zulu")
 
 
 def test_same_artist_alias_ids_collapse(alias_db):
@@ -136,8 +152,13 @@ def test_same_artist_alias_ids_collapse(alias_db):
     assert row["play_count"] == 2
 
 
-def test_every_row_artist_owns_its_album_id(alias_db):
-    """No row may report an artist that does not own the album id beside it."""
+def test_no_row_names_an_artist_that_does_not_own_it(alias_db):
+    """
+    A named artist owns every album id in its group; otherwise nobody is named.
+
+    This is the invariant that replaces "every row's artist owns its album_id".
+    It still fails against the original MAX()-pair code, which is the point.
+    """
     db = sqlite_utils.Database(alias_db)
     try:
         owner = dict(
@@ -150,8 +171,12 @@ def test_every_row_artist_owns_its_album_id(alias_db):
     finally:
         db.close()
 
-    mismatched = [r for r in rows if owner[r["album_id"]] != r["artist_name"]]
-    assert mismatched == []
+    for row in rows:
+        owners = {owner[album_id] for album_id in row["album_ids"]}
+        if row["artist_name"] == VARIOUS_ARTISTS:
+            assert len(owners) > 1, f"sentinel used for a single-artist group: {row}"
+        else:
+            assert owners == {row["artist_name"]}, f"false attribution: {row}"
 
 
 def test_album_id_is_a_member_of_album_ids(alias_db):
@@ -203,3 +228,177 @@ def test_expand_lists_as_many_tracks_as_track_count_claims(runner, alias_db):
 
     for album in json.loads(result.output):
         assert len(album["tracks"]) == album["track_count"]
+
+
+@pytest.fixture
+def dj_mix_db():
+    """
+    A DJ mix in the shape GitHub #47 reported: one album title whose tracks are
+    each credited to a different artist, so the album has one `albums` row per
+    contributor.
+    """
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    db = sqlite_utils.Database(path)
+
+    db.execute("CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT)")
+    db.execute(
+        "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT, artist_id TEXT)"
+    )
+    db.execute(
+        "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, album_id TEXT)"
+    )
+    db.execute(
+        "CREATE TABLE plays (track_id TEXT, timestamp TEXT,"
+        " PRIMARY KEY (timestamp, track_id))"
+    )
+
+    title = "MK at Ushuaia Ibiza (DJ Mix)"
+    for i in range(8):
+        db["artists"].insert({"id": f"art-{i}", "name": f"Contributor {i}"})
+        db["albums"].insert(
+            {"id": f"md5:mix{i}", "title": title, "artist_id": f"art-{i}"}
+        )
+        db["tracks"].insert(
+            {"id": f"trk-{i}", "title": f"Mixed Track {i}", "album_id": f"md5:mix{i}"}
+        )
+        db["plays"].insert(
+            {"track_id": f"trk-{i}", "timestamp": f"2026-02-16T01:0{i}:00+00:00"}
+        )
+
+    yield path, title
+
+    db.close()
+    if os.path.exists(path):
+        os.unlink(path)
+
+
+def test_dj_mix_is_one_row_not_one_per_contributor(dj_mix_db):
+    """
+    Regression test for GitHub #47.
+
+    The listing showed a DJ mix as one row per contributing artist, which made
+    `albums list` unusable for anyone whose library contains mixes. It must be a
+    single row whose counts cover the whole mix.
+    """
+    path, title = dj_mix_db
+    db = sqlite_utils.Database(path)
+    try:
+        rows = domain_queries.get_albums_list(db, sort="recent")
+    finally:
+        db.close()
+
+    assert len(rows) == 1, f"#47 regression: {len(rows)} rows for one DJ mix"
+    row = rows[0]
+    assert row["album_title"] == title
+    assert row["artist_name"] == VARIOUS_ARTISTS
+    assert row["track_count"] == 8
+    assert row["play_count"] == 8
+    assert len(row["album_ids"]) == 8
+
+
+def test_dj_mix_ranks_as_one_album_in_top_albums(dj_mix_db):
+    """
+    The same must hold for the ranking, or a heavily played mix is ranked below
+    albums it actually outplays because its count is split.
+    """
+    path, title = dj_mix_db
+    db = sqlite_utils.Database(path)
+    try:
+        rows = domain_queries.get_top_albums(db, limit=10)
+    finally:
+        db.close()
+
+    assert len(rows) == 1
+    assert rows[0]["play_count"] == 8
+    assert rows[0]["artist_name"] == VARIOUS_ARTISTS
+    assert rows[0]["percentage"] == 100.0
+
+
+def test_dj_mix_expands_to_every_contributed_track(runner, dj_mix_db):
+    """`--expand` on a merged mix lists all of its tracks, not one."""
+    path, _title = dj_mix_db
+    result = runner.invoke(
+        albums_cmd.albums,
+        ["list", "--database", path, "--format", "json", "--expand"],
+    )
+    assert result.exit_code == 0
+
+    albums = json.loads(result.output)
+    assert len(albums) == 1
+    assert len(albums[0]["tracks"]) == 8 == albums[0]["track_count"]
+
+
+@pytest.fixture
+def duplicate_artist_db():
+    """
+    One album whose two identifiers are attributed to two *different artist
+    ids carrying the same name* -- the common shape when an artist exists both
+    under a MusicBrainz id and a synthesized `md5:` one.
+    """
+    fd, path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    db = sqlite_utils.Database(path)
+
+    db.execute("CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT)")
+    db.execute(
+        "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT, artist_id TEXT)"
+    )
+    db.execute(
+        "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, album_id TEXT)"
+    )
+    db.execute(
+        "CREATE TABLE plays (track_id TEXT, timestamp TEXT,"
+        " PRIMARY KEY (timestamp, track_id))"
+    )
+
+    db["artists"].insert_all(
+        [
+            {"id": "mbid-shadow", "name": "DJ Shadow"},
+            {"id": "md5:shadow", "name": "DJ Shadow"},
+        ]
+    )
+    db["albums"].insert_all(
+        [
+            {"id": "alb-1", "title": "Endtroducing", "artist_id": "mbid-shadow"},
+            {"id": "md5:alb2", "title": "Endtroducing", "artist_id": "md5:shadow"},
+        ]
+    )
+    db["tracks"].insert_all(
+        [
+            {"id": "trk-1", "title": "Building Steam", "album_id": "alb-1"},
+            {"id": "trk-2", "title": "Midnight", "album_id": "md5:alb2"},
+        ]
+    )
+    db["plays"].insert_all(
+        [
+            {"track_id": "trk-1", "timestamp": "2024-01-01T12:00:00+00:00"},
+            {"track_id": "trk-2", "timestamp": "2024-01-02T12:00:00+00:00"},
+        ]
+    )
+
+    yield path
+
+    db.close()
+    if os.path.exists(path):
+        os.unlink(path)
+
+
+def test_one_artist_under_several_ids_is_still_named(duplicate_artist_db):
+    """
+    The sentinel means "many artists", not "many artist ids".
+
+    Counting distinct artist ids instead of names mislabels an album that
+    plainly belongs to one artist -- 19 such albums in the live database,
+    "Endtroducing (Deluxe Edition)" among them.
+    """
+    db = sqlite_utils.Database(duplicate_artist_db)
+    try:
+        rows = domain_queries.get_albums_list(db)
+    finally:
+        db.close()
+
+    assert len(rows) == 1
+    assert rows[0]["artist_name"] == "DJ Shadow"
+    assert rows[0]["artist_name"] != VARIOUS_ARTISTS
+    assert set(rows[0]["album_ids"]) == {"alb-1", "md5:alb2"}

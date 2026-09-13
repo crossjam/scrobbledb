@@ -215,30 +215,58 @@ treated as a regression net.
 With `artist_id` in the grouping, `artists.name` is functionally dependent and can be
 selected directly instead of via `MAX()`, which removes the mismatch at its source.
 
-#### Measured consequence: compilations fragment, and that is the correct reading
+#### Resolved: group on title, and decline to name an artist when the group spans several
 
-Verifying 2.6 against the live database turned up an effect this design did not call
-out. `albums.artist_id` is derived from the *track* artist, so a compilation has one
-album row per contributing artist.
-“Mushroom Jazz 7” exists as **16 album rows under 16 different artist ids** — Tommy
-Largo, Jazz Spastiks, Slakah The Beatchild, and so on — all with the identical title.
+The first pass of this correction grouped on `albums.artist_id, albums.title COLLATE
+NOCASE`. That removed the false attribution but regressed **GitHub #47**, which was
+filed with a screenshot of a DJ mix occupying ten rows of `albums list` — because
+`albums.artist_id` is derived from the *track* artist, so a compilation has one album
+row per contributor.
+“Mushroom Jazz 7” exists under 16 artist ids; the live library is full of DJ mixes
+shaped this way.
 
-Under the old title-only grouping those 16 collapsed into a single row, attributed to
-whichever artist won `MAX(artists.name)`. That looked tidy and was wrong: the row
-reported one arbitrary contributor as the album’s artist.
-Under the corrected grouping they stay 16 rows, and the two that genuinely share an
-artist merge — Tommy Largo’s `md5:` id and MBID `099f044a…` combine to 76 plays, which
-is the merge task 2.6 exists to produce.
+Both groupings were wrong, in opposite directions:
 
-So the correction is behaving as specified: album identity is artist plus title, and for
-a compilation that legitimately means several rows.
-But it is a **larger user-visible change than “2,215 rows becomes 20,093” suggests** — a
-compilation that used to occupy one line in `albums list` and `stats top-albums` now
-occupies one line per contributing artist.
-That is the honest representation of what the schema stores; collapsing compilations
-back into one album would require an album-level artist the data model does not have, or
-an “is compilation” notion it also lacks.
-Out of scope here, and worth its own issue rather than a silent workaround.
+| Grouping | #47 | Attribution |
+| --- | --- | --- |
+| title only, `MAX(artists.name)` (original) | one row ✓ | 909 rows name an artist that does not own the album id beside it ✗ |
+| `artist_id` + title (first pass) | one row per contributor ✗ | never misattributes ✓ |
+
+The schema offers no way to tell a compilation from two distinct albums sharing a title
+— there is no album-level artist and no compilation marker, and a compilation’s rows are
+linked by nothing but the title.
+Measured: 991 titles are held by more than one artist, 881 of them with roughly one
+track per album row (compilation shape) and 110 with more; the sentinel title
+`(unknown album)` spans 339 artists.
+No threshold separates these cleanly.
+
+So the resolution is to group on **title alone** and fix the attribution instead, since
+the attribution was the actual defect:
+
+```sql
+CASE WHEN COUNT(DISTINCT artists.name COLLATE NOCASE) = 1
+     THEN MIN(artists.name) ELSE 'Various Artists' END AS artist_name
+```
+
+A merged row either names the one artist that owns the whole group or names nobody.
+It never picks a contributor and presents it as the album’s artist.
+
+**Counting names rather than artist ids is deliberate.** The same artist commonly exists
+under both an MBID and a synthesized `md5:` id, and counting ids reports “Various
+Artists” for albums that plainly belong to one artist — 19 of them against the live
+database, including “Endtroducing (Deluxe Edition)”.
+
+Measured outcome: 20,124 albums aggregate to **2,215 rows** (restoring #47’s grouping),
+**972** of them reported as `Various Artists`, **zero** attribution defects, and every
+album id accounted for in exactly one group.
+
+*The residual cost, accepted deliberately:* two genuinely distinct albums that share a
+title merge into one `Various Artists` row.
+That is the price of a schema with no album-level artist, and it is the quieter failure
+— a row that declines to name an artist is honest about its uncertainty, where naming
+one contributor of a 16-artist mix is not.
+`album_ids` carries the whole group and `albums list --expand` reaches the per-artist
+detail, so nothing is lost, only aggregated.
 
 *Alternative rejected:* a separate SQL catalog in the plugin with parity tests against
 the CLI. Smaller blast radius, but it duplicates every query and the parity tests only

@@ -56,6 +56,30 @@ _NO_LIMIT = -1
 # Entity lookups fetch one extra row so an ambiguous match is detectable.
 _LOOKUP_LIMIT = 2
 
+# Reported as an aggregated album's artist when the album's tracks span more
+# than one artist -- a compilation or DJ mix. Album aggregates group on title
+# alone so such an album stays one row (GitHub #47); naming any single
+# contributor as the album's artist would be the false attribution that
+# grouping on artist_id was introduced to remove, so the aggregate declines to
+# name one instead. The per-artist detail is still reachable through
+# `album_ids` and `albums list --expand`.
+VARIOUS_ARTISTS = "Various Artists"
+
+# Resolves an aggregated album's artist: the owning artist when the group has
+# exactly one, the sentinel otherwise. MIN() is safe in the single-artist case
+# because every row in the group then carries that one name.
+#
+# Counts distinct *names*, not artist ids, on purpose. The same artist often
+# exists under several ids -- an MBID and a synthesized `md5:` one -- and
+# counting ids would report "Various Artists" for an album that plainly belongs
+# to one artist. Measured against the live database, counting ids mislabels 19
+# albums this way, including "Endtroducing (Deluxe Edition)".
+_AGGREGATE_ARTIST_NAME = f"""CASE
+                WHEN COUNT(DISTINCT artists.name COLLATE NOCASE) = 1
+                    THEN MIN(artists.name)
+                ELSE '{VARIOUS_ARTISTS}'
+            END"""
+
 
 class _Params:
     """
@@ -849,16 +873,20 @@ def build_albums_list_sql(
     """
     Build the album listing query. Pure: touches no database.
 
-    Groups by ``albums.artist_id, albums.title COLLATE NOCASE`` so a row
-    describes exactly one album by one artist. The previous grouping was on
-    title alone, which merged same-titled albums by different artists and --
-    because ``album_id`` and ``artist_name`` were independent ``MAX()``
-    aggregates -- could report an artist that did not own the album id beside
-    it. With ``artist_id`` in the grouping, ``artists.name`` is functionally
-    dependent and is selected directly, removing the mismatch at its source.
+    Groups by ``albums.title COLLATE NOCASE`` so one album is one row even when
+    its tracks are credited to many artists, which is the shape of a
+    compilation or DJ mix (GitHub #47).
+
+    The defect this replaces was not the merge itself but the attribution:
+    ``album_id`` and ``artist_name`` used to be independent ``MAX()``
+    aggregates, so a row could name an artist that did not own the album id
+    beside it -- 909 such rows against the live database. Here ``artist_name``
+    is derived from the group: the owning artist when the group has exactly
+    one, and ``VARIOUS_ARTISTS`` when it spans several. No row names an artist
+    that does not own the album.
 
     ``album_id`` remains a single stable representative for linking;
-    ``album_ids`` carries every id in the alias group, which is what the counts
+    ``album_ids`` carries every id in the group, which is what the counts
     beside it actually describe. See design D4.
     """
     params = _Params(form)
@@ -870,7 +898,7 @@ def build_albums_list_sql(
             MAX(albums.id) as album_id,
             group_concat(DISTINCT albums.id) as album_ids,
             albums.title as album_title,
-            artists.name as artist_name,
+            {_AGGREGATE_ARTIST_NAME} as artist_name,
             COUNT(DISTINCT tracks.id) as track_count,
             COUNT(plays.timestamp) as play_count,
             MAX(plays.timestamp) as last_played
@@ -879,7 +907,7 @@ def build_albums_list_sql(
         LEFT JOIN tracks ON tracks.album_id = albums.id
         LEFT JOIN plays ON plays.track_id = tracks.id
         {_where_clause(conditions)}
-        GROUP BY albums.artist_id, albums.title COLLATE NOCASE
+        GROUP BY albums.title COLLATE NOCASE
         HAVING play_count >= {params.add("min_plays", min_plays)}
         ORDER BY {_album_sort_column(sort)} {_sort_direction(order)}
         LIMIT {params.add("limit", limit)}
@@ -1983,13 +2011,12 @@ def build_top_albums_sql(
     """
     Build the top-albums query as a single statement. Pure.
 
-    Uses the same corrected grouping as `build_albums_list_sql`:
-    ``albums.artist_id, albums.title COLLATE NOCASE``. Grouping by
-    ``albums.id`` -- as this query previously did -- reports one album held
-    under several synthesized `md5:` ids as several separate top-album rows,
-    splitting its play count across them. The requirement that an album
-    aggregate identify exactly one album has to hold here too, not only in the
-    listing. See design D4.
+    Uses the same grouping as `build_albums_list_sql`:
+    ``albums.title COLLATE NOCASE``, with the artist derived from the group.
+    Grouping by ``albums.id`` -- as this query previously did -- splits one
+    album's play count across every identifier it was stored under, so a
+    heavily played compilation could be ranked below albums it outplays. The
+    listing and the ranking have to agree on what an album is. See design D4.
     """
     params = _Params(form)
 
@@ -2006,14 +2033,14 @@ def build_top_albums_sql(
             MAX(albums.id) as album_id,
             group_concat(DISTINCT albums.id) as album_ids,
             albums.title as album_title,
-            artists.name as artist_name,
+            {_AGGREGATE_ARTIST_NAME} as artist_name,
             COUNT(*) as play_count,
             COUNT(*) * 1.0 / NULLIF((
                 SELECT COUNT(*) {_PLAYS_JOINS} {total_where}
             ), 0) * 100 as percentage
         {_PLAYS_JOINS}
         {row_where}
-        GROUP BY albums.artist_id, albums.title COLLATE NOCASE
+        GROUP BY albums.title COLLATE NOCASE
         ORDER BY play_count DESC
         LIMIT {params.add("limit", limit)}
     """
