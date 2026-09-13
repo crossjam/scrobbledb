@@ -1,21 +1,21 @@
 ## 1. Dependencies and packaging
 
 - [x] 1.1 Add
-  `[project.optional-dependencies] serve = ["datasette>=1.0a38", "datasette-mcp>=0.2"]`
+  `[project.optional-dependencies] serve = ["datasette>=1.0a39", "datasette-mcp>=0.2"]`
   to `pyproject.toml`; verify `uv sync --extra serve` resolves and
-  `uv run datasette --version` reports 1.0a38 or later
-- [x] 1.2 Add `datasette>=1.0a38`, `datasette-mcp>=0.2` and `pytest-asyncio` to
+  `uv run datasette --version` reports 1.0a39 or later
+- [x] 1.2 Add `datasette>=1.0a39`, `datasette-mcp>=0.2` and `pytest-asyncio` to
   `[dependency-groups] dev`; verify a bare `uv sync` installs them so CI has them
   without the extra
 - [x] 1.3 Add explicit `[tool.setuptools.packages.find] where = ["src"]` (the project
   currently relies on implicit src-layout discovery) and extend
   `[tool.setuptools.package-data]` for the plugin’s config file; verify `uv build`
   produces a wheel containing `scrobbledb/datasette_plugin/` and the config file
-- [x] 1.4 Confirm `datasette` 1.0a38 installs on Python 3.14 (the CI matrix in
+- [x] 1.4 Confirm `datasette` 1.0a39 installs on Python 3.14 (the CI matrix in
   `.github/workflows/qa.yml` covers 3.13 and 3.14); if it does not, record the
   constraint and plan to gate serve tests with `pytest.importorskip("datasette")` rather
   than pinning the project back
-- [x] 1.5 Per design D9, confirm against the installed 1.0a38 whether table/column
+- [x] 1.5 Per design D9, confirm against the installed 1.0a39 whether table/column
   descriptions go in the `Datasette(metadata=...)` argument or the `config=` argument in
   the 1.0 config split; write the finding into `design.md` and use it in task 6.1
 
@@ -248,7 +248,7 @@
 - [ ] 8.3 Add an explicit authorization check to every tool before it executes, per
   design D11, since `Database.execute()` performs no permission checks of its own;
   verify a caller lacking `execute-sql` is refused by each tool
-- [ ] 8.4 Confirm the 1.0a38 authorization API shape (`datasette.allowed(...)` and the
+- [ ] 8.4 Confirm the 1.0a39 authorization API shape (`datasette.allowed(...)` and the
   `DatabaseResource` import path used by `datasette-mcp` 0.2) against the installed
   alpha rather than assuming it; record the confirmed form in `design.md` D11
 - [ ] 8.5 Give every tool a description and a typed input schema marking optional

@@ -26,7 +26,7 @@ plugin, so the generic tools become scrobbledb-aware.
   `127.0.0.1` by default, opens the database **read-only** (deliberately not immutable —
   see design D7), and imports `datasette` lazily inside the command body so
   `scrobbledb --help` and the cog docs build keep working without the extra installed.
-- **New optional `serve` extra** (`datasette>=1.0a38`, `datasette-mcp>=0.2`) under
+- **New optional `serve` extra** (`datasette>=1.0a39`, `datasette-mcp>=0.2`) under
   `[project.optional-dependencies]`, plus the same packages in the `dev` dependency
   group so `uv sync` and CI can exercise them.
 - **New in-repo Datasette plugin** at `src/scrobbledb/datasette_plugin/`, registered
@@ -131,7 +131,7 @@ with an actionable install hint rather than an ImportError traceback.
 - `docs/cli.md`, `README.md`, new `docs/commands/serve.md`.
 
 **Dependencies**
-- `datasette>=1.0a38` — alpha line, chosen deliberately for the `datasette.yaml` config
+- `datasette>=1.0a39` — alpha line, chosen deliberately for the `datasette.yaml` config
   format and the `datasette.allowed()` / `DatabaseResource` permissions API that
   `datasette-mcp` targets natively.
   Alpha churn is an accepted risk.

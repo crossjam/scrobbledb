@@ -392,7 +392,7 @@ raise. Mitigation: `register_mcp_tools` lives in its own module
 This is also what makes the “MCP support not installed → server still starts, prints how
 to enable it” scenario work.
 
-### D9: Target Datasette 1.0a38, and verify the alpha surface at implementation time
+### D9: Target Datasette 1.0a39, and verify the alpha surface at implementation time
 
 Chosen for the `datasette.yaml` config format and the `datasette.allowed()` /
 `DatabaseResource` permissions API that `datasette-mcp` 0.2 targets natively.
@@ -402,8 +402,22 @@ across 0.65 and 1.0a, so the bulk of the plugin is insulated from the alpha.
 
 #### Verified against the installed alpha (task group 1)
 
-`datasette>=1.0a38` resolves to **1.0a39**, and `datasette-mcp` to **0.2**. Both install
-and import on **Python 3.14.0** as well as 3.13, so the CI matrix needs no
+The floor is **`datasette>=1.0a39`**, not the `1.0a38` this section originally named.
+1.0a39 and its stable-branch twin 0.65.4, both released 2026-09-11, are the
+[September security releases](https://datasette.io/blog/2026/september-security-releases/);
+1.0a38 is affected and must not be resolvable.
+The fixes are directly relevant to what this change builds: table and view permission
+checks now honor SQLite’s case-insensitive names, viewing an FTS index table now checks
+permission on the table it draws from, FTS index detection uses parameterized SQL and
+treats wildcards in table names literally, `sqlite_stat1`–`sqlite_stat4` are denied by
+default, and extension loading is disabled after any `--load-extension` arguments are
+processed (which group 5 relies on).
+
+`datasette-mcp` resolves to **0.2** and pulls `mcp` **2.2.0**, clear of every published
+advisory for the SDK — the most recent, GHSA-vj7q-gjh5-988w, tops out at `< 1.28.1`.
+`starlette` 1.6.0 and `uvicorn` 0.52.4 likewise sit above every advisory range.
+
+Both install and import on **Python 3.14.0** as well as 3.13, so the CI matrix needs no
 `pytest.importorskip("datasette")` gate and the project is not pinned back.
 
 **The 1.0 config split, settled empirically — descriptions stay in `metadata=`.**
@@ -433,15 +447,19 @@ Task 6.1 ships the two concerns as the two things 1.0 natively loads from a conf
 directory, `metadata.yaml` and `datasette.yaml`, and passes them to the matching
 constructor argument.
 
-**Transitive dependency consequence.** `datasette` 1.0a3x requires `sqlite-utils>=4.0`,
-while this project declares `sqlite-utils>=1.12.1` and was previously resolving to 3.39.
-Because task 1.2 puts `datasette` in the `dev` dependency group, a bare `uv sync` now
-pins **sqlite-utils 4.2.1** for every developer and for CI, not just for serve users.
-The existing suite passes unchanged on 4.2.1 (247 passed), so nothing is broken, but the
-project’s declared floor of `>=1.12.1` no longer describes any environment that is
-actually exercised. Raising the core floor is deliberately **not** done here — it is a
-change to the core package’s install surface, outside this change’s scope — but it is
-recorded so the decision is made on purpose rather than by resolver accident.
+**The core `sqlite-utils` floor moves to 4.0.** `datasette` 1.0a3x requires
+`sqlite-utils>=4.0`, while this project declared `>=1.12.1` and was resolving to 3.39.
+Because task 1.2 puts `datasette` in the `dev` dependency group, a bare `uv sync` pins
+sqlite-utils 4.x for every developer and for CI, not just for serve users — so the old
+floor described an environment nobody actually ran.
+Rather than leave the declaration lying, the core dependency is raised to
+**`sqlite-utils>=4.0`**, which is both datasette’s own floor and a verified one: the
+suite passes on a forced `sqlite-utils==4.0` install (247 passed) as well as on the
+resolved 4.2.1.
+
+This does raise the core package’s install surface — `scrobbledb` no longer installs
+against sqlite-utils 3.x for anyone, including users who never touch `serve`. That is
+the intended trade: the 3.x path was already untested in practice.
 
 ### D10: `--analytics` extends the existing `index` command; `serve` only warns
 
@@ -472,10 +490,10 @@ A test asserts that each registered tool is refused when the actor lacks `execut
 so a tool shipped without its check fails the suite rather than silently reaching the
 database.
 
-*Exact 1.0a38 API to verify at implementation time:* `datasette-mcp` 0.2 imports
+*Exact 1.0a39 API to verify at implementation time:* `datasette-mcp` 0.2 imports
 `DatabaseResource` from `datasette.resources` and calls `datasette.allowed(...)`, with a
 `hasattr(datasette, "allowed")` fallback to `permission_allowed(...)` for 0.65. Since
-this design targets 1.0a38 only, the fallback is unnecessary, but the resource class and
+this design targets 1.0a39 only, the fallback is unnecessary, but the resource class and
 argument order must be confirmed against the installed alpha rather than assumed.
 
 *Alternative rejected:* routing tools through
@@ -489,14 +507,14 @@ scrobbledb ever grows real multi-user auth.
 
 ## Risks / Trade-offs
 
-- **Datasette 1.0 alpha churn** → Pin `datasette>=1.0a38` and keep the plugin on hooks
+- **Datasette 1.0 alpha churn** → Pin `datasette>=1.0a39` and keep the plugin on hooks
   stable across 0.65/1.0a (`prepare_connection`, `canned_queries`). The only
   alpha-specific surface is the constructor’s metadata/config split, isolated to one
   call site in `serve.py`.
-- **`datasette` 1.0a38 may not support Python 3.14, which is in the CI matrix** → Verify
-  before wiring CI. If unsupported, gate the serve tests on
-  `pytest.importorskip("datasette")` so the 3.14 job stays green rather than pinning the
-  whole project back.
+- ~~**`datasette` 1.0a38 may not support Python 3.14, which is in the CI matrix**~~ →
+  **Retired in task group 1.** 1.0a39 and `datasette-mcp` 0.2 install and import on
+  Python 3.14.0, so no `pytest.importorskip("datasette")` gate is needed and the project
+  is not pinned back. See the verification notes under D9.
 - **`pm.register` is process-global; leaking it breaks unrelated tests** → Mandatory
   `pm.unregister` teardown fixture, following the `reset_logger` precedent at
   `tests/test_logging.py:36-43`.

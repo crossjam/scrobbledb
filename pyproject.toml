@@ -15,7 +15,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "pylast>=3.1.0",
-    "sqlite-utils>=1.12.1",
+    "sqlite-utils>=4.0",
     "click>=7.0",
     "python-dateutil>=2.8.1",
     "platformdirs>=2.4.0",
@@ -36,7 +36,7 @@ dev = [
     "cogapp>=3.4.1",
 ]
 serve = [
-    "datasette>=1.0a38",
+    "datasette>=1.0a39",
     "datasette-mcp>=0.2",
 ]
 
@@ -56,7 +56,7 @@ dev = [
     "types-python-dateutil>=2.8.0",
     "pip-audit>=2.0.0",
     "cogapp>=3.4.1",
-    "datasette>=1.0a38",
+    "datasette>=1.0a39",
     "datasette-mcp>=0.2",
     "pytest-asyncio>=0.23.0",
 ]
