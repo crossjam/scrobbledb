@@ -35,6 +35,10 @@ dev = [
     "pytest-cov>=2.8.1",
     "cogapp>=3.4.1",
 ]
+serve = [
+    "datasette>=1.0a38",
+    "datasette-mcp>=0.2",
+]
 
 [project.scripts]
 scrobbledb = "scrobbledb.cli:cli"
@@ -52,10 +56,17 @@ dev = [
     "types-python-dateutil>=2.8.0",
     "pip-audit>=2.0.0",
     "cogapp>=3.4.1",
+    "datasette>=1.0a38",
+    "datasette-mcp>=0.2",
+    "pytest-asyncio>=0.23.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.setuptools.package-data]
 scrobbledb = ["default_loguru_config.toml"]
+"scrobbledb.datasette_plugin" = ["*.yaml", "*.json"]
 
 [tool.uv.sources]
 loguru-config = { git = "https://github.com/crossjam/loguru-config" }

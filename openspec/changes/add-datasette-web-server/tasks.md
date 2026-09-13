@@ -1,23 +1,23 @@
 ## 1. Dependencies and packaging
 
-- [ ] 1.1 Add
+- [x] 1.1 Add
   `[project.optional-dependencies] serve = ["datasette>=1.0a38", "datasette-mcp>=0.2"]`
   to `pyproject.toml`; verify `uv sync --extra serve` resolves and
   `uv run datasette --version` reports 1.0a38 or later
-- [ ] 1.2 Add `datasette>=1.0a38`, `datasette-mcp>=0.2` and `pytest-asyncio` to
+- [x] 1.2 Add `datasette>=1.0a38`, `datasette-mcp>=0.2` and `pytest-asyncio` to
   `[dependency-groups] dev`; verify a bare `uv sync` installs them so CI has them
   without the extra
-- [ ] 1.3 Add explicit `[tool.setuptools.packages.find] where = ["src"]` (the project
+- [x] 1.3 Add explicit `[tool.setuptools.packages.find] where = ["src"]` (the project
   currently relies on implicit src-layout discovery) and extend
   `[tool.setuptools.package-data]` for the plugin’s config file; verify `uv build`
   produces a wheel containing `scrobbledb/datasette_plugin/` and the config file
-- [ ] 1.4 Confirm `datasette` 1.0a38 installs on Python 3.14 (the CI matrix in
+- [x] 1.4 Confirm `datasette` 1.0a38 installs on Python 3.14 (the CI matrix in
   `.github/workflows/qa.yml` covers 3.13 and 3.14); if it does not, record the
   constraint and plan to gate serve tests with `pytest.importorskip("datasette")` rather
   than pinning the project back
-- [ ] 1.5 Per design D9, confirm against the installed 1.0a38 whether table/column
+- [x] 1.5 Per design D9, confirm against the installed 1.0a38 whether table/column
   descriptions go in the `Datasette(metadata=...)` argument or the `config=` argument in
-  the 1.0 config split; write the finding into `design.md` and use it in task 5.1
+  the 1.0 config split; write the finding into `design.md` and use it in task 6.1
 
 ## 2. Refactor domain_queries.py into builders and shapers
 
@@ -175,10 +175,14 @@
 
 ## 6. Datasette metadata and configuration
 
-- [ ] 6.1 Ship a packaged config/metadata file describing `artists`, `albums`, `tracks`
-  and `plays` with table and column descriptions, loaded via
-  `importlib.resources.files(...)` following the `ensure_default_log_config` precedent
-  at `cli.py:100-113`; verify the descriptions render on each table page
+- [ ] 6.1 Ship two packaged files per the D9 finding — `metadata.yaml` carrying the
+  table `description` and per-column `columns` descriptions for `artists`, `albums`,
+  `tracks` and `plays`, and `datasette.yaml` carrying the config-side keys used by
+  6.2–6.4 — loaded via `importlib.resources.files(...)` following the
+  `ensure_default_log_config` precedent at `cli.py:100-113` and passed to the matching
+  `Datasette(metadata=..., config=...)` arguments; verify the descriptions render on
+  each table page, and do not route them through `config=`, where 1.0a39 ignores them
+  silently
 - [ ] 6.2 Hide the five FTS shadow tables (`tracks_fts_data`, `_idx`, `_content`,
   `_docsize`, `_config`); verify the database index page lists exactly the four scrobble
   tables plus `tracks_fts`

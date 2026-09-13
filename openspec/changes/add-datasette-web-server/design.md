@@ -397,16 +397,51 @@ to enable it” scenario work.
 Chosen for the `datasette.yaml` config format and the `datasette.allowed()` /
 `DatabaseResource` permissions API that `datasette-mcp` 0.2 targets natively.
 
-The specific 1.0a constructor arguments this design leans on — `metadata=` for table and
-column descriptions versus `config=` for settings, and whether descriptions moved wholly
-out of `metadata` in the 1.0 config split — **must be confirmed against the installed
-1.0a38** rather than assumed.
-This is called out as an explicit first task, not left as an open question, because
-getting it wrong is a compile-time failure with an obvious fix, not a design change: the
-catalog and the hooks are unaffected either way.
-
 `prepare_connection`, `canned_queries`, `startup` and `register_routes` are stable
 across 0.65 and 1.0a, so the bulk of the plugin is insulated from the alpha.
+
+#### Verified against the installed alpha (task group 1)
+
+`datasette>=1.0a38` resolves to **1.0a39**, and `datasette-mcp` to **0.2**. Both install
+and import on **Python 3.14.0** as well as 3.13, so the CI matrix needs no
+`pytest.importorskip("datasette")` gate and the project is not pinned back.
+
+**The 1.0 config split, settled empirically — descriptions stay in `metadata=`.**
+`Datasette.__init__` calls `move_table_config(metadata, config)`, which relocates
+exactly these keys out of `metadata` and into `config`:
+
+```
+hidden, sort, sort_desc, size, sortable_columns,
+label_column, facets, fts_table, fts_pk, searchmode
+```
+
+Everything else a table entry can carry — `description`, `description_html`, `title`,
+and the per-column `columns` mapping — is left in `metadata` and is read from there by
+the table view. Passing a description through `config=` instead renders **nothing**: it
+is silently ignored, with no warning and no error.
+So the split this change must follow is
+
+| Goes in `metadata=` | Goes in `config=` |
+| --- | --- |
+| table `description`, per-column `columns` descriptions (task 6.1) | hidden FTS shadow tables (6.2), default `sort_desc` and `facets` on `plays` (6.3) |
+|  | `settings.sql_time_limit_ms` (6.4) |
+
+`move_table_config` means a single combined file passed as `metadata=` happens to work
+today, because the config-shaped keys get migrated out for you.
+**Do not rely on it** — it is a 0.x compatibility shim inside an alpha.
+Task 6.1 ships the two concerns as the two things 1.0 natively loads from a config
+directory, `metadata.yaml` and `datasette.yaml`, and passes them to the matching
+constructor argument.
+
+**Transitive dependency consequence.** `datasette` 1.0a3x requires `sqlite-utils>=4.0`,
+while this project declares `sqlite-utils>=1.12.1` and was previously resolving to 3.39.
+Because task 1.2 puts `datasette` in the `dev` dependency group, a bare `uv sync` now
+pins **sqlite-utils 4.2.1** for every developer and for CI, not just for serve users.
+The existing suite passes unchanged on 4.2.1 (247 passed), so nothing is broken, but the
+project’s declared floor of `>=1.12.1` no longer describes any environment that is
+actually exercised. Raising the core floor is deliberately **not** done here — it is a
+change to the core package’s install surface, outside this change’s scope — but it is
+recorded so the decision is made on purpose rather than by resolver accident.
 
 ### D10: `--analytics` extends the existing `index` command; `serve` only warns
 
