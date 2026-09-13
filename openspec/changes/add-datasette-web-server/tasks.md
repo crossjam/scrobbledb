@@ -28,12 +28,12 @@
 - [x] 2.2 Apply the same split to `get_plays_with_filters`, `get_artists_with_stats`,
   `get_albums_list` and `get_tracks_list`; verify `tests/test_list_sorting.py` and
   `tests/test_plays_unify.py` pass unchanged
-- [ ] 2.3 Apply the same split to `get_artist_details`, `get_artist_top_tracks`,
+- [x] 2.3 Apply the same split to `get_artist_details`, `get_artist_top_tracks`,
   `get_artist_albums`, `get_album_details`, `get_album_tracks`, `get_track_details` and
   `get_track_plays`; verify the CLI suites pass unchanged.
   Fix `get_track_plays`’ f-string-interpolated `limit` (`domain_queries.py:1374`) to a
   bound parameter while in there
-- [ ] 2.4 Split the search functions `get_albums_by_search`, `get_tracks_by_search` and
+- [x] 2.4 Split the search functions `get_albums_by_search`, `get_tracks_by_search` and
   `get_artists_by_search`, keeping the Python-side rapidfuzz re-rank in the shaper;
   verify search behavior is unchanged
 - [x] 2.5 Correct `get_albums_list`’s grouping to

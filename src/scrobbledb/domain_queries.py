@@ -53,6 +53,9 @@ SQL_FORM_POSITIONAL = "positional"
 # "LIMIT :limit" unconditionally and still express "no limit".
 _NO_LIMIT = -1
 
+# Entity lookups fetch one extra row so an ambiguous match is detectable.
+_LOOKUP_LIMIT = 2
+
 
 class _Params:
     """
@@ -129,6 +132,22 @@ def _like_conditions(params: _Params, filters: dict) -> list[str]:
             )
         elif value:
             conditions.append(f"{column} LIKE {params.add(name, f'%{value}%')}")
+    return conditions
+
+
+def _exact_conditions(params: _Params, filters: dict) -> list[str]:
+    """
+    Render optional exact-match filters, following `_like_conditions`.
+
+    `filters` maps parameter name to (column, value).
+    """
+    conditions = []
+    for name, (column, value) in filters.items():
+        if params.form == SQL_FORM_NAMED:
+            placeholder = params.add(name, value or "")
+            conditions.append(f"({placeholder} = '' OR {column} = {placeholder})")
+        elif value:
+            conditions.append(f"{column} = {params.add(name, value)}")
     return conditions
 
 
@@ -659,6 +678,53 @@ def get_artists_with_stats(
     return shape_artists_with_stats(db.execute(sql, params).fetchall())
 
 
+def build_albums_by_search_sql(
+    query: str = "",
+    artist: Optional[str] = None,
+    limit: int = 20,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the album title search query. Pure: touches no database."""
+    params = _Params(form)
+    conditions = _like_conditions(
+        params,
+        {"query": ("albums.title", query), "artist": ("artists.name", artist)},
+    )
+    sql = f"""
+        SELECT
+            albums.id as album_id,
+            albums.title as album_title,
+            artists.name as artist_name,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM albums
+        JOIN artists ON albums.artist_id = artists.id
+        LEFT JOIN tracks ON tracks.album_id = albums.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        {_where_clause(conditions)}
+        GROUP BY albums.id, albums.title, artists.name
+        ORDER BY play_count DESC, albums.title ASC
+        LIMIT {params.add("limit", limit)}
+    """
+    return sql, params.values
+
+
+def shape_albums_by_search(rows) -> list[dict]:
+    """Shape album search rows into dicts. Pure."""
+    return [
+        {
+            "album_id": row[0],
+            "album_title": row[1],
+            "artist_name": row[2],
+            "track_count": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
+
+
 def get_albums_by_search(
     db: sqlite_utils.Database,
     query: str,
@@ -677,41 +743,57 @@ def get_albums_by_search(
     Returns:
         List of dicts with album information
     """
-    conditions = ["albums.title LIKE ?"]
-    params = [f"%{query}%"]
+    sql, params = build_albums_by_search_sql(
+        query=query, artist=artist, limit=limit, form=SQL_FORM_POSITIONAL
+    )
+    return shape_albums_by_search(db.execute(sql, params).fetchall())
 
-    if artist:
-        conditions.append("artists.name LIKE ?")
-        params.append(f"%{artist}%")
 
-    where_clause = "WHERE " + " AND ".join(conditions)
-
+def build_tracks_by_search_sql(
+    query: str = "",
+    artist: Optional[str] = None,
+    album: Optional[str] = None,
+    limit: int = 20,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the track title search query. Pure: touches no database."""
+    params = _Params(form)
+    conditions = _like_conditions(
+        params,
+        {
+            "query": ("tracks.title", query),
+            "artist": ("artists.name", artist),
+            "album": ("albums.title", album),
+        },
+    )
     sql = f"""
         SELECT
-            albums.id as album_id,
-            albums.title as album_title,
+            tracks.id as track_id,
+            tracks.title as track_title,
             artists.name as artist_name,
-            COUNT(DISTINCT tracks.id) as track_count,
+            albums.title as album_title,
             COUNT(plays.timestamp) as play_count,
             MAX(plays.timestamp) as last_played
-        FROM albums
+        FROM tracks
+        JOIN albums ON tracks.album_id = albums.id
         JOIN artists ON albums.artist_id = artists.id
-        LEFT JOIN tracks ON tracks.album_id = albums.id
         LEFT JOIN plays ON plays.track_id = tracks.id
-        {where_clause}
-        GROUP BY albums.id, albums.title, artists.name
-        ORDER BY play_count DESC, albums.title ASC
-        LIMIT ?
+        {_where_clause(conditions)}
+        GROUP BY tracks.id, tracks.title, artists.name, albums.title
+        ORDER BY play_count DESC, tracks.title ASC
+        LIMIT {params.add("limit", limit)}
     """
-    params.append(limit)
+    return sql, params.values
 
-    rows = db.execute(sql, params).fetchall()
+
+def shape_tracks_by_search(rows) -> list[dict]:
+    """Shape track search rows into dicts. Pure."""
     return [
         {
-            "album_id": row[0],
-            "album_title": row[1],
+            "track_id": row[0],
+            "track_title": row[1],
             "artist_name": row[2],
-            "track_count": row[3],
+            "album_title": row[3],
             "play_count": row[4],
             "last_played": row[5],
         }
@@ -739,50 +821,11 @@ def get_tracks_by_search(
     Returns:
         List of dicts with track information
     """
-    conditions = ["tracks.title LIKE ?"]
-    params = [f"%{query}%"]
-
-    if artist:
-        conditions.append("artists.name LIKE ?")
-        params.append(f"%{artist}%")
-
-    if album:
-        conditions.append("albums.title LIKE ?")
-        params.append(f"%{album}%")
-
-    where_clause = "WHERE " + " AND ".join(conditions)
-
-    sql = f"""
-        SELECT
-            tracks.id as track_id,
-            tracks.title as track_title,
-            artists.name as artist_name,
-            albums.title as album_title,
-            COUNT(plays.timestamp) as play_count,
-            MAX(plays.timestamp) as last_played
-        FROM tracks
-        JOIN albums ON tracks.album_id = albums.id
-        JOIN artists ON albums.artist_id = artists.id
-        LEFT JOIN plays ON plays.track_id = tracks.id
-        {where_clause}
-        GROUP BY tracks.id, tracks.title, artists.name, albums.title
-        ORDER BY play_count DESC, tracks.title ASC
-        LIMIT ?
-    """
-    params.append(limit)
-
-    rows = db.execute(sql, params).fetchall()
-    return [
-        {
-            "track_id": row[0],
-            "track_title": row[1],
-            "artist_name": row[2],
-            "album_title": row[3],
-            "play_count": row[4],
-            "last_played": row[5],
-        }
-        for row in rows
-    ]
+    sql, params = build_tracks_by_search_sql(
+        query=query, artist=artist, album=album, limit=limit,
+        form=SQL_FORM_POSITIONAL,
+    )
+    return shape_tracks_by_search(db.execute(sql, params).fetchall())
 
 
 def _album_sort_column(sort: str) -> str:
@@ -820,11 +863,7 @@ def build_albums_list_sql(
     """
     params = _Params(form)
     conditions = _like_conditions(params, {"artist": ("artists.name", artist)})
-    if form == SQL_FORM_NAMED:
-        placeholder = params.add("artist_id", artist_id or "")
-        conditions.append(f"({placeholder} = '' OR artists.id = {placeholder})")
-    elif artist_id:
-        conditions.append(f"artists.id = {params.add('artist_id', artist_id)}")
+    conditions += _exact_conditions(params, {"artist_id": ("artists.id", artist_id)})
 
     sql = f"""
         SELECT
@@ -900,6 +939,112 @@ def get_albums_list(
     return shape_albums_list(db.execute(sql, params).fetchall())
 
 
+def build_artist_fts_candidates_sql(
+    query: str = "",
+    limit: int = 20,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the FTS5 candidate query for artist search. Pure: touches no database.
+
+    Over-fetches relative to `limit` because the candidates are re-ranked in
+    Python afterwards, so the final ordering is not the one SQL returns.
+    """
+    params = _Params(form)
+    # FTS5 MATCH expression - a prefix search within the artist_name column.
+    match_expr = params.add("match", f"artist_name:{query}*")
+    sql = f"""
+        SELECT DISTINCT
+            tracks_fts.artist_id,
+            tracks_fts.artist_name
+        FROM tracks_fts
+        WHERE tracks_fts MATCH {match_expr}
+        LIMIT {params.add("limit", limit * 3)}
+    """
+    return sql, params.values
+
+
+def build_artist_like_candidates_sql(
+    query: str = "",
+    limit: int = 20,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the LIKE candidate query for artist search. Pure."""
+    params = _Params(form)
+    conditions = _like_conditions(params, {"query": ("artists.name", query)})
+    sql = f"""
+        SELECT DISTINCT artists.id
+        FROM artists
+        {_where_clause(conditions)}
+        LIMIT {params.add("limit", limit * 2)}
+    """
+    return sql, params.values
+
+
+def build_artist_search_stats_sql(
+    artist_ids=None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the statistics query for a set of candidate artists. Pure.
+
+    The ids are bound as a single JSON array rather than an expanded IN list,
+    so the SQL text does not vary with the number of candidates.
+    """
+    params = _Params(form)
+    ids_json = json.dumps([str(artist_id) for artist_id in (artist_ids or [])])
+    sql = f"""
+        SELECT
+            artists.id as artist_id,
+            artists.name as artist_name,
+            COUNT(DISTINCT albums.id) as album_count,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM artists
+        LEFT JOIN albums ON albums.artist_id = artists.id
+        LEFT JOIN tracks ON tracks.album_id = albums.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        WHERE artists.id IN (
+            SELECT value FROM json_each({params.add("artist_ids", ids_json)})
+        )
+        GROUP BY artists.id, artists.name
+    """
+    return sql, params.values
+
+
+def shape_artists_by_search(rows, query: str = "", limit: int = 20) -> list[dict]:
+    """
+    Shape candidate artist rows into dicts, re-ranked by fuzzy match. Pure.
+
+    The re-rank stays on this side of the boundary rather than in SQL: SQLite
+    returns the candidate set, rapidfuzz decides the order.
+    """
+    from rapidfuzz import fuzz
+
+    results = [
+        {
+            "artist_id": row[0],
+            "artist_name": row[1],
+            "album_count": row[2],
+            "track_count": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
+
+    for result in results:
+        result["fuzzy_score"] = fuzz.partial_ratio(
+            query.lower(), result["artist_name"].lower()
+        )
+
+    # Sort by fuzzy score (descending), then by play count
+    results.sort(key=lambda x: (x["fuzzy_score"], x["play_count"]), reverse=True)
+
+    return results[:limit]
+
+
 def get_artists_by_search(
     db: sqlite_utils.Database,
     query: str,
@@ -916,24 +1061,12 @@ def get_artists_by_search(
     Returns:
         List of dicts with artist information
     """
-    from rapidfuzz import fuzz
-
     # First try FTS5 search if the tracks_fts table exists
     if "tracks_fts" in db.table_names():
-        # Use FTS5 to search artist names
-        fts_sql = """
-            SELECT DISTINCT
-                tracks_fts.artist_id,
-                tracks_fts.artist_name
-            FROM tracks_fts
-            WHERE tracks_fts MATCH ?
-            LIMIT ?
-        """
-        # FTS5 MATCH query - search in artist_name field
-        fts_query = f"artist_name:{query}*"
-        fts_results = db.execute(fts_sql, [fts_query, limit * 3]).fetchall()
-
-        # Get unique artist IDs from FTS results
+        fts_sql, fts_params = build_artist_fts_candidates_sql(
+            query=query, limit=limit, form=SQL_FORM_POSITIONAL
+        )
+        fts_results = db.execute(fts_sql, fts_params).fetchall()
         artist_ids = list(set(row[0] for row in fts_results))
     else:
         # Fallback to LIKE search if FTS5 not available
@@ -941,61 +1074,24 @@ def get_artists_by_search(
 
     # If FTS5 didn't return enough results, supplement with LIKE search
     if len(artist_ids) < limit:
-        like_sql = """
-            SELECT DISTINCT artists.id
-            FROM artists
-            WHERE artists.name LIKE ?
-            LIMIT ?
-        """
-        like_results = db.execute(like_sql, [f"%{query}%", limit * 2]).fetchall()
-        like_ids = [row[0] for row in like_results]
+        like_sql, like_params = build_artist_like_candidates_sql(
+            query=query, limit=limit, form=SQL_FORM_POSITIONAL
+        )
+        like_ids = [row[0] for row in db.execute(like_sql, like_params).fetchall()]
 
         # Combine FTS and LIKE results, removing duplicates
         all_ids = artist_ids + [aid for aid in like_ids if aid not in artist_ids]
-        artist_ids = all_ids[:limit * 2]
+        artist_ids = all_ids[: limit * 2]
 
     if not artist_ids:
         return []
 
-    # Get full artist details with play statistics
-    placeholders = ",".join("?" * len(artist_ids))
-    sql = f"""
-        SELECT
-            artists.id as artist_id,
-            artists.name as artist_name,
-            COUNT(DISTINCT albums.id) as album_count,
-            COUNT(DISTINCT tracks.id) as track_count,
-            COUNT(plays.timestamp) as play_count,
-            MAX(plays.timestamp) as last_played
-        FROM artists
-        LEFT JOIN albums ON albums.artist_id = artists.id
-        LEFT JOIN tracks ON tracks.album_id = albums.id
-        LEFT JOIN plays ON plays.track_id = tracks.id
-        WHERE artists.id IN ({placeholders})
-        GROUP BY artists.id, artists.name
-    """
-
-    rows = db.execute(sql, artist_ids).fetchall()
-    results = [
-        {
-            "artist_id": row[0],
-            "artist_name": row[1],
-            "album_count": row[2],
-            "track_count": row[3],
-            "play_count": row[4],
-            "last_played": row[5],
-        }
-        for row in rows
-    ]
-
-    # Use rapidfuzz to score and rank results
-    for result in results:
-        result["fuzzy_score"] = fuzz.partial_ratio(query.lower(), result["artist_name"].lower())
-
-    # Sort by fuzzy score (descending), then by play count
-    results.sort(key=lambda x: (x["fuzzy_score"], x["play_count"]), reverse=True)
-
-    return results[:limit]
+    stats_sql, stats_params = build_artist_search_stats_sql(
+        artist_ids, form=SQL_FORM_POSITIONAL
+    )
+    return shape_artists_by_search(
+        db.execute(stats_sql, stats_params).fetchall(), query=query, limit=limit
+    )
 
 
 def get_top_artists(
@@ -1184,6 +1280,63 @@ def get_top_tracks(
     ]
 
 
+def build_artist_lookup_sql(
+    artist_id=None,
+    artist_name: Optional[str] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the artist resolution query. Pure: touches no database.
+
+    Returns up to `_LOOKUP_LIMIT` rows so a caller can detect an ambiguous
+    name match rather than silently taking the first.
+    """
+    params = _Params(form)
+    conditions = _exact_conditions(params, {"artist_id": ("id", artist_id)})
+    conditions += _like_conditions(params, {"artist_name": ("name", artist_name)})
+    sql = f"""
+        SELECT id, name
+        FROM artists
+        {_where_clause(conditions)}
+        LIMIT {_LOOKUP_LIMIT}
+    """
+    return sql, params.values
+
+
+def build_artist_stats_sql(
+    artist_id=None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the per-artist statistics query. Pure: touches no database."""
+    params = _Params(form)
+    sql = f"""
+        SELECT
+            COUNT(*) as play_count,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(DISTINCT albums.id) as album_count,
+            MIN(plays.timestamp) as first_played,
+            MAX(plays.timestamp) as last_played
+        FROM plays
+        JOIN tracks ON plays.track_id = tracks.id
+        JOIN albums ON tracks.album_id = albums.id
+        WHERE albums.artist_id = {params.add("artist_id", artist_id)}
+    """
+    return sql, params.values
+
+
+def shape_artist_details(artist_row, stats) -> dict:
+    """Combine an artist row and its statistics row into a dict. Pure."""
+    return {
+        "artist_id": artist_row[0],
+        "artist_name": artist_row[1],
+        "play_count": stats[0],
+        "track_count": stats[1],
+        "album_count": stats[2],
+        "first_played": stats[3],
+        "last_played": stats[4],
+    }
+
+
 def get_artist_details(
     db: sqlite_utils.Database,
     artist_id: Optional[int] = None,
@@ -1200,61 +1353,68 @@ def get_artist_details(
     Returns:
         Dict with artist details or None if not found
     """
-    if artist_id:
-        # Exact match by ID
-        artist_row = db.execute(
-            "SELECT id, name FROM artists WHERE id = ?",
-            [artist_id],
-        ).fetchone()
-    elif artist_name:
-        # Partial match by name
-        matches = db.execute(
-            "SELECT id, name FROM artists WHERE name LIKE ? LIMIT 2",
-            [f"%{artist_name}%"],
-        ).fetchall()
-
-        if not matches:
-            return None
-        if len(matches) > 1:
-            # Multiple matches - caller should handle disambiguation
-            raise ValueError(f"Multiple artists match '{artist_name}'")
-
-        artist_row = matches[0]
-    else:
+    if not artist_id and not artist_name:
         raise ValueError("Either artist_id or artist_name must be provided")
 
-    if not artist_row:
+    # An id resolves on its own; a name is only consulted when no id was given.
+    sql, params = build_artist_lookup_sql(
+        artist_id=artist_id,
+        artist_name=None if artist_id else artist_name,
+        form=SQL_FORM_POSITIONAL,
+    )
+    matches = db.execute(sql, params).fetchall()
+    if not matches:
         return None
+    if len(matches) > 1:
+        # Multiple matches - caller should handle disambiguation
+        raise ValueError(f"Multiple artists match '{artist_name}'")
+    artist_row = matches[0]
 
-    artist_id = artist_row[0]
-    artist_name = artist_row[1]
+    stats_sql, stats_params = build_artist_stats_sql(
+        artist_id=artist_row[0], form=SQL_FORM_POSITIONAL
+    )
+    return shape_artist_details(
+        artist_row, db.execute(stats_sql, stats_params).fetchone()
+    )
 
-    # Get statistics
-    stats = db.execute(
-        """
+
+def build_artist_top_tracks_sql(
+    artist_id=None,
+    limit: int = 10,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build an artist's top-tracks query. Pure: touches no database."""
+    params = _Params(form)
+    sql = f"""
         SELECT
+            tracks.id as track_id,
+            tracks.title as track_title,
+            albums.title as album_title,
             COUNT(*) as play_count,
-            COUNT(DISTINCT tracks.id) as track_count,
-            COUNT(DISTINCT albums.id) as album_count,
-            MIN(plays.timestamp) as first_played,
             MAX(plays.timestamp) as last_played
         FROM plays
         JOIN tracks ON plays.track_id = tracks.id
         JOIN albums ON tracks.album_id = albums.id
-        WHERE albums.artist_id = ?
-        """,
-        [artist_id],
-    ).fetchone()
+        WHERE albums.artist_id = {params.add("artist_id", artist_id)}
+        GROUP BY tracks.id, tracks.title, albums.title
+        ORDER BY play_count DESC
+        LIMIT {params.add("limit", limit)}
+    """
+    return sql, params.values
 
-    return {
-        "artist_id": artist_id,
-        "artist_name": artist_name,
-        "play_count": stats[0],
-        "track_count": stats[1],
-        "album_count": stats[2],
-        "first_played": stats[3],
-        "last_played": stats[4],
-    }
+
+def shape_artist_top_tracks(rows) -> list[dict]:
+    """Shape an artist's top-track rows into dicts. Pure."""
+    return [
+        {
+            "track_id": row[0],
+            "track_title": row[1],
+            "album_title": row[2],
+            "play_count": row[3],
+            "last_played": row[4],
+        }
+        for row in rows
+    ]
 
 
 def get_artist_top_tracks(
@@ -1273,28 +1433,42 @@ def get_artist_top_tracks(
     Returns:
         List of dicts with track information
     """
-    query = """
-        SELECT
-            tracks.id as track_id,
-            tracks.title as track_title,
-            albums.title as album_title,
-            COUNT(*) as play_count,
-            MAX(plays.timestamp) as last_played
-        FROM plays
-        JOIN tracks ON plays.track_id = tracks.id
-        JOIN albums ON tracks.album_id = albums.id
-        WHERE albums.artist_id = ?
-        GROUP BY tracks.id, tracks.title, albums.title
-        ORDER BY play_count DESC
-        LIMIT ?
-    """
+    sql, params = build_artist_top_tracks_sql(
+        artist_id=artist_id, limit=limit, form=SQL_FORM_POSITIONAL
+    )
+    return shape_artist_top_tracks(db.execute(sql, params).fetchall())
 
-    rows = db.execute(query, [artist_id, limit]).fetchall()
+
+def build_artist_albums_sql(
+    artist_id=None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build an artist's album listing query. Pure: touches no database."""
+    params = _Params(form)
+    sql = f"""
+        SELECT
+            albums.id as album_id,
+            albums.title as album_title,
+            COUNT(DISTINCT tracks.id) as track_count,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM albums
+        LEFT JOIN tracks ON tracks.album_id = albums.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        WHERE albums.artist_id = {params.add("artist_id", artist_id)}
+        GROUP BY albums.id, albums.title
+        ORDER BY play_count DESC
+    """
+    return sql, params.values
+
+
+def shape_artist_albums(rows) -> list[dict]:
+    """Shape an artist's album rows into dicts. Pure."""
     return [
         {
-            "track_id": row[0],
-            "track_title": row[1],
-            "album_title": row[2],
+            "album_id": row[0],
+            "album_title": row[1],
+            "track_count": row[2],
             "play_count": row[3],
             "last_played": row[4],
         }
@@ -1316,32 +1490,69 @@ def get_artist_albums(
     Returns:
         List of dicts with album information
     """
-    query = """
+    sql, params = build_artist_albums_sql(
+        artist_id=artist_id, form=SQL_FORM_POSITIONAL
+    )
+    return shape_artist_albums(db.execute(sql, params).fetchall())
+
+
+def build_album_lookup_sql(
+    album_id=None,
+    album_title: Optional[str] = None,
+    artist_name: Optional[str] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the album resolution query. Pure: touches no database."""
+    params = _Params(form)
+    conditions = _exact_conditions(params, {"album_id": ("albums.id", album_id)})
+    conditions += _like_conditions(
+        params,
+        {
+            "album_title": ("albums.title", album_title),
+            "artist_name": ("artists.name", artist_name),
+        },
+    )
+    sql = f"""
+        SELECT albums.id, albums.title, artists.name
+        FROM albums
+        JOIN artists ON albums.artist_id = artists.id
+        {_where_clause(conditions)}
+        LIMIT {_LOOKUP_LIMIT}
+    """
+    return sql, params.values
+
+
+def build_album_stats_sql(
+    album_id=None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the per-album statistics query. Pure: touches no database."""
+    params = _Params(form)
+    sql = f"""
         SELECT
-            albums.id as album_id,
-            albums.title as album_title,
             COUNT(DISTINCT tracks.id) as track_count,
             COUNT(plays.timestamp) as play_count,
+            MIN(plays.timestamp) as first_played,
             MAX(plays.timestamp) as last_played
         FROM albums
         LEFT JOIN tracks ON tracks.album_id = albums.id
         LEFT JOIN plays ON plays.track_id = tracks.id
-        WHERE albums.artist_id = ?
-        GROUP BY albums.id, albums.title
-        ORDER BY play_count DESC
+        WHERE albums.id = {params.add("album_id", album_id)}
     """
+    return sql, params.values
 
-    rows = db.execute(query, [artist_id]).fetchall()
-    return [
-        {
-            "album_id": row[0],
-            "album_title": row[1],
-            "track_count": row[2],
-            "play_count": row[3],
-            "last_played": row[4],
-        }
-        for row in rows
-    ]
+
+def shape_album_details(album_row, stats) -> dict:
+    """Combine an album row and its statistics row into a dict. Pure."""
+    return {
+        "album_id": album_row[0],
+        "album_title": album_row[1],
+        "artist_name": album_row[2],
+        "track_count": stats[0],
+        "play_count": stats[1],
+        "first_played": stats[2],
+        "last_played": stats[3],
+    }
 
 
 def get_album_details(
@@ -1362,83 +1573,30 @@ def get_album_details(
     Returns:
         Dict with album details or None if not found
     """
-    if album_id:
-        # Exact match by ID
-        album_row = db.execute(
-            """
-            SELECT albums.id, albums.title, artists.name
-            FROM albums
-            JOIN artists ON albums.artist_id = artists.id
-            WHERE albums.id = ?
-            """,
-            [album_id],
-        ).fetchone()
-    elif album_title:
-        # Partial match by title
-        if artist_name:
-            matches = db.execute(
-                """
-                SELECT albums.id, albums.title, artists.name
-                FROM albums
-                JOIN artists ON albums.artist_id = artists.id
-                WHERE albums.title LIKE ? AND artists.name LIKE ?
-                LIMIT 2
-                """,
-                [f"%{album_title}%", f"%{artist_name}%"],
-            ).fetchall()
-        else:
-            matches = db.execute(
-                """
-                SELECT albums.id, albums.title, artists.name
-                FROM albums
-                JOIN artists ON albums.artist_id = artists.id
-                WHERE albums.title LIKE ?
-                LIMIT 2
-                """,
-                [f"%{album_title}%"],
-            ).fetchall()
-
-        if not matches:
-            return None
-        if len(matches) > 1:
-            raise ValueError(f"Multiple albums match '{album_title}'")
-
-        album_row = matches[0]
-    else:
+    if not album_id and not album_title:
         raise ValueError("Either album_id or album_title must be provided")
 
-    if not album_row:
+    # An id resolves on its own; the title and artist filters are only
+    # consulted when no id was given.
+    sql, params = build_album_lookup_sql(
+        album_id=album_id,
+        album_title=None if album_id else album_title,
+        artist_name=None if album_id else artist_name,
+        form=SQL_FORM_POSITIONAL,
+    )
+    matches = db.execute(sql, params).fetchall()
+    if not matches:
         return None
+    if len(matches) > 1:
+        raise ValueError(f"Multiple albums match '{album_title}'")
+    album_row = matches[0]
 
-    album_id = album_row[0]
-    album_title = album_row[1]
-    artist_name = album_row[2]
-
-    # Get statistics
-    stats = db.execute(
-        """
-        SELECT
-            COUNT(DISTINCT tracks.id) as track_count,
-            COUNT(plays.timestamp) as play_count,
-            MIN(plays.timestamp) as first_played,
-            MAX(plays.timestamp) as last_played
-        FROM albums
-        LEFT JOIN tracks ON tracks.album_id = albums.id
-        LEFT JOIN plays ON plays.track_id = tracks.id
-        WHERE albums.id = ?
-        """,
-        [album_id],
-    ).fetchone()
-
-    return {
-        "album_id": album_id,
-        "album_title": album_title,
-        "artist_name": artist_name,
-        "track_count": stats[0],
-        "play_count": stats[1],
-        "first_played": stats[2],
-        "last_played": stats[3],
-    }
+    stats_sql, stats_params = build_album_stats_sql(
+        album_id=album_row[0], form=SQL_FORM_POSITIONAL
+    )
+    return shape_album_details(
+        album_row, db.execute(stats_sql, stats_params).fetchone()
+    )
 
 
 def build_album_tracks_sql(
@@ -1518,6 +1676,65 @@ def get_album_tracks_for_ids(
     return shape_album_tracks(db.execute(sql, params).fetchall())
 
 
+def build_track_lookup_sql(
+    track_id=None,
+    track_title: Optional[str] = None,
+    artist_name: Optional[str] = None,
+    album_title: Optional[str] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the track resolution query. Pure: touches no database."""
+    params = _Params(form)
+    conditions = _exact_conditions(params, {"track_id": ("tracks.id", track_id)})
+    conditions += _like_conditions(
+        params,
+        {
+            "track_title": ("tracks.title", track_title),
+            "artist_name": ("artists.name", artist_name),
+            "album_title": ("albums.title", album_title),
+        },
+    )
+    sql = f"""
+        SELECT tracks.id, tracks.title, artists.name, albums.title
+        FROM tracks
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        {_where_clause(conditions)}
+        LIMIT {_LOOKUP_LIMIT}
+    """
+    return sql, params.values
+
+
+def build_track_stats_sql(
+    track_id=None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the per-track statistics query. Pure: touches no database."""
+    params = _Params(form)
+    sql = f"""
+        SELECT
+            COUNT(*) as play_count,
+            MIN(timestamp) as first_played,
+            MAX(timestamp) as last_played
+        FROM plays
+        WHERE track_id = {params.add("track_id", track_id)}
+    """
+    return sql, params.values
+
+
+def shape_track_details(track_row, stats) -> dict:
+    """Combine a track row and its statistics row into a dict. Pure."""
+    return {
+        "track_id": track_row[0],
+        "track_title": track_row[1],
+        "artist_name": track_row[2],
+        "album_title": track_row[3],
+        "play_count": stats[0],
+        "first_played": stats[1],
+        "last_played": stats[2],
+    }
+
+
 def get_track_details(
     db: sqlite_utils.Database,
     track_id: Optional[int] = None,
@@ -1538,84 +1755,58 @@ def get_track_details(
     Returns:
         Dict with track details or None if not found
     """
-    if track_id:
-        # Exact match by ID
-        track_row = db.execute(
-            """
-            SELECT tracks.id, tracks.title, artists.name, albums.title
-            FROM tracks
-            JOIN albums ON tracks.album_id = albums.id
-            JOIN artists ON albums.artist_id = artists.id
-            WHERE tracks.id = ?
-            """,
-            [track_id],
-        ).fetchone()
-    elif track_title:
-        # Build conditions
-        conditions = ["tracks.title LIKE ?"]
-        params = [f"%{track_title}%"]
-
-        if artist_name:
-            conditions.append("artists.name LIKE ?")
-            params.append(f"%{artist_name}%")
-
-        if album_title:
-            conditions.append("albums.title LIKE ?")
-            params.append(f"%{album_title}%")
-
-        where_clause = " AND ".join(conditions)
-
-        matches = db.execute(
-            f"""
-            SELECT tracks.id, tracks.title, artists.name, albums.title
-            FROM tracks
-            JOIN albums ON tracks.album_id = albums.id
-            JOIN artists ON albums.artist_id = artists.id
-            WHERE {where_clause}
-            LIMIT 2
-            """,
-            params,
-        ).fetchall()
-
-        if not matches:
-            return None
-        if len(matches) > 1:
-            raise ValueError(f"Multiple tracks match '{track_title}'")
-
-        track_row = matches[0]
-    else:
+    if not track_id and not track_title:
         raise ValueError("Either track_id or track_title must be provided")
 
-    if not track_row:
+    # An id resolves on its own; the title and disambiguating filters are only
+    # consulted when no id was given.
+    sql, params = build_track_lookup_sql(
+        track_id=track_id,
+        track_title=None if track_id else track_title,
+        artist_name=None if track_id else artist_name,
+        album_title=None if track_id else album_title,
+        form=SQL_FORM_POSITIONAL,
+    )
+    matches = db.execute(sql, params).fetchall()
+    if not matches:
         return None
+    if len(matches) > 1:
+        raise ValueError(f"Multiple tracks match '{track_title}'")
+    track_row = matches[0]
 
-    track_id = track_row[0]
-    track_title = track_row[1]
-    artist_name = track_row[2]
-    album_title = track_row[3]
+    stats_sql, stats_params = build_track_stats_sql(
+        track_id=track_row[0], form=SQL_FORM_POSITIONAL
+    )
+    return shape_track_details(
+        track_row, db.execute(stats_sql, stats_params).fetchone()
+    )
 
-    # Get statistics
-    stats = db.execute(
-        """
-        SELECT
-            COUNT(*) as play_count,
-            MIN(timestamp) as first_played,
-            MAX(timestamp) as last_played
+
+def build_track_plays_sql(
+    track_id=None,
+    limit: Optional[int] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build a track's play-history query. Pure: touches no database.
+
+    The limit was previously interpolated into the SQL text; it is bound here.
+    A falsy limit means unbounded, preserving the previous behavior.
+    """
+    params = _Params(form)
+    sql = f"""
+        SELECT timestamp
         FROM plays
-        WHERE track_id = ?
-        """,
-        [track_id],
-    ).fetchone()
+        WHERE track_id = {params.add("track_id", track_id)}
+        ORDER BY timestamp DESC
+        {_limit_clause(params, limit or None)}
+    """
+    return sql, params.values
 
-    return {
-        "track_id": track_id,
-        "track_title": track_title,
-        "artist_name": artist_name,
-        "album_title": album_title,
-        "play_count": stats[0],
-        "first_played": stats[1],
-        "last_played": stats[2],
-    }
+
+def shape_track_plays(rows) -> list[dict]:
+    """Shape play-history rows into dicts. Pure."""
+    return [{"timestamp": row[0]} for row in rows]
 
 
 def get_track_plays(
@@ -1634,18 +1825,77 @@ def get_track_plays(
     Returns:
         List of dicts with play timestamps
     """
-    limit_clause = f"LIMIT {limit}" if limit else ""
+    sql, params = build_track_plays_sql(
+        track_id=track_id, limit=limit, form=SQL_FORM_POSITIONAL
+    )
+    return shape_track_plays(db.execute(sql, params).fetchall())
 
-    query = f"""
-        SELECT timestamp
-        FROM plays
-        WHERE track_id = ?
-        ORDER BY timestamp DESC
-        {limit_clause}
+
+def _track_sort_column(sort: str) -> str:
+    """Map a track sort key to its ORDER BY column."""
+    if sort == "name":
+        return "tracks.title"
+    if sort == "recent":
+        return "last_played"
+    return "play_count"
+
+
+def build_tracks_list_sql(
+    artist: Optional[str] = None,
+    artist_id: Optional[str] = None,
+    album: Optional[str] = None,
+    album_id: Optional[str] = None,
+    limit: int = 50,
+    sort: str = "plays",
+    order: str = "desc",
+    min_plays: int = 0,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """Build the track listing query. Pure: touches no database."""
+    params = _Params(form)
+    conditions = _like_conditions(
+        params,
+        {"artist": ("artists.name", artist), "album": ("albums.title", album)},
+    )
+    conditions += _exact_conditions(
+        params,
+        {"artist_id": ("artists.id", artist_id), "album_id": ("albums.id", album_id)},
+    )
+
+    sql = f"""
+        SELECT
+            tracks.id as track_id,
+            tracks.title as track_title,
+            artists.name as artist_name,
+            albums.title as album_title,
+            COUNT(plays.timestamp) as play_count,
+            MAX(plays.timestamp) as last_played
+        FROM tracks
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+        LEFT JOIN plays ON plays.track_id = tracks.id
+        {_where_clause(conditions)}
+        GROUP BY tracks.id, tracks.title, artists.name, albums.title
+        HAVING play_count >= {params.add("min_plays", min_plays)}
+        ORDER BY {_track_sort_column(sort)} {_sort_direction(order)}
+        LIMIT {params.add("limit", limit)}
     """
+    return sql, params.values
 
-    rows = db.execute(query, [track_id]).fetchall()
-    return [{"timestamp": row[0]} for row in rows]
+
+def shape_tracks_list(rows) -> list[dict]:
+    """Shape track listing rows into dicts. Pure."""
+    return [
+        {
+            "track_id": row[0],
+            "track_title": row[1],
+            "artist_name": row[2],
+            "album_title": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
+        }
+        for row in rows
+    ]
 
 
 def get_tracks_list(
@@ -1676,71 +1926,18 @@ def get_tracks_list(
     Returns:
         List of dicts with track information
     """
-    conditions = []
-    params = []
-
-    if artist:
-        conditions.append("artists.name LIKE ?")
-        params.append(f"%{artist}%")
-
-    if artist_id:
-        conditions.append("artists.id = ?")
-        params.append(artist_id)
-
-    if album:
-        conditions.append("albums.title LIKE ?")
-        params.append(f"%{album}%")
-
-    if album_id:
-        conditions.append("albums.id = ?")
-        params.append(album_id)
-
-    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
-
-    # Determine sort column
-    if sort == "name":
-        order_by = "tracks.title"
-    elif sort == "recent":
-        order_by = "last_played"
-    else:  # plays
-        order_by = "play_count"
-
-    order_direction = "ASC" if order == "asc" else "DESC"
-
-    sql = f"""
-        SELECT
-            tracks.id as track_id,
-            tracks.title as track_title,
-            artists.name as artist_name,
-            albums.title as album_title,
-            COUNT(plays.timestamp) as play_count,
-            MAX(plays.timestamp) as last_played
-        FROM tracks
-        JOIN albums ON tracks.album_id = albums.id
-        JOIN artists ON albums.artist_id = artists.id
-        LEFT JOIN plays ON plays.track_id = tracks.id
-        {where_clause}
-        GROUP BY tracks.id, tracks.title, artists.name, albums.title
-        HAVING play_count >= ?
-        ORDER BY {order_by} {order_direction}
-        LIMIT ?
-    """
-
-    params.append(min_plays)
-    params.append(limit)
-
-    rows = db.execute(sql, params).fetchall()
-    return [
-        {
-            "track_id": row[0],
-            "track_title": row[1],
-            "artist_name": row[2],
-            "album_title": row[3],
-            "play_count": row[4],
-            "last_played": row[5],
-        }
-        for row in rows
-    ]
+    sql, params = build_tracks_list_sql(
+        artist=artist,
+        artist_id=artist_id,
+        album=album,
+        album_id=album_id,
+        limit=limit,
+        sort=sort,
+        order=order,
+        min_plays=min_plays,
+        form=SQL_FORM_POSITIONAL,
+    )
+    return shape_tracks_list(db.execute(sql, params).fetchall())
 
 
 def get_top_albums(
