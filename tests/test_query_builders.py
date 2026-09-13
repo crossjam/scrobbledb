@@ -369,3 +369,64 @@ def test_blank_min_plays_does_not_filter_every_row():
     assert db.execute(sql, dict(params, min_plays="")).fetchall(), (
         "blank min_plays filtered every row out"
     )
+
+
+# Numeric fallbacks are interpolated into SQL text rather than bound, because a
+# bound parameter cannot serve as a COALESCE default in static SQL. That makes
+# them the one place caller input could reach SQL as text, so they are coerced
+# to integers and refused otherwise.
+_NUMERIC_PARAM_BUILDERS = [
+    ("build_albums_list_sql", "min_plays"),
+    ("build_albums_list_sql", "limit"),
+    ("build_tracks_list_sql", "min_plays"),
+    ("build_artists_with_stats_sql", "min_plays"),
+    ("build_top_artists_sql", "limit"),
+    ("build_top_albums_sql", "limit"),
+    ("build_plays_with_filters_sql", "limit"),
+    ("build_artist_top_tracks_sql", "limit"),
+    ("build_monthly_rollup_sql", "limit"),
+    ("build_track_plays_sql", "limit"),
+]
+
+
+@pytest.mark.parametrize(
+    "builder_name,param",
+    _NUMERIC_PARAM_BUILDERS,
+    ids=[f"{n}:{p}" for n, p in _NUMERIC_PARAM_BUILDERS],
+)
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "0 OR 1=1",
+        "5) UNION SELECT 1,2,3,4,5,6,7 --",
+        "20; DROP TABLE plays",
+        "10 OFFSET 999",
+        "abc",
+    ],
+)
+def test_numeric_params_refuse_non_integers(builder_name, param, payload):
+    """
+    A non-integer numeric parameter is refused, never interpolated.
+
+    The CLI screens these with click's int type, but the builders are shared
+    with the MCP tools and the plugin, where nothing has.
+    """
+    builder = getattr(domain_queries, builder_name)
+    with pytest.raises(ValueError, match=param):
+        builder(**{param: payload})
+
+
+@pytest.mark.parametrize(
+    "builder_name,param",
+    _NUMERIC_PARAM_BUILDERS,
+    ids=[f"{n}:{p}" for n, p in _NUMERIC_PARAM_BUILDERS],
+)
+def test_numeric_params_accept_string_digits(builder_name, param):
+    """
+    Datasette binds even numeric parameters as strings, so digits-as-text must
+    still work -- the refusal above must not break the canned-query path.
+    """
+    builder = getattr(domain_queries, builder_name)
+    sql, params = builder(**{param: "7"})
+    assert ":" + param in sql
+    assert int(params[param]) == 7

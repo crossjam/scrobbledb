@@ -122,12 +122,17 @@ def fmt_ts(ts) -> Optional[str]:
     return domain_format.format_timestamp(ts)
 
 
-#: Registered on every connection, name -> (arity, implementation).
+#: Registered on every connection, name -> (arity, implementation, deterministic).
+#:
+#: `deterministic` asserts SQLite's contract: the same inputs always give the
+#: same answer. Three of these qualify. `parse_when` does not -- it reads the
+#: wall clock, which is the whole point of its cache generation -- so it is
+#: registered without the flag even though that costs the optimizer a hoist.
 SQL_FUNCTIONS = {
-    "parse_when": (1, parse_when),
-    "fuzz_partial_ratio": (2, fuzz_partial_ratio),
-    "month_name": (1, month_name),
-    "fmt_ts": (1, fmt_ts),
+    "parse_when": (1, parse_when, False),
+    "fuzz_partial_ratio": (2, fuzz_partial_ratio, True),
+    "month_name": (1, month_name, True),
+    "fmt_ts": (1, fmt_ts, True),
 }
 
 
@@ -136,17 +141,17 @@ def prepare_connection(conn):
     """
     Register scrobbledb's SQL functions on a Datasette connection.
 
-    Registered `deterministic=True`, which is what keeps a resolved bound
-    stable for the lifetime of a statement. Without it SQLite calls the
-    function once per row: a scan that happens to cross a cache-generation
-    boundary would then compare early rows against one instant and later rows
-    against another, making the result depend on scan order. Measured on a
-    28-row table, the flag takes `parse_when` from 28 invocations to 1.
+    Only the genuinely deterministic functions carry `deterministic=True`.
+    `parse_when` reads the wall clock, so claiming determinism for it would be
+    false, and the flag would not buy what it appears to: measured, it permits
+    a hoist for a single call site with a bound argument (28 invocations to 1)
+    but still yields two resolutions for two call sites and one per row for a
+    column-valued argument. It is an optimizer permission, not a guarantee of
+    single evaluation.
 
-    The claim is accurate rather than convenient: within one statement these
-    functions are pure in their arguments. Across statements SQLite
-    re-evaluates, which is what lets a relative expression pick up a new
-    generation between requests.
+    A canned query that needs one stable bound per statement must therefore say
+    so in SQL -- resolving `parse_when` once in a materialized CTE -- rather
+    than relying on this flag. See design D5.
     """
-    for name, (arity, fn) in SQL_FUNCTIONS.items():
-        conn.create_function(name, arity, fn, deterministic=True)
+    for name, (arity, fn, deterministic) in SQL_FUNCTIONS.items():
+        conn.create_function(name, arity, fn, deterministic=deterministic)

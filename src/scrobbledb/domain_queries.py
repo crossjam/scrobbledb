@@ -201,6 +201,22 @@ def _where_clause(conditions: list[str]) -> str:
     return "WHERE " + " AND ".join(conditions) if conditions else ""
 
 
+def _as_int(value, name: str) -> int:
+    """
+    Coerce a value destined for SQL *text* to an integer, or refuse it.
+
+    `_numeric` interpolates its fallback rather than binding it -- a bound
+    parameter cannot serve as a COALESCE default in static SQL -- so the
+    fallback must never be caller-controlled text. The CLI screens these with
+    click's int type, but the builders are also called from the MCP tools and
+    the plugin, where nothing has.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer, got {value!r}") from None
+
+
 def _numeric(placeholder: str, default) -> str:
     """
     Wrap a placeholder so a blank or string-typed value still behaves as a number.
@@ -233,11 +249,18 @@ def _json_array_param(params: _Params, name: str, values) -> str:
 
 
 def _numeric_param(params: _Params, name: str, value, default=None) -> str:
-    """Bind a numeric parameter, normalized when the form is the named one."""
+    """
+    Bind a numeric parameter, normalized when the form is the named one.
+
+    The bound value is left as supplied, since the CAST handles a string at
+    runtime, but the interpolated fallback is coerced to an integer first --
+    it lands in SQL text, not in a parameter.
+    """
     placeholder = params.add(name, value)
     if params.form != SQL_FORM_NAMED:
         return placeholder
-    return _numeric(placeholder, default if default is not None else value)
+    fallback = default if default is not None else value
+    return _numeric(placeholder, _as_int(fallback, name))
 
 
 def _limit_clause(params: _Params, limit: Optional[int]) -> str:
@@ -248,7 +271,7 @@ def _limit_clause(params: _Params, limit: Optional[int]) -> str:
     mean unbounded, so the SQL string stays static.
     """
     if params.form == SQL_FORM_NAMED:
-        value = _NO_LIMIT if limit is None else limit
+        value = _NO_LIMIT if limit is None else _as_int(limit, "limit")
         return f"LIMIT {_numeric_param(params, 'limit', value, default=value)}"
     if limit is None:
         return ""
@@ -305,8 +328,10 @@ def build_monthly_rollup_sql(
     form: str = SQL_FORM_NAMED,
 ) -> tuple[str, object]:
     """Build the per-month rollup query. Pure: touches no database."""
-    if limit is not None and limit <= 0:
-        raise ValueError("limit must be a positive integer")
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
 
     params = _Params(form)
     where_clause = _where_clause(_time_bound_conditions(params, since, until))
@@ -390,7 +415,11 @@ def build_yearly_rollup_sql(
     """
     params = _Params(form)
     where_clause = _where_clause(_time_bound_conditions(params, since, until))
-    limit_value = None if limit is None or int(limit) <= 0 else int(limit)
+    limit_value = (
+        None
+        if limit is None or _as_int(limit, "limit") <= 0
+        else _as_int(limit, "limit")
+    )
     limit_clause = _limit_clause(params, limit_value)
 
     sql = f"""

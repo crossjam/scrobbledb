@@ -286,6 +286,30 @@ the request path.
 guard must short-circuit before the comparison.
 Both are covered by spec scenarios.
 
+#### A canned query must resolve `parse_when` once, in SQL
+
+`parse_when` reads the wall clock, so it is **not** registered `deterministic=True` —
+claiming otherwise would be false, and the flag does not deliver what it appears to.
+Measured: with the flag set, a single call site with a bound argument is hoisted (28
+invocations to 1), but two call sites still resolve independently and a column-valued
+argument is evaluated once per row.
+It is an optimizer permission, not a guarantee.
+
+So any canned query that needs one stable bound per statement must say so in SQL:
+
+```sql
+WITH bound AS MATERIALIZED (SELECT parse_when(:since) AS since_utc)
+SELECT ... FROM plays, bound
+WHERE (:since = '' OR plays.timestamp >= bound.since_utc)
+```
+
+Verified to resolve exactly once.
+Without it, a statement spanning a cache-generation boundary can compare early rows
+against one instant and later rows against another, making the result depend on scan
+order. Task group 3 owns the canned queries and is where this shape has to be applied;
+the builders themselves bind an already-converted UTC string, so none of them emits
+`parse_when` today.
+
 #### Measured: the guard does defeat the index, so builders emit both forms
 
 Task 2.11 ran `EXPLAIN QUERY PLAN` against the live 48,400-play database.

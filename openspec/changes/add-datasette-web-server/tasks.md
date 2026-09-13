@@ -97,7 +97,10 @@
   executes successfully against the `populated_db` fixture
   (`tests/test_stats.py:47-144`)
 - [ ] 3.3 Verify optional bounds behave correctly through the hook: omitting both covers
-  the full history, supplying both applies an inclusive range on each end
+  the full history, supplying both applies an inclusive range on each end.
+  Resolve `parse_when` once per statement in a `WITH ... AS MATERIALIZED` bound, per
+  design D5 — it is not a deterministic function, so repeated call sites otherwise
+  resolve independently; verify a single resolution per statement
 - [ ] 3.4 Confirm every album aggregate in the shared builders groups by
   `albums.title COLLATE NOCASE` and derives `artist_name` from the group per task 2.5 —
   never by `albums.id`, which fails to collapse synthesized aliases, and never naming a

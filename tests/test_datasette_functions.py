@@ -55,7 +55,7 @@ def test_every_registered_function_is_plain_python():
         "month_name": (3,),
         "fmt_ts": ("2024-01-01T12:00:00+00:00",),
     }
-    for name, (arity, fn) in fns.SQL_FUNCTIONS.items():
+    for name, (arity, fn, _deterministic) in fns.SQL_FUNCTIONS.items():
         args = samples[name]
         assert len(args) == arity, f"{name} declares arity {arity}"
         assert fn(*args) is not None
@@ -452,38 +452,97 @@ async def test_guarded_bound_filters_over_http(registered_plugin, plays_db):
     assert await count("not a date") == 0
 
 
-def test_one_statement_sees_one_resolved_bound(populated_db_conn=None):
+def test_prepare_connection_marks_only_the_deterministic_functions():
     """
-    A relative bound is resolved once per statement, not once per row.
+    The determinism flag is claimed only where it is true.
 
-    Registered non-deterministic, SQLite calls the function per row, so a scan
-    crossing a cache-generation boundary would compare early rows against one
-    instant and later rows against another — a result that depends on scan
-    order. The deterministic flag is what pins it for the statement.
+    `parse_when` reads the wall clock, so asserting determinism for it would be
+    a false claim to SQLite. Checked through `prepare_connection` rather than a
+    locally registered function, so losing or misapplying the flag in
+    production registration fails here.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE rows_ (n INTEGER)")
+    conn.executemany("INSERT INTO rows_ VALUES (?)", [(i,) for i in range(20)])
+
+    calls = {name: [] for name in fns.SQL_FUNCTIONS}
+    wrapped = {}
+    for name, (arity, fn, deterministic) in fns.SQL_FUNCTIONS.items():
+        def make(name=name, fn=fn):
+            def counting(*args):
+                calls[name].append(args)
+                return fn(*args)
+            return counting
+        wrapped[name] = (arity, make(), deterministic)
+
+    original = fns.SQL_FUNCTIONS
+    try:
+        fns.SQL_FUNCTIONS = wrapped
+        fns.prepare_connection(conn)
+    finally:
+        fns.SQL_FUNCTIONS = original
+
+    # A deterministic function with a constant argument may be hoisted out of
+    # the row loop; a non-deterministic one may not be.
+    conn.execute("SELECT COUNT(*) FROM rows_ WHERE month_name(3) IS NOT NULL").fetchone()
+    assert len(calls["month_name"]) == 1, (
+        "month_name is deterministic and should be hoisted; "
+        f"got {len(calls['month_name'])} invocations"
+    )
+
+    conn.execute(
+        "SELECT COUNT(*) FROM rows_ WHERE parse_when('2024-01-01') IS NOT NULL"
+    ).fetchone()
+    assert len(calls["parse_when"]) == 20, (
+        "parse_when must not be registered deterministic - it reads the clock; "
+        f"got {len(calls['parse_when'])} invocations for 20 rows"
+    )
+
+
+def test_a_canned_query_needing_one_bound_must_resolve_it_in_sql():
+    """
+    Documents why the determinism flag is not a substitute for SQL structure.
+
+    Two call sites yield two resolutions and a column-valued argument yields
+    one per row, even when the flag is set, so a query that needs exactly one
+    bound has to resolve it once itself -- e.g. in a materialized CTE.
     """
     conn = sqlite3.connect(":memory:")
     conn.execute("CREATE TABLE plays (timestamp TEXT)")
     conn.executemany(
         "INSERT INTO plays VALUES (?)",
-        [(f"2024-01-{day:02d}T00:00:00+00:00",) for day in range(1, 29)],
+        [(f"2024-01-{day:02d}T00:00:00+00:00",) for day in range(1, 11)],
     )
 
     calls = []
 
     def counting(text):
         calls.append(text)
-        return fns.parse_when(text)
+        return "2024-01-05T00:00:00+00:00"
 
-    # Registered the way prepare_connection registers it.
+    # Even claiming determinism, which production does not for this function.
     conn.create_function("parse_when", 1, counting, deterministic=True)
 
-    sql = (
+    calls.clear()
+    conn.execute(
         "SELECT COUNT(*) FROM plays"
-        " WHERE (:since = '' OR plays.timestamp >= parse_when(:since))"
-    )
-    conn.execute(sql, {"since": "2024-01-10"}).fetchone()
+        " WHERE timestamp >= parse_when(:s) OR timestamp > parse_when(:s)",
+        {"s": "x"},
+    ).fetchone()
+    assert len(calls) == 2, "two call sites resolve independently"
 
-    assert len(calls) == 1, (
-        f"parse_when ran {len(calls)} times for one statement over 28 rows; "
-        "a bound must be resolved once per statement"
-    )
+    calls.clear()
+    conn.execute(
+        "SELECT COUNT(*) FROM plays WHERE timestamp >= parse_when(timestamp)"
+    ).fetchone()
+    assert len(calls) == 10, "a column-valued argument is evaluated per row"
+
+    # Resolving once in a materialized CTE is what actually pins it.
+    calls.clear()
+    conn.execute(
+        "WITH bound AS MATERIALIZED (SELECT parse_when(:s) AS since_utc)"
+        " SELECT COUNT(*) FROM plays, bound"
+        " WHERE timestamp >= bound.since_utc OR timestamp > bound.since_utc",
+        {"s": "x"},
+    ).fetchone()
+    assert len(calls) == 1, "a materialized CTE resolves the bound exactly once"
