@@ -220,7 +220,9 @@ def test_limit_is_bound_not_interpolated():
     get_track_plays previously interpolated it.
     """
     sql, params = domain_queries.build_track_plays_sql(track_id="trk-1", limit=5)
-    assert "LIMIT :limit" in sql
+    # The placeholder is wrapped so a blank or string-typed value from a canned
+    # query still behaves as a number, so match the placeholder, not the clause.
+    assert ":limit" in sql
     assert params["limit"] == 5
     assert "LIMIT 5" not in sql
 
@@ -279,3 +281,172 @@ def test_builders_bind_values_rather_than_embedding_them():
     conn.execute("CREATE TABLE plays (track_id TEXT, timestamp TEXT)")
     assert conn.execute(sql, params).fetchall() == []
     assert conn.execute("SELECT COUNT(*) FROM plays").fetchone()[0] == 0
+
+
+# Datasette hands canned-query parameters to SQLite as strings, and a parameter
+# the user left blank arrives as the empty string. Builders whose named form is
+# destined for a canned query must therefore survive both, or every canned
+# query breaks the moment it is wired up. Blank numerics used to raise
+# "datatype mismatch" on LIMIT and silently filter every row out of a HAVING.
+_BLANK_TOLERANT_EXCEPTIONS = {
+    # A blank FTS match term is not a meaningful query; the search entry's
+    # behavior for an empty term is task 3.6/3.7's concern.
+    "build_artist_fts_candidates_sql",
+}
+
+
+@pytest.mark.parametrize("name,builder", BUILDERS, ids=BUILDER_IDS)
+def test_named_form_survives_blank_string_parameters(name, builder, populated_db):
+    """Every parameter blank, exactly as a canned query with nothing filled in."""
+    if name in _BLANK_TOLERANT_EXCEPTIONS:
+        pytest.skip("blank input is not meaningful for this builder")
+
+    _sql, params = builder(**_EXECUTION_ARGS.get(name, {}))
+    sql, _ = builder(**_EXECUTION_ARGS.get(name, {}))
+    populated_db.execute(sql, {key: "" for key in params}).fetchall()
+
+
+@pytest.mark.parametrize("name,builder", BUILDERS, ids=BUILDER_IDS)
+def test_named_form_survives_string_typed_parameters(name, builder, populated_db):
+    """Every parameter a string, as Datasette binds them even when numeric."""
+    if name in _BLANK_TOLERANT_EXCEPTIONS:
+        pytest.skip("blank input is not meaningful for this builder")
+
+    sql, params = builder(**_EXECUTION_ARGS.get(name, {}))
+    as_strings = {
+        key: ("" if value in ("", None) else str(value))
+        for key, value in params.items()
+    }
+    populated_db.execute(sql, as_strings).fetchall()
+
+
+def test_blank_limit_falls_back_to_the_builders_default():
+    """A blank LIMIT means the builder's own default, not a datatype error."""
+    sql, params = domain_queries.build_monthly_rollup_sql(limit=5)
+    assert params["limit"] == 5
+
+    db = sqlite_utils.Database(memory=True)
+    for statement in (
+        "CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT)",
+        "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT, artist_id TEXT)",
+        "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, album_id TEXT)",
+        "CREATE TABLE plays (track_id TEXT, timestamp TEXT)",
+    ):
+        db.execute(statement)
+    db["artists"].insert({"id": "a", "name": "A"})
+    db["albums"].insert({"id": "b", "title": "B", "artist_id": "a"})
+    db["tracks"].insert({"id": "t", "title": "T", "album_id": "b"})
+    # More years than the limit, so a correct fallback and an unbounded result
+    # are distinguishable -- with four rows and a limit of five, both return
+    # four and the test proves nothing.
+    db["plays"].insert_all(
+        [
+            {"track_id": "t", "timestamp": f"{2010 + y}-01-01T00:00:00+00:00"}
+            for y in range(9)
+        ]
+    )
+    assert len(db.execute(*domain_queries.build_yearly_rollup_sql()).fetchall()) == 9
+
+    # Blank: no datatype error, and the default limit of 5 still applies.
+    blank = dict(params, limit="")
+    assert len(db.execute(sql, blank).fetchall()) == 5
+
+
+def test_blank_min_plays_does_not_filter_every_row():
+    """
+    A blank min_plays must behave as zero.
+
+    `COUNT(*) >= ''` is always false in SQLite, so binding a blank straight
+    through made the HAVING clause silently discard every row.
+    """
+    db = sqlite_utils.Database(memory=True)
+    for statement in (
+        "CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT)",
+        "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT, artist_id TEXT)",
+        "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT, album_id TEXT)",
+        "CREATE TABLE plays (track_id TEXT, timestamp TEXT)",
+    ):
+        db.execute(statement)
+    db["artists"].insert({"id": "a", "name": "A"})
+    db["albums"].insert({"id": "b", "title": "B", "artist_id": "a"})
+    db["tracks"].insert({"id": "t", "title": "T", "album_id": "b"})
+    db["plays"].insert({"track_id": "t", "timestamp": "2024-01-01T00:00:00+00:00"})
+
+    sql, params = domain_queries.build_albums_list_sql()
+    assert db.execute(sql, dict(params, min_plays="")).fetchall(), (
+        "blank min_plays filtered every row out"
+    )
+
+
+# Numeric fallbacks are interpolated into SQL text rather than bound, because a
+# bound parameter cannot serve as a COALESCE default in static SQL. That makes
+# them the one place caller input could reach SQL as text, so they are coerced
+# to integers and refused otherwise.
+def _numeric_param_builders():
+    """
+    Every (builder, parameter) pair that owns a numeric fallback, discovered.
+
+    Hand-listing these missed 8 of 18 pairs, so a builder could reintroduce a
+    direct interpolation and still pass. Derived from the signatures instead,
+    which covers a builder the moment it gains one.
+    """
+    pairs = [
+        (name, param)
+        for name, fn in BUILDERS
+        for param in ("limit", "min_plays")
+        if param in inspect.signature(fn).parameters
+    ]
+    assert len(pairs) >= 18, f"expected at least 18 numeric params, found {len(pairs)}"
+    return pairs
+
+
+_NUMERIC_PARAM_BUILDERS = _numeric_param_builders()
+
+
+@pytest.mark.parametrize(
+    "builder_name,param",
+    _NUMERIC_PARAM_BUILDERS,
+    ids=[f"{n}:{p}" for n, p in _NUMERIC_PARAM_BUILDERS],
+)
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "0 OR 1=1",
+        "5) UNION SELECT 1,2,3,4,5,6,7 --",
+        "20; DROP TABLE plays",
+        "10 OFFSET 999",
+        "abc",
+    ],
+)
+@pytest.mark.parametrize(
+    "form", [domain_queries.SQL_FORM_NAMED, domain_queries.SQL_FORM_POSITIONAL]
+)
+def test_numeric_params_refuse_non_integers(builder_name, param, payload, form):
+    """
+    A non-integer numeric parameter is refused in *both* forms.
+
+    The CLI screens these with click's int type, but the builders are shared
+    with the MCP tools and the plugin, where nothing has. Checking only the
+    named form left the positional path -- the one the CLI and MCP execute --
+    passing the value through to SQLite, which reported "datatype mismatch"
+    instead of naming the parameter.
+    """
+    builder = getattr(domain_queries, builder_name)
+    with pytest.raises(ValueError, match=param):
+        builder(**{param: payload, "form": form})
+
+
+@pytest.mark.parametrize(
+    "builder_name,param",
+    _NUMERIC_PARAM_BUILDERS,
+    ids=[f"{n}:{p}" for n, p in _NUMERIC_PARAM_BUILDERS],
+)
+def test_numeric_params_accept_string_digits(builder_name, param):
+    """
+    Datasette binds even numeric parameters as strings, so digits-as-text must
+    still work -- the refusal above must not break the canned-query path.
+    """
+    builder = getattr(domain_queries, builder_name)
+    sql, params = builder(**{param: "7"})
+    assert ":" + param in sql
+    assert int(params[param]) == 7

@@ -122,17 +122,48 @@ def fmt_ts(ts) -> Optional[str]:
     return domain_format.format_timestamp(ts)
 
 
-#: Registered on every connection, name -> (arity, implementation).
+#: Registered on every connection, name -> (arity, implementation, deterministic).
+#:
+#: `deterministic` asserts SQLite's contract: the same inputs *always* give the
+#: same answer, for every accepted input rather than the expected ones. Two of
+#: these qualify.
+#:
+#: `parse_when` does not -- it reads the wall clock, which is the whole point of
+#: its cache generation.
+#:
+#: `fmt_ts` does not either, which is less obvious: it defers to
+#: `dateutil.parser.parse`, which fills missing components from today's date, so
+#: `fmt_ts('12:00')` and `fmt_ts('March')` both change from one day to the next.
+#: It is deterministic for the full ISO timestamps the schema stores, but a SQL
+#: function accepts whatever an ad hoc query passes it, and the contract covers
+#: all of them.
+#:
+#: Both forgo the optimizer's hoist, which costs nothing that matters: neither
+#: is used in a predicate by any builder.
 SQL_FUNCTIONS = {
-    "parse_when": (1, parse_when),
-    "fuzz_partial_ratio": (2, fuzz_partial_ratio),
-    "month_name": (1, month_name),
-    "fmt_ts": (1, fmt_ts),
+    "parse_when": (1, parse_when, False),
+    "fuzz_partial_ratio": (2, fuzz_partial_ratio, True),
+    "month_name": (1, month_name, True),
+    "fmt_ts": (1, fmt_ts, False),
 }
 
 
 @hookimpl
 def prepare_connection(conn):
-    """Register scrobbledb's SQL functions on a Datasette connection."""
-    for name, (arity, fn) in SQL_FUNCTIONS.items():
-        conn.create_function(name, arity, fn)
+    """
+    Register scrobbledb's SQL functions on a Datasette connection.
+
+    Only the genuinely deterministic functions carry `deterministic=True`.
+    `parse_when` reads the wall clock, so claiming determinism for it would be
+    false, and the flag would not buy what it appears to: measured, it permits
+    a hoist for a single call site with a bound argument (28 invocations to 1)
+    but still yields two resolutions for two call sites and one per row for a
+    column-valued argument. It is an optimizer permission, not a guarantee of
+    single evaluation.
+
+    A canned query that needs one stable bound per statement must therefore say
+    so in SQL -- resolving `parse_when` once in a materialized CTE -- rather
+    than relying on this flag. See design D5.
+    """
+    for name, (arity, fn, deterministic) in SQL_FUNCTIONS.items():
+        conn.create_function(name, arity, fn, deterministic=deterministic)

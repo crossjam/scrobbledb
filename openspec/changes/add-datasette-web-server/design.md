@@ -286,6 +286,30 @@ the request path.
 guard must short-circuit before the comparison.
 Both are covered by spec scenarios.
 
+#### A canned query must resolve `parse_when` once, in SQL
+
+`parse_when` reads the wall clock, so it is **not** registered `deterministic=True` —
+claiming otherwise would be false, and the flag does not deliver what it appears to.
+Measured: with the flag set, a single call site with a bound argument is hoisted (28
+invocations to 1), but two call sites still resolve independently and a column-valued
+argument is evaluated once per row.
+It is an optimizer permission, not a guarantee.
+
+So any canned query that needs one stable bound per statement must say so in SQL:
+
+```sql
+WITH bound AS MATERIALIZED (SELECT parse_when(:since) AS since_utc)
+SELECT ... FROM plays, bound
+WHERE (:since = '' OR plays.timestamp >= bound.since_utc)
+```
+
+Verified to resolve exactly once.
+Without it, a statement spanning a cache-generation boundary can compare early rows
+against one instant and later rows against another, making the result depend on scan
+order. Task group 3 owns the canned queries and is where this shape has to be applied;
+the builders themselves bind an already-converted UTC string, so none of them emits
+`parse_when` today.
+
 #### Measured: the guard does defeat the index, so builders emit both forms
 
 Task 2.11 ran `EXPLAIN QUERY PLAN` against the live 48,400-play database.
@@ -398,19 +422,22 @@ is rejected”), so the authorizer is what actually satisfies it.
 | statement | `mode=ro` alone | `query_only=ON` | authorizer needed? |
 | --- | --- | --- | --- |
 | `INSERT`/`UPDATE`/`DELETE`, DDL on main | blocked | blocked | defence in depth |
-| `CREATE TEMP TABLE` / `TEMP VIEW` | **allowed** | blocked | no |
+| `CREATE TEMP TABLE` / `TEMP VIEW` | **allowed** | blocked | **yes — `query_only` is resettable** |
 | `REINDEX` | **allowed** | **allowed** | **yes — only layer** |
 | `ANALYZE` | blocked | blocked | defence in depth |
 | `ATTACH` / `DETACH` | allowed | allowed | **yes — only layer** |
 | `load_extension()` | refused by Python’s default | — | belt and braces |
 
 So the three layers are not redundant restatements of one another.
-`REINDEX`, `ATTACH` and `DETACH` reach the database unless the authorizer stops them,
-and temp-object creation is stopped only by `query_only`. The authorizer must therefore
-deny, at minimum: `SQLITE_INSERT`, `SQLITE_UPDATE`, `SQLITE_DELETE`,
-`SQLITE_ALTER_TABLE`, the `SQLITE_CREATE_*` and `SQLITE_DROP_*` families **including
-their `_TEMP_` and `_VTABLE` variants**, `SQLITE_REINDEX`, `SQLITE_ANALYZE`,
-`SQLITE_ATTACH`, `SQLITE_DETACH`, and extension loading.
+`REINDEX`, `ATTACH` and `DETACH` reach the database unless the authorizer stops them.
+Temp-object creation is stopped by `query_only` during normal operation, but
+`query_only` is resettable via `PRAGMA query_only=OFF`, so under a guarantee that must
+not depend on a layer above it the authorizer is the only durable protection there too —
+which is why the deny list below includes the `_TEMP_` variants.
+The authorizer must therefore deny, at minimum: `SQLITE_INSERT`, `SQLITE_UPDATE`,
+`SQLITE_DELETE`, `SQLITE_ALTER_TABLE`, the `SQLITE_CREATE_*` and `SQLITE_DROP_*`
+families **including their `_TEMP_` and `_VTABLE` variants**, `SQLITE_REINDEX`,
+`SQLITE_ANALYZE`, `SQLITE_ATTACH`, `SQLITE_DETACH`, and extension loading.
 
 *Why:* together they are a positive, testable guarantee that does not depend on getting
 a Datasette-alpha constructor argument right, nor on Datasette’s SQL validation.
