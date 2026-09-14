@@ -576,12 +576,23 @@ def test_fmt_ts_is_date_dependent_for_partial_input():
     """
     from datetime import date
 
-    today = date.today()
-
+    # Each call is bracketed by its own date reads, so a midnight rollover
+    # between reading the clock and calling fmt_ts cannot fail the test.
+    before = date.today()
+    bare_time = fns.fmt_ts("12:00")
+    after = date.today()
     # A bare time takes today's date entirely.
-    assert fns.fmt_ts("12:00").startswith(today.isoformat())
+    assert bare_time.startswith(before.isoformat()) or bare_time.startswith(
+        after.isoformat()
+    )
+
+    before = date.today()
+    bare_month = fns.fmt_ts("March")
+    after = date.today()
     # A bare month takes today's day and year.
-    assert fns.fmt_ts("March").startswith(f"{today.year}-03-{today.day:02d}")
+    assert bare_month.startswith(f"{before.year}-03-{before.day:02d}") or (
+        bare_month.startswith(f"{after.year}-03-{after.day:02d}")
+    )
 
     # Stable for what the schema stores, which is why this is easy to miss.
     assert fns.fmt_ts("2024-01-01T12:00:00+00:00") == "2024-01-01 12:00:00"
