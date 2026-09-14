@@ -336,13 +336,20 @@ def test_blank_limit_falls_back_to_the_builders_default():
     db["artists"].insert({"id": "a", "name": "A"})
     db["albums"].insert({"id": "b", "title": "B", "artist_id": "a"})
     db["tracks"].insert({"id": "t", "title": "T", "album_id": "b"})
+    # More years than the limit, so a correct fallback and an unbounded result
+    # are distinguishable -- with four rows and a limit of five, both return
+    # four and the test proves nothing.
     db["plays"].insert_all(
-        [{"track_id": "t", "timestamp": f"202{y}-01-01T00:00:00+00:00"} for y in range(4)]
+        [
+            {"track_id": "t", "timestamp": f"{2010 + y}-01-01T00:00:00+00:00"}
+            for y in range(9)
+        ]
     )
+    assert len(db.execute(*domain_queries.build_yearly_rollup_sql()).fetchall()) == 9
 
-    # Blank: no datatype error, and the default limit still applies.
+    # Blank: no datatype error, and the default limit of 5 still applies.
     blank = dict(params, limit="")
-    assert len(db.execute(sql, blank).fetchall()) == 4
+    assert len(db.execute(sql, blank).fetchall()) == 5
 
 
 def test_blank_min_plays_does_not_filter_every_row():
@@ -375,18 +382,25 @@ def test_blank_min_plays_does_not_filter_every_row():
 # bound parameter cannot serve as a COALESCE default in static SQL. That makes
 # them the one place caller input could reach SQL as text, so they are coerced
 # to integers and refused otherwise.
-_NUMERIC_PARAM_BUILDERS = [
-    ("build_albums_list_sql", "min_plays"),
-    ("build_albums_list_sql", "limit"),
-    ("build_tracks_list_sql", "min_plays"),
-    ("build_artists_with_stats_sql", "min_plays"),
-    ("build_top_artists_sql", "limit"),
-    ("build_top_albums_sql", "limit"),
-    ("build_plays_with_filters_sql", "limit"),
-    ("build_artist_top_tracks_sql", "limit"),
-    ("build_monthly_rollup_sql", "limit"),
-    ("build_track_plays_sql", "limit"),
-]
+def _numeric_param_builders():
+    """
+    Every (builder, parameter) pair that owns a numeric fallback, discovered.
+
+    Hand-listing these missed 8 of 18 pairs, so a builder could reintroduce a
+    direct interpolation and still pass. Derived from the signatures instead,
+    which covers a builder the moment it gains one.
+    """
+    pairs = [
+        (name, param)
+        for name, fn in BUILDERS
+        for param in ("limit", "min_plays")
+        if param in inspect.signature(fn).parameters
+    ]
+    assert len(pairs) >= 18, f"expected at least 18 numeric params, found {len(pairs)}"
+    return pairs
+
+
+_NUMERIC_PARAM_BUILDERS = _numeric_param_builders()
 
 
 @pytest.mark.parametrize(
