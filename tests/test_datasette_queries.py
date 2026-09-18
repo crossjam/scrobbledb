@@ -21,6 +21,7 @@ manager, the real hook, the real HTTP surface:
   aggregate the catalog exposes rather than a hand-written list of two.
 """
 
+import inspect
 import re
 import sqlite3
 from html import unescape
@@ -1247,6 +1248,68 @@ async def test_the_analytics_entries_accept_bounds_like_every_other(
         {"hour": 22, "scrobbles": 1},
     ]
     assert [r["days"] for r in await run_query(ds, database, "streaks", **bounds)] == [3]
+
+
+def test_every_time_ranged_entry_takes_a_limit():
+    """
+    The catalog's parameter contract, derived rather than listed.
+
+    A time-ranged stored query takes optional start and end bounds *and* a
+    result limit. The hour-of-day and day-of-week histograms have a small
+    natural maximum and originally left `limit` out on that reasoning, which
+    made the catalog's interface depend on which entry you picked. The set is
+    discovered from the builders' signatures so a future entry cannot
+    reintroduce the inconsistency quietly.
+    """
+    ranged = [
+        entry
+        for entry in cat.CATALOG
+        if {"since", "until"} <= set(inspect.signature(entry.builder).parameters)
+    ]
+    assert len(ranged) >= 12, "no time-ranged entries discovered"
+
+    without = [
+        entry.name
+        for entry in ranged
+        if "limit" not in inspect.signature(entry.builder).parameters
+    ]
+    assert without == [], f"time-ranged entries missing a limit: {without}"
+
+
+@pytest.mark.asyncio
+async def test_a_limit_caps_every_time_ranged_entry_over_http(
+    registered_plugin, analytics_db
+):
+    """
+    And the limit actually applies, through the hook.
+
+    `limit=1` against a fixture where every one of these returns more than one
+    row, so an entry that accepted the parameter and ignored it fails here.
+    """
+    ds = await serve(analytics_db)
+    database = analytics_db.stem
+    ranged = [
+        entry
+        for entry in cat.CATALOG
+        if {"since", "until", "limit"}
+        <= set(inspect.signature(entry.builder).parameters)
+    ]
+
+    exercised = []
+    for entry in ranged:
+        params = dict(PARAMETERS_FOR[entry.name])
+        unlimited = await run_query(ds, database, entry.name, **params)
+        if len(unlimited) < 2:
+            continue
+        capped = await run_query(ds, database, entry.name, limit=1, **params)
+        assert len(capped) == 1, f"{entry.name} ignored limit=1"
+        exercised.append(entry.name)
+
+    # A fixture that returned one row everywhere would let this pass while
+    # testing nothing, so what it actually covered is asserted too -- including
+    # the two histograms, which are why this test exists.
+    assert {"listening_clock", "weekday_rollup"} <= set(exercised), exercised
+    assert len(exercised) >= 8, exercised
 
 
 # --------------------------------------------------------------------------

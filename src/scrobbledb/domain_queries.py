@@ -2231,13 +2231,16 @@ def shape_daily_rollup(rows) -> list[dict]:
 def build_hour_of_day_sql(
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
+    limit: Optional[int] = None,
     form: str = SQL_FORM_NAMED,
 ) -> tuple[str, object]:
     """
     Build the hour-of-day distribution query. Pure: touches no database.
 
-    At most 24 rows, so there is no limit parameter -- capping a 24-row
-    histogram would only ever hide part of the shape it exists to show.
+    At most 24 rows, so `limit` has nothing to cap in ordinary use and
+    defaults to unbounded. It is still accepted, because every time-ranged
+    query in the catalog takes the same three parameters and a client walking
+    the catalog should not have to know which ones quietly differ.
 
     Hours are read straight off `plays.timestamp`, which is stored UTC-aware
     (see `_to_utc_iso`), so the distribution is in UTC rather than in the
@@ -2247,8 +2250,14 @@ def build_hour_of_day_sql(
     An hour with no plays in range is absent rather than zero, matching the
     rollups. Joins only `plays`: a play count needs no entity tables.
     """
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
+
     params = _Params(form)
     where_clause = _where_clause(_time_bound_conditions(params, since, until))
+    limit_clause = _limit_clause(params, limit)
 
     sql = f"""
         SELECT
@@ -2258,6 +2267,7 @@ def build_hour_of_day_sql(
         {where_clause}
         GROUP BY hour
         ORDER BY hour ASC
+        {limit_clause}
     """
     return sql, params.values
 
@@ -2300,12 +2310,15 @@ def _weekday_name_case(expression: str) -> str:
 def build_day_of_week_sql(
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
+    limit: Optional[int] = None,
     form: str = SQL_FORM_NAMED,
 ) -> tuple[str, object]:
     """
     Build the day-of-week distribution query. Pure: touches no database.
 
-    Seven rows at most, so there is no limit parameter.
+    Seven rows at most, so `limit` defaults to unbounded and is accepted for
+    the same reason the hour histogram accepts it: one parameter set across
+    every time-ranged query in the catalog.
 
     `weekday` is **Monday-first** -- 0=Monday through 6=Sunday -- not SQLite's
     Sunday-first `strftime('%w', ...)`. See `_weekday_expression` for why.
@@ -2315,9 +2328,15 @@ def build_day_of_week_sql(
     Like the hour histogram, weekdays are counted in UTC, and a weekday with no
     plays in range is absent rather than zero.
     """
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
+
     params = _Params(form)
     where_clause = _where_clause(_time_bound_conditions(params, since, until))
     weekday = _weekday_expression()
+    limit_clause = _limit_clause(params, limit)
 
     sql = f"""
         SELECT
@@ -2328,6 +2347,7 @@ def build_day_of_week_sql(
         {where_clause}
         GROUP BY weekday, weekday_name
         ORDER BY weekday ASC
+        {limit_clause}
     """
     return sql, params.values
 
