@@ -88,36 +88,56 @@
 
 ## 3. Plugin query catalog
 
-- [ ] 3.1 Create `src/scrobbledb/datasette_plugin/__init__.py` and `queries.py` mapping
+- [x] 3.1 Create `src/scrobbledb/datasette_plugin/__init__.py` and `queries.py` mapping
   each shared builder to a catalog entry (name, title, description, builder reference);
   verify a test enumerates the catalog and asserts every entry has all fields and a
   unique name
-- [ ] 3.2 Project the catalog into the `canned_queries(datasette, database, actor)`
+- [x] 3.2 Project the catalog into the `canned_queries(datasette, database, actor)`
   hook; verify every entry appears on the database index page with its description and
   executes successfully against the `populated_db` fixture
-  (`tests/test_stats.py:47-144`)
-- [ ] 3.3 Verify optional bounds behave correctly through the hook: omitting both covers
+  (`tests/test_stats.py:47-144`). **There is no `canned_queries` hook in 1.0a39** —
+  confirmed against the installed package.
+  The 0.x hook is gone; the concept is now *stored queries*, rows in the internal
+  database’s `queries` table contributed by `await datasette.add_query(...)`, and pluggy
+  rejects a hookimpl matching no hookspec, so defining one would have been a startup
+  error rather than a silent no-op.
+  The catalog is projected from the `startup(datasette)` hook instead, which runs after
+  the internal tables exist and after `save_queries_from_config`. Queries are registered
+  `is_trusted=True`, matching what `datasette.yaml`-declared queries get, so the curated
+  analytics stay runnable for a viewer whose `execute-sql` permission is withheld.
+  The database index page renders only the first five queries plus a “View N queries”
+  link, and the rendered listing at `/<db>/-/queries` paginates at 20 and ignores
+  `limit`; the JSON listing honours `limit` up to 1000
+- [x] 3.3 Verify optional bounds behave correctly through the hook: omitting both covers
   the full history, supplying both applies an inclusive range on each end.
   Resolve `parse_when` once per statement in a `WITH ... AS MATERIALIZED` bound, per
   design D5 — it is not a deterministic function, so repeated call sites otherwise
   resolve independently; verify a single resolution per statement
-- [ ] 3.4 Confirm every album aggregate in the shared builders groups by
+- [x] 3.4 Confirm every album aggregate in the shared builders groups by
   `albums.title COLLATE NOCASE` and derives `artist_name` from the group per task 2.5 —
   never by `albums.id`, which fails to collapse synthesized aliases, and never naming a
   single contributor as the album’s artist; verify a compilation stays one row,
   duplicate ids collapse, one artist under several ids is still named, and any group
   spanning several artist names reports `Various Artists`
-- [ ] 3.5 Add builders for the analytics the CLI lacks — daily rollup, hour-of-day
+- [x] 3.5 Add builders for the analytics the CLI lacks — daily rollup, hour-of-day
   distribution, day-of-week distribution, consecutive-day streaks (gap-and-islands over
   `julianday(date(timestamp))`), per-artist first-play discovery dates — in the same
   `domain_queries.py` builder style so the CLI can adopt them later; verify each against
   `populated_db` with hand-computed expected values
-- [ ] 3.6 Add the FTS search entry using `tracks_fts MATCH :q` over
+- [x] 3.6 Add the FTS search entry using `tracks_fts MATCH :q` over
   `artist_name`/`album_title`/`track_title`; verify it returns matches on the fixture
   and an empty result set (not an error) for a non-matching term
-- [ ] 3.7 Make the search entry fail with a message naming `scrobbledb index` when
+- [x] 3.7 Make the search entry fail with a message naming `scrobbledb index` when
   `tracks_fts` is absent; verify with a fixture database that has the base tables but no
-  FTS table
+  FTS table. SQLite gives a statement no way to raise an error of its own — `RAISE()` is
+  valid only in a trigger body, and a Python SQL function that raises has its message
+  replaced with the fixed string “user-defined function raised exception” (verified, not
+  assumed) — so the explanation travels as the unresolved table name, which is the one
+  error text the caller chooses.
+  The entry is still registered rather than omitted, because a query that is simply
+  absent tells the user nothing about how to obtain it.
+  The substitution is decided at startup, so a database indexed while the server runs
+  keeps explaining itself until restart; the message says so
 
 ## 4. Custom SQL functions
 
