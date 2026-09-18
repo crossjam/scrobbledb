@@ -92,15 +92,20 @@
   each shared builder to a catalog entry (name, title, description, builder reference);
   verify a test enumerates the catalog and asserts every entry has all fields and a
   unique name
-- [x] 3.2 Project the catalog into the `canned_queries(datasette, database, actor)`
-  hook; verify every entry appears on the database index page with its description and
-  executes successfully against the `populated_db` fixture
-  (`tests/test_stats.py:47-144`). **There is no `canned_queries` hook in 1.0a39** —
-  confirmed against the installed package.
-  The 0.x hook is gone; the concept is now *stored queries*, rows in the internal
-  database’s `queries` table contributed by `await datasette.add_query(...)`, and pluggy
-  rejects a hookimpl matching no hookspec, so defining one would have been a startup
-  error rather than a silent no-op.
+- [x] 3.2 Project the catalog onto every served scrobbledb-shaped database through the
+  `startup(datasette)` hook; verify every entry is discoverable from the database index
+  page and the stored-query listing it links to, each with its description, and that
+  every entry executes successfully against a fixture in the shape of `populated_db`
+  (`tests/test_stats.py:47-144`). Verified by
+  `test_every_entry_is_discoverable_from_the_database_index` and
+  `test_every_entry_returns_rows_against_a_populated_database` in
+  `tests/test_datasette_queries.py`. **This task originally specified the
+  `canned_queries(datasette, database, actor)` hook, and asked for every entry on the
+  index page itself. Neither exists in 1.0a39** — confirmed against the installed
+  package. The 0.x hook is gone; the concept is now *stored queries*, rows in the
+  internal database’s `queries` table contributed by `await datasette.add_query(...)`,
+  and pluggy rejects a hookimpl matching no hookspec, so defining one would have been a
+  startup error rather than a silent no-op.
   The catalog is projected from the `startup(datasette)` hook instead, which runs after
   the internal tables exist and after `save_queries_from_config`. Queries are registered
   `is_trusted=True`, matching what `datasette.yaml`-declared queries get, so the curated
