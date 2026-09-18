@@ -490,18 +490,29 @@ async def test_every_entry_is_discoverable_from_the_database_index(
             ["CREATE TABLE plays (id INTEGER PRIMARY KEY, script TEXT)"],
             "a plays table of its own, but none of the rest of the schema",
         ),
+        (
+            [
+                "CREATE TABLE plays (id INTEGER PRIMARY KEY, script TEXT)",
+                "CREATE TABLE tracks (id INTEGER PRIMARY KEY, gauge TEXT)",
+                "CREATE TABLE albums (id INTEGER PRIMARY KEY, photographer TEXT)",
+                "CREATE TABLE artists (id INTEGER PRIMARY KEY, medium TEXT)",
+            ],
+            "all four table names, none of the columns",
+        ),
     ],
 )
 async def test_an_unrelated_database_gets_no_stored_queries(
     registered_plugin, tmp_path, schema, why
 ):
     """
-    The catalog is only projected onto databases carrying the whole schema.
+    The catalog is only projected onto databases carrying the scrobble schema.
 
     Every entry but the play history joins through `tracks`, `albums` and
     `artists`, so recognising a database by its `plays` table alone would give
     a theatre-scripts database sixteen trusted queries that can only raise
-    "no such table".
+    "no such table". Table names alone are not enough either: a gallery
+    database whose four tables happen to share those names fails just as
+    completely, only at execution time instead of registration time.
     """
     path = tmp_path / "unrelated.db"
     db = sqlite_utils.Database(path)

@@ -102,12 +102,21 @@ BOUND_PARAMETERS = ("since", "until")
 # user-created ones.
 SOURCE = "scrobbledb"
 
-# A database is served the catalog only if it carries the whole scrobble
-# schema. `plays` alone is not enough: every entry but the play history joins
-# through `tracks`, `albums` and `artists`, so a database with a `plays` table
-# of its own would otherwise be given sixteen trusted queries that can only
-# raise "no such table".
-REQUIRED_TABLES = frozenset({"plays", "tracks", "albums", "artists"})
+# A database is served the catalog only if it carries the scrobble schema:
+# these tables, each with at least these columns. Table names alone are not
+# enough -- `plays` alone certainly is not, since every entry but the play
+# history joins through the other three, and four tables with the right names
+# and the wrong columns fail just as completely, only at execution time
+# instead. Columns are matched as a subset, so a database that has gained
+# columns is still recognized.
+REQUIRED_SCHEMA: Mapping[str, frozenset[str]] = types.MappingProxyType(
+    {
+        "plays": frozenset({"timestamp", "track_id"}),
+        "tracks": frozenset({"id", "title", "album_id"}),
+        "albums": frozenset({"id", "title", "artist_id"}),
+        "artists": frozenset({"id", "name"}),
+    }
+)
 
 _NO_KWARGS: Mapping[str, Any] = types.MappingProxyType({})
 
@@ -415,6 +424,21 @@ def stored_query_definitions() -> dict[str, dict[str, str]]:
     }
 
 
+async def is_scrobbledb(database) -> bool:
+    """
+    Whether a served database carries the schema the catalog reads.
+
+    Checked against the live database rather than assumed from the file name,
+    because the plugin is registered on the process, not on one database.
+    """
+    if not REQUIRED_SCHEMA.keys() <= set(await database.table_names()):
+        return False
+    for table, columns in REQUIRED_SCHEMA.items():
+        if not columns <= set(await database.table_columns(table)):
+            return False
+    return True
+
+
 async def register_stored_queries(datasette) -> dict[str, list[str]]:
     """
     Write the catalog into Datasette's stored-query table, per database.
@@ -426,7 +450,7 @@ async def register_stored_queries(datasette) -> dict[str, list[str]]:
     registered: dict[str, list[str]] = {}
 
     for database_name, database in datasette.databases.items():
-        if not REQUIRED_TABLES.issubset(await database.table_names()):
+        if not await is_scrobbledb(database):
             continue
         for name, definition in definitions.items():
             await datasette.add_query(
