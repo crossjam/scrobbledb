@@ -30,6 +30,7 @@ import sqlite_utils
 from scrobbledb import domain_queries
 from scrobbledb.datasette_plugin import functions as fns
 from scrobbledb.datasette_plugin import queries as cat
+from scrobbledb.domain_queries import VARIOUS_ARTISTS
 
 pytest.importorskip("datasette")
 pytest.importorskip("pytest_asyncio")
@@ -753,3 +754,151 @@ def test_without_the_cte_a_bound_resolves_more_than_once(populated_db):
     assert len(calls) > len(cat.BOUND_PARAMETERS), (
         f"the naive form resolved only {len(calls)} times, so the CTE proves nothing"
     )
+
+
+# --------------------------------------------------------------------------
+# 3.4 -- album aggregates through the catalog
+# --------------------------------------------------------------------------
+
+_GROUP_BY = re.compile(
+    r"(?is)\bGROUP\s+BY\s+(?P<clause>.+?)"
+    r"(?=\bHAVING\b|\bORDER\s+BY\b|\bLIMIT\b|\bWINDOW\b|\)|\Z)"
+)
+_QUALIFIED = re.compile(r"\b([A-Za-z_]\w*)\.\w+")
+
+
+def album_aggregate_entries():
+    """
+    Catalog entries that report one row per album, discovered from their SQL.
+
+    An entry aggregates albums when it has a GROUP BY whose only qualified
+    columns belong to `albums` -- which is true of the album listing and the
+    album ranking and would be true of any future one, and false for the track
+    and artist aggregates that merely mention `albums.title` in their grouping.
+    """
+    found = []
+    for entry in cat.CATALOG:
+        for match in _GROUP_BY.finditer(entry.sql):
+            clause = match.group("clause")
+            tables = set(_QUALIFIED.findall(clause))
+            if tables == {"albums"}:
+                found.append((entry, " ".join(clause.split())))
+                break
+    return found
+
+
+def test_album_aggregates_are_discoverable():
+    """The discovery finds the aggregates we know about, and does not stop there."""
+    found = {entry.name for entry, _clause in album_aggregate_entries()}
+    assert {"album_list", "top_albums"} <= found, f"discovery missed one: {found}"
+    assert len(found) >= 2
+
+
+def test_every_album_aggregate_groups_on_title_and_derives_its_artist():
+    """
+    Grouping on `albums.id` fails to collapse synthesized aliases, and an
+    independent `MAX(artists.name)` names an artist that may not own the group.
+    Neither may appear in any album aggregate the catalog exposes (task 2.5).
+    """
+    aggregates = album_aggregate_entries()
+    assert aggregates, "no album aggregates found; the assertions would be vacuous"
+
+    for entry, clause in aggregates:
+        assert clause == "albums.title COLLATE NOCASE", (
+            f"{entry.name} groups albums by {clause!r}"
+        )
+        normalized = " ".join(entry.sql.split())
+        assert "COUNT(DISTINCT artists.name COLLATE NOCASE) = 1" in normalized, (
+            f"{entry.name} does not derive artist_name from the group"
+        )
+        assert f"'{VARIOUS_ARTISTS}'" in normalized, (
+            f"{entry.name} has no sentinel for a group spanning several artists"
+        )
+
+
+@pytest.mark.asyncio
+async def test_album_aggregates_hold_through_the_catalog(
+    registered_plugin, album_identity_db
+):
+    """
+    The corrected attribution survives the projection into stored queries.
+
+    Checked for every discovered album aggregate rather than the two we happen
+    to ship, so a future one inherits the coverage.
+    """
+    ds = await serve(album_identity_db)
+    database = album_identity_db.stem
+
+    for entry, _clause in album_aggregate_entries():
+        rows = await run_query(ds, database, entry.name, **PARAMETERS_FOR[entry.name])
+        by_title = {}
+        for row in rows:
+            by_title.setdefault(row["album_title"].lower(), []).append(row)
+
+        # A compilation stays one row and names nobody in particular.
+        assert len(by_title["the dj mix"]) == 1, f"{entry.name} split the compilation"
+        mix = by_title["the dj mix"][0]
+        assert mix["artist_name"] == VARIOUS_ARTISTS, (
+            f"{entry.name} credited the mix to {mix['artist_name']!r}"
+        )
+        assert set(mix["album_ids"].split(",")) == {
+            "md5:zmix",
+            "md5:amix",
+            "md5:bmix",
+        }, f"{entry.name} lost identifiers from the mix group"
+        assert mix["play_count"] == 3, f"{entry.name} split the mix's plays"
+
+        # Duplicate identifiers collapse, and one artist under several artist
+        # ids is still named rather than reported as Various Artists.
+        assert len(by_title["doubles"]) == 1, f"{entry.name} failed to collapse aliases"
+        doubles = by_title["doubles"][0]
+        assert doubles["artist_name"] == "Solo Artist", (
+            f"{entry.name} declined to name a single-artist group"
+        )
+        assert set(doubles["album_ids"].split(",")) == {
+            "zzz-doubles",
+            "md5:aaadoubles",
+        }
+        assert doubles["play_count"] == 4, (
+            f"{entry.name} counted only one identifier's plays"
+        )
+
+
+@pytest.mark.asyncio
+async def test_no_album_aggregate_names_an_artist_that_does_not_own_it(
+    registered_plugin, album_identity_db
+):
+    """
+    The invariant behind the two cases above, asserted over every returned row.
+
+    A named artist owns every identifier in its group; otherwise the row names
+    nobody. This is what the original `MAX(albums.id)`/`MAX(artists.name)` pair
+    violated on 909 rows of the live database.
+    """
+    db = sqlite_utils.Database(album_identity_db)
+    try:
+        owner = dict(
+            db.execute(
+                "SELECT albums.id, artists.name FROM albums"
+                " JOIN artists ON albums.artist_id = artists.id"
+            ).fetchall()
+        )
+    finally:
+        db.close()
+
+    ds = await serve(album_identity_db)
+    for entry, _clause in album_aggregate_entries():
+        rows = await run_query(
+            ds, album_identity_db.stem, entry.name, **PARAMETERS_FOR[entry.name]
+        )
+        assert rows, f"{entry.name} returned nothing to check"
+        for row in rows:
+            owners = {owner[album_id] for album_id in row["album_ids"].split(",")}
+            if row["artist_name"] == VARIOUS_ARTISTS:
+                assert len(owners) > 1, (
+                    f"{entry.name}: sentinel used for a single-artist group: {row}"
+                )
+            else:
+                assert owners == {row["artist_name"]}, (
+                    f"{entry.name}: false attribution: {row}"
+                )
