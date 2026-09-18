@@ -2430,7 +2430,11 @@ def build_artist_discovery_sql(
     is the useful default because the tail of the list is what a listener does
     not already know: "who did I start listening to lately" is a question,
     "who did I start listening to in 2007" is a fact they can look up.
-    Ties break on `artist_name` so the order is total.
+    Ties break on `artist_name` and then on `artist_id`, so the order really is
+    total: two artists can share both a name and a first play -- the same
+    artist under an MBID and a synthesized `md5:` id is exactly that case --
+    and without the id the rows they occupy under a LIMIT would depend on scan
+    order.
 
     `first_played` is the earliest play *within the range*, not the artist's
     absolute first play, because a bounded query cannot see outside its bounds.
@@ -2453,7 +2457,7 @@ def build_artist_discovery_sql(
         {_PLAYS_JOINS}
         {where_clause}
         GROUP BY artists.id, artists.name
-        ORDER BY first_played DESC, artist_name ASC
+        ORDER BY first_played DESC, artist_name ASC, artist_id ASC
         {limit_clause}
     """
     return sql, params.values
@@ -2518,8 +2522,11 @@ def build_fts_search_sql(
     the schema agrees on. The titles stay the indexed copies, which are what
     the MATCH actually matched.
 
-    Ordered by FTS5 `rank` (best match first), then by name so the order is
-    total and does not depend on scan order for equally ranked hits.
+    Ordered by FTS5 `rank` (best match first), then by name, and finally by
+    `track_id` so the order really is total. Two tracks can agree on rank and
+    on all three titles -- a track present on both an album and its deluxe
+    reissue, say -- and without the id which of them survives a LIMIT would
+    depend on scan order.
     """
     params = _Params(form)
     match_expression = _fts_match_expression(params.add("q", query))
@@ -2536,7 +2543,7 @@ def build_fts_search_sql(
         LEFT JOIN tracks ON tracks.id = tracks_fts.track_id
         LEFT JOIN albums ON albums.id = tracks.album_id
         WHERE tracks_fts MATCH {match_expression}
-        ORDER BY tracks_fts.rank, artist_name, album_title, track_title
+        ORDER BY tracks_fts.rank, artist_name, album_title, track_title, track_id
         LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values

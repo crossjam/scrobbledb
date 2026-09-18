@@ -510,13 +510,7 @@ def search(db, query, **kwargs):
 
 class TestFtsSearch:
     def test_a_single_hit_carries_every_column(self, analytics_db):
-        """
-        "Album Two" matches one row, so the whole shape is assertable.
-
-        `album_id` is the id from `albums`, not the UNINDEXED copy in
-        `tracks_fts` -- both say `alb2` here, but only the join keeps saying so
-        if the index is ever stale.
-        """
+        """"Album Two" matches one row, so the whole shape is assertable."""
         assert search(analytics_db, "Album Two") == [
             {
                 "track_id": "t3",
@@ -526,6 +520,26 @@ class TestFtsSearch:
                 "artist_id": "a1",
                 "artist_name": "Artist One",
             }
+        ]
+
+    def test_album_id_comes_from_albums_not_the_indexed_copy(self, analytics_db):
+        """
+        The id is the one the rest of the schema agrees on.
+
+        `tracks_fts` keeps its own UNINDEXED `album_id`, and a freshly rebuilt
+        index copies the same value, so the two agree and a test against an
+        untouched fixture cannot tell which column the query read. Making them
+        disagree is what separates the join from the copy.
+        """
+        analytics_db.execute(
+            "UPDATE tracks_fts SET album_id = 'stale-alb' WHERE track_id = 't3'"
+        )
+        assert analytics_db.execute(
+            "SELECT album_id FROM tracks_fts WHERE track_id = 't3'"
+        ).fetchone() == ("stale-alb",)
+
+        assert [hit["album_id"] for hit in search(analytics_db, "Album Two")] == [
+            "alb2"
         ]
 
     def test_searches_all_three_indexed_columns(self, analytics_db):
@@ -601,6 +615,94 @@ class TestFtsSearch:
         assert analytics_db.execute("SELECT COUNT(*) FROM plays").fetchone()[0] == len(
             PLAYS
         )
+
+
+@pytest.fixture
+def tied_db():
+    """
+    A database where every ordering key before the id ties.
+
+    Two artists share a name *and* a first-play timestamp; two tracks share an
+    artist, an album, a title and therefore an FTS rank. Rows are inserted
+    highest-id-first, so a query that leaves the order to the scan comes back
+    in the opposite order from the one the id tiebreak asks for -- which is
+    what makes the assertions below distinguish a total order from a lucky one.
+    """
+    db = sqlite_utils.Database(memory=True)
+    db.execute("CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+    db.execute(
+        "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
+        " artist_id TEXT NOT NULL REFERENCES artists(id))"
+    )
+    db.execute(
+        "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
+        " album_id TEXT NOT NULL REFERENCES albums(id))"
+    )
+    db.execute(
+        "CREATE TABLE plays (timestamp TEXT NOT NULL,"
+        " track_id TEXT NOT NULL REFERENCES tracks(id),"
+        " PRIMARY KEY (timestamp, track_id))"
+    )
+
+    # One artist under two ids -- an MBID and a synthesized md5: one is the
+    # real-world shape of this -- with a play at the very same instant under
+    # each, so `first_played` and `artist_name` both tie.
+    db["artists"].insert_all(
+        [{"id": "zz-artist", "name": "Tied Name"},
+         {"id": "aa-artist", "name": "Tied Name"}]
+    )
+    db["albums"].insert_all(
+        [{"id": "zz-album", "title": "Tied Album", "artist_id": "zz-artist"},
+         {"id": "aa-album", "title": "Tied Album", "artist_id": "aa-artist"}]
+    )
+    db["tracks"].insert_all(
+        [{"id": "zz-track", "title": "Tied Track", "album_id": "zz-album"},
+         {"id": "aa-track", "title": "Tied Track", "album_id": "aa-album"}]
+    )
+    db["plays"].insert_all(
+        [{"timestamp": "2024-05-05T12:00:00+00:00", "track_id": "zz-track"},
+         {"timestamp": "2024-05-05T12:00:00+00:00", "track_id": "aa-track"}]
+    )
+
+    lastfm.setup_fts5(db)
+    lastfm.rebuild_fts5(db)
+    return db
+
+
+def test_artist_discovery_breaks_a_full_tie_on_artist_id(tied_db):
+    """
+    Same name, same first play: the id decides, so a LIMIT is reproducible.
+
+    Without the id key the two rows are interchangeable to SQLite and
+    `limit=1` returns whichever the scan reached first -- here, the one
+    inserted first, which is the wrong one.
+    """
+    rows = shape_artist_discovery(
+        both_forms(tied_db, build_artist_discovery_sql)
+    )
+    assert [row["artist_id"] for row in rows] == ["aa-artist", "zz-artist"]
+
+    capped = shape_artist_discovery(
+        both_forms(tied_db, build_artist_discovery_sql, limit=1)
+    )
+    assert [row["artist_id"] for row in capped] == ["aa-artist"]
+
+
+def test_fts_search_breaks_a_full_tie_on_track_id(tied_db):
+    """
+    Identical artist, album, title and rank: the track id decides.
+
+    Two copies of one track -- an album and its reissue, a duplicate import --
+    are exactly this, and without the id key a capped search returns an
+    arbitrary one of them.
+    """
+    hits = shape_fts_search(both_forms(tied_db, build_fts_search_sql, query="Tied"))
+    assert [hit["track_id"] for hit in hits] == ["aa-track", "zz-track"]
+
+    capped = shape_fts_search(
+        both_forms(tied_db, build_fts_search_sql, query="Tied", limit=1)
+    )
+    assert [hit["track_id"] for hit in capped] == ["aa-track"]
 
 
 # Terms that are *not* valid fts5 query syntax. Bound to MATCH unmodified each
