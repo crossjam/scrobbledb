@@ -2466,3 +2466,92 @@ def shape_artist_discovery(rows) -> list[dict]:
         for row in rows
     ]
 
+
+# The three indexed columns of tracks_fts (lastfm.setup_fts5); the other three
+# are UNINDEXED ids. Naming them makes the search explicit rather than relying
+# on FTS5's "every indexed column" default, which would silently widen if a
+# column were ever added to the table.
+_FTS_SEARCH_COLUMNS = "artist_name album_title track_title"
+
+
+def _fts_match_expression(placeholder: str) -> str:
+    """
+    Render the FTS5 MATCH expression for a *raw*, untrusted search term.
+
+    The term cannot be sanitized in Python, because the canned-query path never
+    passes through Python: Datasette binds whatever is in the URL straight to
+    the static SQL. So the neutralizing happens in SQL, where it covers every
+    consumer.
+
+    An fts5 syntax error raises rather than returning nothing, and plenty of
+    ordinary keystrokes are syntax errors: a bare `*` is "unknown special
+    query", a lone `"` is "unterminated string", and `OR`, `NEAR(` or an empty
+    term are each "syntax error". Wrapping the term in double quotes -- with
+    any embedded quote doubled, which is FTS5's own escape -- turns any string
+    whatsoever into one well-formed phrase, so hostile input searches for a
+    phrase that matches nothing instead of failing the query. A blank term
+    becomes the empty phrase `""`, which fts5 accepts and matches nothing.
+
+    The trailing `*` makes the last token a prefix, so a partial word typed
+    into a search box finds the thing it starts.
+    """
+    quoted = f"REPLACE(COALESCE({placeholder}, ''), '\"', '\"\"')"
+    return f"""'{{{_FTS_SEARCH_COLUMNS}}} : \"' || {quoted} || '\"*'"""
+
+
+def build_fts_search_sql(
+    query: str = "",
+    limit: int = 50,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the full-text search query over `tracks_fts`. Pure.
+
+    Searches `artist_name`, `album_title` and `track_title` together, so one
+    box finds a track, the album it is on, or the artist behind it. The term is
+    bound as `q` -- the Datasette canned query depends on that name -- and is
+    neutralized in SQL; see `_fts_match_expression` for what that costs and
+    buys. A term matching nothing returns no rows rather than raising.
+
+    `album_id` comes from the `albums` row reached through `tracks` rather than
+    from the UNINDEXED copy in `tracks_fts`, so the id is the one the rest of
+    the schema agrees on. The titles stay the indexed copies, which are what
+    the MATCH actually matched.
+
+    Ordered by FTS5 `rank` (best match first), then by name so the order is
+    total and does not depend on scan order for equally ranked hits.
+    """
+    params = _Params(form)
+    match_expression = _fts_match_expression(params.add("q", query))
+
+    sql = f"""
+        SELECT
+            tracks_fts.track_id as track_id,
+            tracks_fts.track_title as track_title,
+            albums.id as album_id,
+            tracks_fts.album_title as album_title,
+            tracks_fts.artist_id as artist_id,
+            tracks_fts.artist_name as artist_name
+        FROM tracks_fts
+        LEFT JOIN tracks ON tracks.id = tracks_fts.track_id
+        LEFT JOIN albums ON albums.id = tracks.album_id
+        WHERE tracks_fts MATCH {match_expression}
+        ORDER BY tracks_fts.rank, artist_name, album_title, track_title
+        LIMIT {_numeric_param(params, "limit", limit)}
+    """
+    return sql, params.values
+
+
+def shape_fts_search(rows) -> list[dict]:
+    """Shape full-text search hits into dicts. Pure."""
+    return [
+        {
+            "track_id": row[0],
+            "track_title": row[1],
+            "album_id": row[2],
+            "album_title": row[3],
+            "artist_id": row[4],
+            "artist_name": row[5],
+        }
+        for row in rows
+    ]

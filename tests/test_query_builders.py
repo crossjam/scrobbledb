@@ -41,6 +41,11 @@ _EXECUTION_ARGS = {
     "build_artist_fts_candidates_sql": {"query": "alpha"},
     "build_artist_search_stats_sql": {"artist_ids": ["art-1"]},
     "build_album_tracks_sql": {"album_ids": ["alb-1"]},
+    # Not strictly required -- the search builder's blank default is a valid,
+    # empty-result query -- but a term that actually matches the fixture is
+    # what makes the two-forms-agree check compare rows rather than two empty
+    # result sets.
+    "build_fts_search_sql": {"query": "alpha"},
 }
 
 

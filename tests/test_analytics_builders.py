@@ -1,5 +1,5 @@
 """
-Tests for the analytics builders the CLI does not expose yet (task 3.5).
+Tests for the analytics builders the CLI does not expose yet (tasks 3.5, 3.6).
 
 `tests/test_query_builders.py` already holds these builders to the shared
 contract -- purity, named/positional agreement, blank and string-typed
@@ -25,24 +25,30 @@ play overall.
 from datetime import datetime, timezone
 
 import pytest
+import sqlite3
 import sqlite_utils
 
-from scrobbledb import domain_queries
+from scrobbledb import domain_queries, lastfm
 from scrobbledb.domain_queries import (
     SQL_FORM_POSITIONAL,
     build_artist_discovery_sql,
     build_daily_rollup_sql,
     build_day_of_week_sql,
+    build_fts_search_sql,
     build_hour_of_day_sql,
     build_listening_streaks_sql,
     shape_artist_discovery,
     shape_daily_rollup,
     shape_day_of_week,
+    shape_fts_search,
     shape_hour_of_day,
     shape_listening_streaks,
 )
 
-# Artists, albums and tracks.
+# Artists, albums and tracks. Titles share tokens across columns on purpose:
+# "Three" appears as an artist name, an album title and a track title, which is
+# what makes a cross-column full-text search distinguishable from a
+# single-column one.
 ARTISTS = [
     ("a1", "Artist One"),
     ("a2", "Artist Two"),
@@ -128,6 +134,11 @@ def analytics_db():
         {"timestamp": ts, "track_id": tid} for ts, tid in PLAYS
     )
 
+    # Through the production seam rather than a hand-written CREATE, so the
+    # search tests run against the table `scrobbledb index` actually builds --
+    # column names, UNINDEXED ids and all.
+    lastfm.setup_fts5(db)
+    lastfm.rebuild_fts5(db)
     return db
 
 
@@ -489,3 +500,174 @@ class TestArtistDiscovery:
         with pytest.raises(ValueError, match="limit"):
             build_artist_discovery_sql(limit=limit)
 
+
+def search(db, query, **kwargs):
+    """Run the search builder and return its shaped hits."""
+    return shape_fts_search(
+        both_forms(db, build_fts_search_sql, query=query, **kwargs)
+    )
+
+
+class TestFtsSearch:
+    def test_a_single_hit_carries_every_column(self, analytics_db):
+        """
+        "Album Two" matches one row, so the whole shape is assertable.
+
+        `album_id` is the id from `albums`, not the UNINDEXED copy in
+        `tracks_fts` -- both say `alb2` here, but only the join keeps saying so
+        if the index is ever stale.
+        """
+        assert search(analytics_db, "Album Two") == [
+            {
+                "track_id": "t3",
+                "track_title": "Track Three",
+                "album_id": "alb2",
+                "album_title": "Album Two",
+                "artist_id": "a1",
+                "artist_name": "Artist One",
+            }
+        ]
+
+    def test_searches_all_three_indexed_columns(self, analytics_db):
+        """
+        "Three" appears once per searchable column, in three different rows.
+
+        A search restricted to any one column would return a strict subset of
+        these four, so this fails for a single-column query rather than just
+        returning fewer rows.
+        """
+        hits = search(analytics_db, "Three")
+        assert sorted(hit["track_id"] for hit in hits) == ["t3", "t4", "t5", "t6"]
+
+    def test_a_term_matches_across_columns_in_one_query(self, analytics_db):
+        """"Four" is a track title on one row and an album title on another."""
+        hits = search(analytics_db, "Four")
+        assert sorted(hit["track_id"] for hit in hits) == ["t4", "t6"]
+
+    def test_multiple_words_are_one_phrase_not_two_terms(self, analytics_db):
+        """
+        "Artist Three" is the artist name, adjacent; "Album Three" is not.
+
+        As two independent terms the query would also return the Album Three
+        rows, so this distinguishes a phrase from an implicit AND.
+        """
+        hits = search(analytics_db, "Artist Three")
+        assert [hit["track_id"] for hit in hits] == ["t6"]
+
+    def test_a_partial_word_matches_as_a_prefix(self, analytics_db):
+        """A half-typed word finds the same rows the whole word does."""
+        assert search(analytics_db, "Thre") == search(analytics_db, "Three")
+        assert search(analytics_db, "Thre")
+
+    def test_a_non_matching_term_returns_no_rows(self, analytics_db):
+        assert search(analytics_db, "nosuchtermanywhere") == []
+
+    def test_a_blank_term_returns_no_rows(self, analytics_db):
+        """
+        The default, and what Datasette sends for an omitted parameter.
+
+        `MATCH ''` is an fts5 syntax error, so this is the case that would
+        raise if the term were bound straight through.
+        """
+        assert search(analytics_db, "") == []
+
+    def test_limit_caps_the_hits(self, analytics_db):
+        """Four rows match "Three"; two is fewer, so the cap is observable."""
+        assert len(search(analytics_db, "Three", limit=2)) == 2
+
+    def test_the_term_is_bound_under_the_name_the_canned_query_uses(self):
+        """The catalog's canned query refers to this parameter as `q`."""
+        sql, params = build_fts_search_sql(query="anything")
+        assert set(params) == {"q", "limit"}
+        assert params["q"] == "anything"
+        assert ":q" in sql
+
+    def test_the_term_is_bound_rather_than_embedded_in_the_sql(self):
+        """
+        The raw term reaches SQLite as a parameter; the quoting is in the SQL.
+
+        The builder must not pre-quote in Python either: the canned-query path
+        never runs the builder with the user's term, so any Python-side
+        sanitizing would protect the CLI and leave the web surface exposed.
+        """
+        nasty = "'); DROP TABLE plays; --"
+        sql, params = build_fts_search_sql(query=nasty)
+        assert nasty not in sql
+        assert params["q"] == nasty
+
+    def test_a_quote_heavy_term_is_a_harmless_search(self, analytics_db):
+        """It searches for the literal phrase, and the database is untouched."""
+        assert search(analytics_db, "'); DROP TABLE plays; --") == []
+        assert analytics_db.execute("SELECT COUNT(*) FROM plays").fetchone()[0] == len(
+            PLAYS
+        )
+
+
+# Terms that are *not* valid fts5 query syntax. Bound to MATCH unmodified each
+# one raises -- "fts5: syntax error", "unknown special query", "unterminated
+# string" or "no such column" -- which is the whole reason the builder
+# neutralizes the term in SQL. Ordinary keystrokes, all of them: a lone
+# asterisk, a half-typed quotation, a hyphen, the word "or".
+SYNTAX_ERROR_TERMS = [
+    "",
+    "   ",
+    "*",
+    "**",
+    '"',
+    '"""',
+    'a"b',
+    "NEAR(",
+    "(",
+    "OR",
+    "AND",
+    "NOT",
+    "^",
+    "-",
+    "{",
+    "}",
+    ":",
+    "col:",
+]
+
+# Terms that are legal fts5 but mean something other than what was typed:
+# `OR` and `NEAR` are operators, and a trailing `*` is a prefix marker. The
+# builder searches for them literally instead, so none of them can reach the
+# query as an operator.
+OPERATOR_TERMS = ["beta OR alpha", "Three NEAR Four", "Album OR Artist"]
+
+
+@pytest.mark.parametrize("term", SYNTAX_ERROR_TERMS)
+def test_hostile_term_raises_when_bound_to_match_unmodified(analytics_db, term):
+    """
+    The control: each of these really does break a bare `tracks_fts MATCH ?`.
+
+    Without it the test below would pass against a search that returned
+    nothing for everything, and look protective while protecting nothing.
+    """
+    with pytest.raises(sqlite3.OperationalError):
+        analytics_db.execute(
+            "SELECT track_id FROM tracks_fts WHERE tracks_fts MATCH ?", [term]
+        ).fetchall()
+
+
+@pytest.mark.parametrize("term", SYNTAX_ERROR_TERMS)
+def test_hostile_term_searches_for_nothing_instead_of_raising(analytics_db, term):
+    """
+    Anything a user can type is a search, never an error.
+
+    A canned query binds the URL parameter straight to this static SQL, so
+    there is no Python between the browser and MATCH to sanitize anything --
+    which is why the neutralizing lives in the SQL.
+    """
+    assert search(analytics_db, term) == []
+
+
+@pytest.mark.parametrize("term", OPERATOR_TERMS)
+def test_operator_words_are_searched_literally(analytics_db, term):
+    """No row contains these as a phrase, and none of them acts as an operator."""
+    assert search(analytics_db, term) == []
+
+
+def test_a_stray_asterisk_inside_a_term_is_harmless(analytics_db):
+    """"Three*" is legal fts5, but it is treated as text like everything else."""
+    assert search(analytics_db, "Three*") == search(analytics_db, "Three")
