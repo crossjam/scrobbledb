@@ -662,6 +662,10 @@ REQUIRED_BUILDERS = {
     domain_queries.build_top_albums_sql,
     domain_queries.build_top_tracks_sql,
     domain_queries.build_plays_with_filters_sql,
+    # "per-artist, per-album and per-track detail with first and last play"
+    domain_queries.build_artist_stats_sql,
+    domain_queries.build_album_stats_sql,
+    domain_queries.build_track_stats_sql,
     # "analytics that scrobbledb does not currently compute anywhere"
     domain_queries.build_hour_of_day_sql,
     domain_queries.build_day_of_week_sql,
