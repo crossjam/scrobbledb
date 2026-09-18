@@ -55,7 +55,7 @@ def test_every_registered_function_is_plain_python():
         "month_name": (3,),
         "fmt_ts": ("2024-01-01T12:00:00+00:00",),
     }
-    for name, (arity, fn) in fns.SQL_FUNCTIONS.items():
+    for name, (arity, fn, _deterministic) in fns.SQL_FUNCTIONS.items():
         args = samples[name]
         assert len(args) == arity, f"{name} declares arity {arity}"
         assert fn(*args) is not None
@@ -313,7 +313,10 @@ def test_a_moved_clock_yields_a_moved_answer(monkeypatch):
 
     assert after != before
     delta = dateutil.parser.parse(after) - dateutil.parser.parse(before)
-    assert timedelta(hours=23) < delta < timedelta(hours=25)
+    # Inclusive bounds: across a daylight-saving transition, adding one
+    # calendar day legitimately moves the UTC instant by exactly 23 or 25
+    # hours, which strict bounds would reject twice a year.
+    assert timedelta(hours=23) <= delta <= timedelta(hours=25)
 
 
 def test_absolute_expressions_are_unaffected_by_the_generation(monkeypatch):
@@ -447,3 +450,149 @@ async def test_guarded_bound_filters_over_http(registered_plugin, plays_db):
     assert await count("") == 2
     assert await count("2024-06-01") == 1
     assert await count("not a date") == 0
+
+
+def test_prepare_connection_marks_only_the_deterministic_functions():
+    """
+    The determinism flag is claimed only where it is true.
+
+    `parse_when` reads the wall clock, so asserting determinism for it would be
+    a false claim to SQLite. Checked through `prepare_connection` rather than a
+    locally registered function, so losing or misapplying the flag in
+    production registration fails here.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE rows_ (n INTEGER)")
+    conn.executemany("INSERT INTO rows_ VALUES (?)", [(i,) for i in range(20)])
+
+    calls = {name: [] for name in fns.SQL_FUNCTIONS}
+    wrapped = {}
+    for name, (arity, fn, deterministic) in fns.SQL_FUNCTIONS.items():
+        def make(name=name, fn=fn):
+            def counting(*args):
+                calls[name].append(args)
+                return fn(*args)
+            return counting
+        wrapped[name] = (arity, make(), deterministic)
+
+    original = fns.SQL_FUNCTIONS
+    try:
+        fns.SQL_FUNCTIONS = wrapped
+        fns.prepare_connection(conn)
+    finally:
+        fns.SQL_FUNCTIONS = original
+
+    # A deterministic function with a constant argument may be hoisted out of
+    # the row loop; a non-deterministic one may not be.
+    conn.execute("SELECT COUNT(*) FROM rows_ WHERE month_name(3) IS NOT NULL").fetchone()
+    assert len(calls["month_name"]) == 1, (
+        "month_name is deterministic and should be hoisted; "
+        f"got {len(calls['month_name'])} invocations"
+    )
+
+    conn.execute(
+        "SELECT COUNT(*) FROM rows_ WHERE parse_when('2024-01-01') IS NOT NULL"
+    ).fetchone()
+    assert len(calls["parse_when"]) == 20, (
+        "parse_when must not be registered deterministic - it reads the clock; "
+        f"got {len(calls['parse_when'])} invocations for 20 rows"
+    )
+
+
+def test_a_canned_query_needing_one_bound_must_resolve_it_in_sql():
+    """
+    Documents why the determinism flag is not a substitute for SQL structure.
+
+    Two call sites yield two resolutions and a column-valued argument yields
+    one per row, even when the flag is set, so a query that needs exactly one
+    bound has to resolve it once itself -- e.g. in a materialized CTE.
+    """
+    conn = sqlite3.connect(":memory:")
+    conn.execute("CREATE TABLE plays (timestamp TEXT)")
+    conn.executemany(
+        "INSERT INTO plays VALUES (?)",
+        [(f"2024-01-{day:02d}T00:00:00+00:00",) for day in range(1, 11)],
+    )
+
+    calls = []
+
+    def counting(text):
+        calls.append(text)
+        return "2024-01-05T00:00:00+00:00"
+
+    # Even claiming determinism, which production does not for this function.
+    conn.create_function("parse_when", 1, counting, deterministic=True)
+
+    calls.clear()
+    conn.execute(
+        "SELECT COUNT(*) FROM plays"
+        " WHERE timestamp >= parse_when(:s) OR timestamp > parse_when(:s)",
+        {"s": "x"},
+    ).fetchone()
+    assert len(calls) == 2, "two call sites resolve independently"
+
+    calls.clear()
+    conn.execute(
+        "SELECT COUNT(*) FROM plays WHERE timestamp >= parse_when(timestamp)"
+    ).fetchone()
+    assert len(calls) == 10, "a column-valued argument is evaluated per row"
+
+    # Resolving once in a materialized CTE is what actually pins it.
+    calls.clear()
+    conn.execute(
+        "WITH bound AS MATERIALIZED (SELECT parse_when(:s) AS since_utc)"
+        " SELECT COUNT(*) FROM plays, bound"
+        " WHERE timestamp >= bound.since_utc OR timestamp > bound.since_utc",
+        {"s": "x"},
+    ).fetchone()
+    assert len(calls) == 1, "a materialized CTE resolves the bound exactly once"
+
+
+def test_determinism_flags_are_justified():
+    """
+    Each function's determinism flag matches what the function actually does.
+
+    SQLite's contract covers every accepted input, not the expected ones, and a
+    SQL function accepts whatever an ad hoc query passes it. Two of these read
+    the clock for some inputs and must not claim determinism.
+    """
+    flags = {name: flag for name, (_a, _f, flag) in fns.SQL_FUNCTIONS.items()}
+
+    assert flags["parse_when"] is False, "parse_when resolves against now"
+    assert flags["fmt_ts"] is False, (
+        "fmt_ts defers to dateutil.parser.parse, which fills missing date "
+        "components from today"
+    )
+    assert flags["month_name"] is True
+    assert flags["fuzz_partial_ratio"] is True
+
+
+def test_fmt_ts_is_date_dependent_for_partial_input():
+    """
+    Evidence for the flag above: a partial timestamp picks up today's date.
+
+    This is why fmt_ts cannot claim determinism, even though it is stable for
+    the full ISO timestamps the schema actually stores.
+    """
+    from datetime import date
+
+    # Each call is bracketed by its own date reads, so a midnight rollover
+    # between reading the clock and calling fmt_ts cannot fail the test.
+    before = date.today()
+    bare_time = fns.fmt_ts("12:00")
+    after = date.today()
+    # A bare time takes today's date entirely.
+    assert bare_time.startswith(before.isoformat()) or bare_time.startswith(
+        after.isoformat()
+    )
+
+    before = date.today()
+    bare_month = fns.fmt_ts("March")
+    after = date.today()
+    # A bare month takes today's day and year.
+    assert bare_month.startswith(f"{before.year}-03-{before.day:02d}") or (
+        bare_month.startswith(f"{after.year}-03-{after.day:02d}")
+    )
+
+    # Stable for what the schema stores, which is why this is easy to miss.
+    assert fns.fmt_ts("2024-01-01T12:00:00+00:00") == "2024-01-01 12:00:00"

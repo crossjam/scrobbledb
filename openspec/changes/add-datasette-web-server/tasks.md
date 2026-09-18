@@ -10,7 +10,9 @@
 - [x] 1.3 Add explicit `[tool.setuptools.packages.find] where = ["src"]` (the project
   currently relies on implicit src-layout discovery) and extend
   `[tool.setuptools.package-data]` for the plugin’s config file; verify `uv build`
-  produces a wheel containing `scrobbledb/datasette_plugin/` and the config file
+  produces a wheel containing `scrobbledb/datasette_plugin/`. The package-data pattern
+  matches nothing until task 6.1 adds the config file, so it was verified by building
+  against a temporary scaffold; 6.1 re-verifies with the real file
 - [x] 1.4 Confirm `datasette` 1.0a39 installs on Python 3.14 (the CI matrix in
   `.github/workflows/qa.yml` covers 3.13 and 3.14); if it does not, record the
   constraint and plan to gate serve tests with `pytest.importorskip("datasette")` rather
@@ -95,7 +97,10 @@
   executes successfully against the `populated_db` fixture
   (`tests/test_stats.py:47-144`)
 - [ ] 3.3 Verify optional bounds behave correctly through the hook: omitting both covers
-  the full history, supplying both applies an inclusive range on each end
+  the full history, supplying both applies an inclusive range on each end.
+  Resolve `parse_when` once per statement in a `WITH ... AS MATERIALIZED` bound, per
+  design D5 — it is not a deterministic function, so repeated call sites otherwise
+  resolve independently; verify a single resolution per statement
 - [ ] 3.4 Confirm every album aggregate in the shared builders groups by
   `albums.title COLLATE NOCASE` and derives `artist_name` from the group per task 2.5 —
   never by `albums.id`, which fails to collapse synthesized aliases, and never naming a

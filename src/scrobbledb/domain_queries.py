@@ -201,6 +201,73 @@ def _where_clause(conditions: list[str]) -> str:
     return "WHERE " + " AND ".join(conditions) if conditions else ""
 
 
+def _as_int(value, name: str) -> int:
+    """
+    Coerce a value destined for SQL *text* to an integer, or refuse it.
+
+    `_numeric` interpolates its fallback rather than binding it -- a bound
+    parameter cannot serve as a COALESCE default in static SQL -- so the
+    fallback must never be caller-controlled text. The CLI screens these with
+    click's int type, but the builders are also called from the MCP tools and
+    the plugin, where nothing has.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"{name} must be an integer, got {value!r}") from None
+
+
+def _numeric(placeholder: str, default) -> str:
+    """
+    Wrap a placeholder so a blank or string-typed value still behaves as a number.
+
+    Datasette hands canned-query parameters to SQLite as *strings*, and a
+    parameter the user left blank arrives as `''`. Bound directly that breaks
+    two ways: `LIMIT ''` raises "datatype mismatch", and `COUNT(*) >= ''`
+    compares an affinity-less aggregate against text, which is always false, so
+    a HAVING clause silently filters every row away.
+
+    Blank becomes the builder's own default and anything else is cast, so one
+    static string serves both a canned query and a typed CLI call.
+    """
+    return f"CAST(COALESCE(NULLIF({placeholder}, ''), {default}) AS INTEGER)"
+
+
+def _json_array_param(params: _Params, name: str, values) -> str:
+    """
+    Bind a list of ids as one JSON array parameter.
+
+    The `COALESCE(NULLIF(...))` mirrors `_numeric`: a canned query supplies a
+    blank for an omitted parameter, and `json_each('')` raises "malformed
+    JSON". An empty array is the right reading of "no ids given" -- it matches
+    nothing, rather than failing the statement.
+    """
+    placeholder = params.add(name, json.dumps([str(v) for v in (values or [])]))
+    if params.form != SQL_FORM_NAMED:
+        return placeholder
+    return f"COALESCE(NULLIF({placeholder}, ''), '[]')"
+
+
+def _numeric_param(params: _Params, name: str, value, default=None) -> str:
+    """
+    Bind a numeric parameter, normalized when the form is the named one.
+
+    The bound value is left as supplied, since the CAST handles a string at
+    runtime, but the interpolated fallback is coerced to an integer first --
+    it lands in SQL text, not in a parameter.
+    """
+    if params.form != SQL_FORM_NAMED:
+        # Coerced here too, so both forms reject the same inputs. Left
+        # unvalidated, a bad value reached SQLite and surfaced as "datatype
+        # mismatch" from the database rather than as an error naming the
+        # parameter.
+        return params.add(name, _as_int(value, name))
+
+    placeholder = params.add(name, value)
+    fallback = default if default is not None else value
+    return _numeric(placeholder, _as_int(fallback, name))
+
+
 def _limit_clause(params: _Params, limit: Optional[int]) -> str:
     """
     Render an optional LIMIT as a bound parameter rather than interpolated text.
@@ -209,10 +276,11 @@ def _limit_clause(params: _Params, limit: Optional[int]) -> str:
     mean unbounded, so the SQL string stays static.
     """
     if params.form == SQL_FORM_NAMED:
-        return f"LIMIT {params.add('limit', _NO_LIMIT if limit is None else limit)}"
+        value = _NO_LIMIT if limit is None else _as_int(limit, "limit")
+        return f"LIMIT {_numeric_param(params, 'limit', value, default=value)}"
     if limit is None:
         return ""
-    return f"LIMIT {params.add('limit', limit)}"
+    return f"LIMIT {params.add('limit', _as_int(limit, 'limit'))}"
 
 
 def build_overview_stats_sql(form: str = SQL_FORM_NAMED) -> tuple[str, object]:
@@ -265,8 +333,10 @@ def build_monthly_rollup_sql(
     form: str = SQL_FORM_NAMED,
 ) -> tuple[str, object]:
     """Build the per-month rollup query. Pure: touches no database."""
-    if limit is not None and limit <= 0:
-        raise ValueError("limit must be a positive integer")
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
 
     params = _Params(form)
     where_clause = _where_clause(_time_bound_conditions(params, since, until))
@@ -350,7 +420,11 @@ def build_yearly_rollup_sql(
     """
     params = _Params(form)
     where_clause = _where_clause(_time_bound_conditions(params, since, until))
-    limit_value = None if limit is None or int(limit) <= 0 else int(limit)
+    limit_value = (
+        None
+        if limit is None or _as_int(limit, "limit") <= 0
+        else _as_int(limit, "limit")
+    )
     limit_clause = _limit_clause(params, limit_value)
 
     sql = f"""
@@ -554,7 +628,7 @@ def build_plays_with_filters_sql(
         JOIN artists ON albums.artist_id = artists.id
         {_where_clause(conditions)}
         ORDER BY plays.timestamp DESC
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -644,9 +718,9 @@ def build_artists_with_stats_sql(
         JOIN artists ON albums.artist_id = artists.id
         {where_clause}
         GROUP BY artists.id, artists.name
-        HAVING play_count >= {params.add("min_plays", min_plays)}
+        HAVING play_count >= {_numeric_param(params, "min_plays", min_plays)}
         {order_clause}
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -729,7 +803,7 @@ def build_albums_by_search_sql(
         {_where_clause(conditions)}
         GROUP BY albums.id, albums.title, artists.name
         ORDER BY play_count DESC, albums.title ASC
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -805,7 +879,7 @@ def build_tracks_by_search_sql(
         {_where_clause(conditions)}
         GROUP BY tracks.id, tracks.title, artists.name, albums.title
         ORDER BY play_count DESC, tracks.title ASC
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -908,9 +982,9 @@ def build_albums_list_sql(
         LEFT JOIN plays ON plays.track_id = tracks.id
         {_where_clause(conditions)}
         GROUP BY albums.title COLLATE NOCASE
-        HAVING play_count >= {params.add("min_plays", min_plays)}
+        HAVING play_count >= {_numeric_param(params, "min_plays", min_plays)}
         ORDER BY {_album_sort_column(sort)} {_sort_direction(order)}
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -987,7 +1061,7 @@ def build_artist_fts_candidates_sql(
             tracks_fts.artist_name
         FROM tracks_fts
         WHERE tracks_fts MATCH {match_expr}
-        LIMIT {params.add("limit", limit * 3)}
+        LIMIT {_numeric_param(params, "limit", limit)} * 3
     """
     return sql, params.values
 
@@ -1004,7 +1078,7 @@ def build_artist_like_candidates_sql(
         SELECT DISTINCT artists.id
         FROM artists
         {_where_clause(conditions)}
-        LIMIT {params.add("limit", limit * 2)}
+        LIMIT {_numeric_param(params, "limit", limit)} * 2
     """
     return sql, params.values
 
@@ -1020,7 +1094,6 @@ def build_artist_search_stats_sql(
     so the SQL text does not vary with the number of candidates.
     """
     params = _Params(form)
-    ids_json = json.dumps([str(artist_id) for artist_id in (artist_ids or [])])
     sql = f"""
         SELECT
             artists.id as artist_id,
@@ -1034,7 +1107,7 @@ def build_artist_search_stats_sql(
         LEFT JOIN tracks ON tracks.album_id = albums.id
         LEFT JOIN plays ON plays.track_id = tracks.id
         WHERE artists.id IN (
-            SELECT value FROM json_each({params.add("artist_ids", ids_json)})
+            SELECT value FROM json_each({_json_array_param(params, "artist_ids", artist_ids)})
         )
         GROUP BY artists.id, artists.name
     """
@@ -1206,7 +1279,7 @@ def build_top_artists_sql(
         {_where_clause(row_conditions)}
         GROUP BY artists.id, artists.name
         ORDER BY play_count DESC
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -1293,7 +1366,7 @@ def build_top_tracks_sql(
         {row_where}
         GROUP BY tracks.id, tracks.title, artists.name, albums.title
         ORDER BY play_count DESC
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -1459,7 +1532,7 @@ def build_artist_top_tracks_sql(
         WHERE albums.artist_id = {params.add("artist_id", artist_id)}
         GROUP BY tracks.id, tracks.title, albums.title
         ORDER BY play_count DESC
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -1672,7 +1745,6 @@ def build_album_tracks_sql(
     variable-length CLI call and a canned query, which can only bind scalars.
     """
     params = _Params(form)
-    ids_json = json.dumps([str(album_id) for album_id in (album_ids or [])])
     sql = f"""
         SELECT
             tracks.id as track_id,
@@ -1682,7 +1754,7 @@ def build_album_tracks_sql(
         FROM tracks
         LEFT JOIN plays ON plays.track_id = tracks.id
         WHERE tracks.album_id IN (
-            SELECT value FROM json_each({params.add("album_ids", ids_json)})
+            SELECT value FROM json_each({_json_array_param(params, "album_ids", album_ids)})
         )
         GROUP BY tracks.id, tracks.title
         ORDER BY tracks.id ASC
@@ -1937,9 +2009,9 @@ def build_tracks_list_sql(
         LEFT JOIN plays ON plays.track_id = tracks.id
         {_where_clause(conditions)}
         GROUP BY tracks.id, tracks.title, artists.name, albums.title
-        HAVING play_count >= {params.add("min_plays", min_plays)}
+        HAVING play_count >= {_numeric_param(params, "min_plays", min_plays)}
         ORDER BY {_track_sort_column(sort)} {_sort_direction(order)}
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
@@ -2042,7 +2114,7 @@ def build_top_albums_sql(
         {row_where}
         GROUP BY albums.title COLLATE NOCASE
         ORDER BY play_count DESC
-        LIMIT {params.add("limit", limit)}
+        LIMIT {_numeric_param(params, "limit", limit)}
     """
     return sql, params.values
 
