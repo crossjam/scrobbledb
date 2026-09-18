@@ -5,9 +5,9 @@ Three properties are load-bearing and each is checked through the production
 seam -- the real plugin module registered with Datasette's global plugin
 manager, the real hook, the real HTTP surface:
 
-- **The catalog is complete and projected.** Every entry reaches the database
-  index page with its description and returns the rows we expect against a
-  populated database, not merely a 200 with nothing in it.
+- **The catalog is complete and projected.** Every entry is discoverable from
+  the database index with its description, and returns the rows we expect
+  against a populated database, not merely a 200 with nothing in it.
 
 - **A time bound is resolved exactly once per statement.** `parse_when` reads
   the wall clock and is deliberately not registered deterministic, so a query
@@ -23,6 +23,7 @@ manager, the real hook, the real HTTP surface:
 
 import re
 import sqlite3
+from html import unescape
 
 import pytest
 import sqlite_utils
@@ -366,6 +367,27 @@ def test_the_rewrite_refuses_a_bound_it_cannot_route_through_parse_when():
         cat.resolve_time_bounds_once(sql)
 
 
+def test_the_rewrite_refuses_a_bound_it_recognizes_nowhere():
+    """
+    The fail-open case: *no* bound is in the shape the rewrite knows.
+
+    Nothing matches, so there is nothing to rewrite and nothing to wrap -- and
+    an early "no bounds here" return would hand SQLite a query comparing
+    `plays.timestamp` against the literal string `last march`. Bounds are
+    therefore checked before that return, not after it.
+    """
+    for sql in (
+        "SELECT * FROM plays WHERE plays.timestamp >= :since",
+        "SELECT * FROM plays WHERE (:until = '' OR date(plays.timestamp) <= :until)",
+    ):
+        with pytest.raises(ValueError, match="parse_when"):
+            cat.resolve_time_bounds_once(sql)
+
+    # Still unchanged when there is genuinely no bound to route.
+    unbounded = "SELECT COUNT(*) FROM plays"
+    assert cat.resolve_time_bounds_once(unbounded) == unbounded
+
+
 def test_the_rewrite_keeps_a_builders_own_ctes():
     """
     Forward cover for the streaks builder of task 3.5, which needs its own CTE.
@@ -393,20 +415,35 @@ def test_the_rewrite_keeps_a_builders_own_ctes():
 
 
 @pytest.mark.asyncio
-async def test_every_entry_reaches_the_database_index_page(
+async def test_every_entry_is_discoverable_from_the_database_index(
     registered_plugin, populated_db
 ):
     """
-    The hook actually registers the catalog, descriptions included.
+    The hook registers the whole catalog and a reader can find all of it.
 
-    1.0a39's database index page itself shows only the first five stored
-    queries and links to the database's full listing at `/<db>/-/queries`, so
-    "listed on the index page" is checked against that listing -- in its JSON
-    form, because the HTML escapes the quotes some descriptions carry -- plus
-    the rendered pages linking through to each query.
+    What "listed on the database index page" means is decided by 1.0a39, not
+    by us: the index renders the first *five* stored queries -- name, and
+    description as the link's title -- and then a "View N queries" link to the
+    database's complete listing at `/<db>/-/queries`. Discovery is therefore
+    those two pages together, and both halves are asserted: the count the index
+    advertises must be the whole catalog (an entry that failed to register is
+    caught right there), the entries it does render must carry their
+    descriptions, and the listing it points at must carry every entry with its
+    title and description.
+
+    The exact text is read from the listing's JSON; the rendered pages are
+    unescaped before being searched, since the quotes some descriptions carry
+    come back as entities.
     """
     ds = await serve(populated_db)
     database = populated_db.stem
+
+    index = await ds.client.get(f"/{database}")
+    assert index.status_code == 200
+    assert 'id="queries"' in index.text, "the index page has no queries section"
+    assert f"View {len(cat.CATALOG):,} queries" in index.text, (
+        "the index page does not advertise the whole catalog"
+    )
 
     response = await ds.client.get(
         f"/{database}/-/queries.json", params={"limit": 1000}
@@ -419,40 +456,64 @@ async def test_every_entry_reaches_the_database_index_page(
         assert listed[entry.name]["title"] == entry.title
         assert listed[entry.name]["description"] == entry.description
 
-    index = await ds.client.get(f"/{database}")
-    assert index.status_code == 200
-    assert f"/{database}/-/queries" in index.text, (
-        "the database index page does not link to the stored queries"
-    )
+    # The entries the index page itself renders carry their description as the
+    # link title, which is how 1.0a39's index shows one.
+    rendered_index = unescape(index.text)
+    shown = [name for name in listed if f"/{database}/{name}" in rendered_index]
+    assert shown, "the index page rendered none of the catalog"
+    for name in shown:
+        assert listed[name]["description"] in rendered_index, (
+            f"{name} is shown on the index page without its description"
+        )
 
     page = await ds.client.get(f"/{database}/-/queries", params={"limit": 1000})
     assert page.status_code == 200
+    rendered_listing = unescape(page.text)
     for entry in cat.CATALOG:
-        assert f"/{database}/{entry.name}" in page.text, (
+        assert f"/{database}/{entry.name}" in rendered_listing, (
             f"{entry.name} is not linked from the rendered listing"
+        )
+        assert entry.description in rendered_listing, (
+            f"{entry.name} is listed without its description"
         )
 
 
 @pytest.mark.asyncio
-async def test_a_database_without_plays_gets_no_stored_queries(
-    registered_plugin, tmp_path
+@pytest.mark.parametrize(
+    "schema, why",
+    [
+        (
+            ["CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)"],
+            "no scrobble tables at all",
+        ),
+        (
+            ["CREATE TABLE plays (id INTEGER PRIMARY KEY, script TEXT)"],
+            "a plays table of its own, but none of the rest of the schema",
+        ),
+    ],
+)
+async def test_an_unrelated_database_gets_no_stored_queries(
+    registered_plugin, tmp_path, schema, why
 ):
     """
-    The catalog is only projected onto scrobbledb-shaped databases.
+    The catalog is only projected onto databases carrying the whole schema.
 
-    Every entry reads `plays`; registering them against an unrelated database
-    sharing the process would list queries that can only fail.
+    Every entry but the play history joins through `tracks`, `albums` and
+    `artists`, so recognising a database by its `plays` table alone would give
+    a theatre-scripts database sixteen trusted queries that can only raise
+    "no such table".
     """
     path = tmp_path / "unrelated.db"
     db = sqlite_utils.Database(path)
-    db.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)")
+    for statement in schema:
+        db.execute(statement)
     db.conn.commit()
     db.close()
 
     ds = await serve(path)
-    response = await ds.client.get(f"/{path.stem}.json")
+    response = await ds.client.get(f"/{path.stem}/-/queries.json")
     assert response.status_code == 200, response.text
-    assert response.json()["queries"] == []
+    assert response.json()["queries"] == [], f"queries registered on {why}"
 
 
 #: Parameters that make each entry return rows against `populated_db`.

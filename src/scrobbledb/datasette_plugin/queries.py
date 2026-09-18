@@ -102,9 +102,12 @@ BOUND_PARAMETERS = ("since", "until")
 # user-created ones.
 SOURCE = "scrobbledb"
 
-# A database is served the catalog only if it looks like a scrobbledb database.
-# Mirrors the `browse` pre-flight: `plays` is the table every entry reads.
-REQUIRED_TABLE = "plays"
+# A database is served the catalog only if it carries the whole scrobble
+# schema. `plays` alone is not enough: every entry but the play history joins
+# through `tracks`, `albums` and `artists`, so a database with a `plays` table
+# of its own would otherwise be given sixteen trusted queries that can only
+# raise "no such table".
+REQUIRED_TABLES = frozenset({"plays", "tracks", "albums", "artists"})
 
 _NO_KWARGS: Mapping[str, Any] = types.MappingProxyType({})
 
@@ -173,9 +176,10 @@ def resolve_time_bounds_once(sql: str) -> str:
         if count:
             resolved.append(name)
 
-    if not resolved:
-        return sql
-
+    # Checked before the early return, not after it. A builder that renders a
+    # bound in some shape the guard pattern does not recognize matches nothing
+    # here, so returning early on "no matches" would be a fail-open path: the
+    # bound would reach SQLite as the literal text the user typed.
     for name in BOUND_PARAMETERS:
         stray = _unparsed_bound_pattern(name).search(sql)
         if stray:
@@ -184,6 +188,9 @@ def resolve_time_bounds_once(sql: str) -> str:
                 f"{stray.start()}; the builder's rendering of its optional "
                 "bounds no longer matches what the catalog can rewrite"
             )
+
+    if not resolved:
+        return sql
 
     selects = ", ".join(f"{PARSE_WHEN}(:{name}) AS {name}_utc" for name in resolved)
     return _prepend_cte(sql, f"{BOUNDS_CTE} AS MATERIALIZED (\n    SELECT {selects}\n)")
@@ -419,7 +426,7 @@ async def register_stored_queries(datasette) -> dict[str, list[str]]:
     registered: dict[str, list[str]] = {}
 
     for database_name, database in datasette.databases.items():
-        if REQUIRED_TABLE not in await database.table_names():
+        if not REQUIRED_TABLES.issubset(await database.table_names()):
             continue
         for name, definition in definitions.items():
             await datasette.add_query(
