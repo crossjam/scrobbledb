@@ -647,6 +647,44 @@ async def test_the_rendered_listing_paginates_rather_than_showing_everything(
         assert _NEXT_LINK.search(page.text), "a truncated listing must link onward"
 
 
+#: The builders the stored-query spec names as required, mapped from the
+#: requirement text rather than from the catalog. `CATALOG_FLOOR` guards the
+#: catalog's *size*; this guards its *content*, which a floor cannot -- deleting
+#: the streaks entry and adding any other would keep the count at 22.
+REQUIRED_BUILDERS = {
+    # "a collection overview; monthly, yearly and daily rollups; top artists,
+    # top albums and top tracks ...; a denormalized play feed"
+    domain_queries.build_overview_stats_sql,
+    domain_queries.build_monthly_rollup_sql,
+    domain_queries.build_yearly_rollup_sql,
+    domain_queries.build_daily_rollup_sql,
+    domain_queries.build_top_artists_sql,
+    domain_queries.build_top_albums_sql,
+    domain_queries.build_top_tracks_sql,
+    domain_queries.build_plays_with_filters_sql,
+    # "analytics that scrobbledb does not currently compute anywhere"
+    domain_queries.build_hour_of_day_sql,
+    domain_queries.build_day_of_week_sql,
+    domain_queries.build_listening_streaks_sql,
+    domain_queries.build_artist_discovery_sql,
+    # "full-text search over artist, album and track names"
+    domain_queries.build_fts_search_sql,
+}
+
+
+def test_the_catalog_covers_every_required_analytic():
+    """
+    Each analytic the spec requires is actually reachable as a stored query.
+
+    Compared by builder rather than by entry name, so renaming an entry is
+    allowed and dropping the query behind it is not.
+    """
+    catalogued = {entry.builder for entry in cat.CATALOG}
+    missing = sorted(b.__name__ for b in REQUIRED_BUILDERS - catalogued)
+
+    assert missing == [], f"required analytics absent from the catalog: {missing}"
+
+
 def test_every_entry_has_an_execution_expectation():
     """A new catalog entry must be given parameters before it can be trusted."""
     assert set(PARAMETERS_FOR) == {entry.name for entry in cat.CATALOG}
