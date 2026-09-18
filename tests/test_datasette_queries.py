@@ -5,23 +5,29 @@ Three properties are load-bearing and each is checked through the production
 seam -- the real plugin module registered with Datasette's global plugin
 manager, the real hook, the real HTTP surface:
 
-- **The catalog is complete.** Every entry carries all of its fields, is
-  uniquely named, and is a shared `domain_queries` builder rather than SQL
-  written a second time in the plugin.
+- **The catalog is complete and projected.** Every entry reaches the database
+  index page with its description and returns the rows we expect against a
+  populated database, not merely a 200 with nothing in it.
 
-- **A time bound is resolved once per statement.** `parse_when` reads the wall
-  clock and is deliberately not registered deterministic, so a query with
-  several comparison sites would otherwise resolve each independently and could
-  compare early rows against one instant and later rows against another
-  (design D5). The rewrite that pins it is checked here; the projected queries
-  are checked over HTTP once the hook lands.
+- **A time bound is resolved exactly once per statement.** `parse_when` reads
+  the wall clock and is deliberately not registered deterministic, so a query
+  with several comparison sites would otherwise resolve each independently and
+  could compare early rows against one instant and later rows against another
+  (design D5).
+
+- **Album aggregates collapse identifiers and never misattribute an artist.**
+  `tests/test_album_identity.py` establishes this at the builder level; here it
+  is confirmed to survive the projection into stored queries, for every album
+  aggregate the catalog exposes rather than a hand-written list of two.
 """
 
 import re
+import sqlite3
 
 import pytest
 import sqlite_utils
 
+from scrobbledb import domain_queries
 from scrobbledb.datasette_plugin import functions as fns
 from scrobbledb.datasette_plugin import queries as cat
 
@@ -378,3 +384,372 @@ def test_the_rewrite_keeps_a_builders_own_ctes():
 
     recursive = cat.resolve_time_bounds_once("WITH RECURSIVE " + body[len("WITH ") :])
     assert recursive.startswith(f"WITH RECURSIVE {cat.BOUNDS_CTE} AS MATERIALIZED")
+
+
+# --------------------------------------------------------------------------
+# 3.2 -- projection into Datasette
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_every_entry_reaches_the_database_index_page(
+    registered_plugin, populated_db
+):
+    """
+    The hook actually registers the catalog, descriptions included.
+
+    1.0a39's database index page itself shows only the first five stored
+    queries and links to the database's full listing at `/<db>/-/queries`, so
+    "listed on the index page" is checked against that listing -- in its JSON
+    form, because the HTML escapes the quotes some descriptions carry -- plus
+    the rendered pages linking through to each query.
+    """
+    ds = await serve(populated_db)
+    database = populated_db.stem
+
+    response = await ds.client.get(
+        f"/{database}/-/queries.json", params={"limit": 1000}
+    )
+    assert response.status_code == 200, response.text
+    listed = {query["name"]: query for query in response.json()["queries"]}
+
+    for entry in cat.CATALOG:
+        assert entry.name in listed, f"{entry.name} is not listed for the database"
+        assert listed[entry.name]["title"] == entry.title
+        assert listed[entry.name]["description"] == entry.description
+
+    index = await ds.client.get(f"/{database}")
+    assert index.status_code == 200
+    assert f"/{database}/-/queries" in index.text, (
+        "the database index page does not link to the stored queries"
+    )
+
+    page = await ds.client.get(f"/{database}/-/queries", params={"limit": 1000})
+    assert page.status_code == 200
+    for entry in cat.CATALOG:
+        assert f"/{database}/{entry.name}" in page.text, (
+            f"{entry.name} is not linked from the rendered listing"
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_database_without_plays_gets_no_stored_queries(
+    registered_plugin, tmp_path
+):
+    """
+    The catalog is only projected onto scrobbledb-shaped databases.
+
+    Every entry reads `plays`; registering them against an unrelated database
+    sharing the process would list queries that can only fail.
+    """
+    path = tmp_path / "unrelated.db"
+    db = sqlite_utils.Database(path)
+    db.execute("CREATE TABLE notes (id INTEGER PRIMARY KEY, body TEXT)")
+    db.conn.commit()
+    db.close()
+
+    ds = await serve(path)
+    response = await ds.client.get(f"/{path.stem}.json")
+    assert response.status_code == 200, response.text
+    assert response.json()["queries"] == []
+
+
+#: Parameters that make each entry return rows against `populated_db`.
+#:
+#: Entries needing none map to an empty dict. Every catalog entry must appear,
+#: so a new entry cannot be added without saying what makes it return rows.
+PARAMETERS_FOR = {
+    "overview": {},
+    "plays_feed": {},
+    "monthly_rollup": {},
+    "yearly_rollup": {},
+    "top_artists": {},
+    "top_albums": {},
+    "top_tracks": {},
+    "artist_list": {},
+    "album_list": {},
+    "track_list": {},
+    "artist_detail": {"artist_id": "a1"},
+    "artist_top_tracks": {"artist_id": "a1"},
+    "album_detail": {"album_id": "alb1"},
+    "album_tracks": {"album_ids": '["alb1", "alb2"]'},
+    "track_detail": {"track_id": "t1"},
+    "track_plays": {"track_id": "t1"},
+}
+
+
+def test_every_entry_has_an_execution_expectation():
+    """A new catalog entry must be given parameters before it can be trusted."""
+    assert set(PARAMETERS_FOR) == {entry.name for entry in cat.CATALOG}
+
+
+@pytest.mark.asyncio
+async def test_every_entry_returns_rows_against_a_populated_database(
+    registered_plugin, populated_db
+):
+    """
+    Each entry executes and returns data.
+
+    "Executes successfully" has to mean rows: an entry whose SQL silently
+    matched nothing would pass a status-code-only check while being useless.
+    """
+    ds = await serve(populated_db)
+    database = populated_db.stem
+
+    for entry in cat.CATALOG:
+        rows = await run_query(ds, database, entry.name, **PARAMETERS_FOR[entry.name])
+        assert rows, f"{entry.name} returned no rows against a populated database"
+
+
+@pytest.mark.asyncio
+async def test_overview_reports_the_fixtures_totals(registered_plugin, populated_db):
+    ds = await serve(populated_db)
+    (row,) = await run_query(ds, populated_db.stem, "overview")
+
+    assert row["total_scrobbles"] == len(FIXTURE_PLAYS)
+    assert row["unique_artists"] == 2
+    assert row["unique_albums"] == 3
+    assert row["unique_tracks"] == 5
+    assert row["first_scrobble"] == FIXTURE_PLAYS[0][0]
+    assert row["last_scrobble"] == FIXTURE_PLAYS[-1][0]
+
+
+@pytest.mark.asyncio
+async def test_top_artists_carries_counts_and_share_of_total(
+    registered_plugin, populated_db
+):
+    """Hand-computed: a1 owns t1/t2/t3 (7 plays), a2 owns t4/t5 (3 plays)."""
+    ds = await serve(populated_db)
+    rows = await run_query(ds, populated_db.stem, "top_artists")
+
+    assert [row["artist_name"] for row in rows] == ["Artist One", "Artist Two"]
+    assert [row["play_count"] for row in rows] == [7, 3]
+    assert [round(row["percentage"]) for row in rows] == [70, 30]
+
+
+@pytest.mark.asyncio
+async def test_monthly_rollup_has_one_row_per_month_with_plays(
+    registered_plugin, populated_db
+):
+    ds = await serve(populated_db)
+    rows = await run_query(ds, populated_db.stem, "monthly_rollup")
+
+    assert [(row["year"], row["month"], row["scrobbles"]) for row in rows] == [
+        (2024, 3, 3),
+        (2024, 2, 1),
+        (2024, 1, 2),
+        (2023, 12, 1),
+        (2023, 7, 1),
+        (2023, 6, 2),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_the_play_feed_is_denormalized(registered_plugin, populated_db):
+    """Each row carries the names, so no manual joining is required."""
+    ds = await serve(populated_db)
+    rows = await run_query(ds, populated_db.stem, "plays_feed", limit="1")
+
+    assert len(rows) == 1
+    assert rows[0] == {
+        "timestamp": "2024-03-25T20:00:00+00:00",
+        "artist_name": "Artist Two",
+        "track_title": "Track Four",
+        "album_title": "Album Three",
+    }
+
+
+@pytest.mark.asyncio
+async def test_stored_queries_agree_with_the_cli(registered_plugin, populated_db):
+    """
+    The shared builders really are shared: same rows, same order, both ways.
+
+    Drift between the two surfaces is the failure the extraction of group 2
+    exists to prevent, so it is checked rather than assumed.
+    """
+    ds = await serve(populated_db)
+    db = sqlite_utils.Database(populated_db)
+    try:
+        cli_top_artists = domain_queries.get_top_artists(db, limit=10)
+        cli_monthly = domain_queries.get_monthly_rollup(db)
+    finally:
+        db.close()
+
+    served = await run_query(ds, populated_db.stem, "top_artists")
+    assert [(r["artist_id"], r["play_count"]) for r in served] == [
+        (r["artist_id"], r["play_count"]) for r in cli_top_artists
+    ]
+
+    served = await run_query(ds, populated_db.stem, "monthly_rollup")
+    assert [(r["year"], r["month"], r["scrobbles"]) for r in served] == [
+        (r["year"], r["month"], r["scrobbles"]) for r in cli_monthly
+    ]
+
+
+# --------------------------------------------------------------------------
+# 3.3 -- optional bounds, resolved once per statement
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_omitting_both_bounds_covers_the_whole_history(
+    registered_plugin, populated_db
+):
+    ds = await serve(populated_db)
+    rows = await run_query(ds, populated_db.stem, "plays_feed", limit="100")
+    assert len(rows) == len(FIXTURE_PLAYS)
+
+    # Explicitly blank, which is what a submitted form with empty fields sends.
+    rows = await run_query(
+        ds, populated_db.stem, "plays_feed", limit="100", since="", until=""
+    )
+    assert len(rows) == len(FIXTURE_PLAYS)
+
+
+@pytest.mark.asyncio
+async def test_supplied_bounds_are_inclusive_at_both_ends(
+    registered_plugin, populated_db
+):
+    """
+    A play exactly at `since` and one exactly at `until` are both counted.
+
+    The bounds are the second and the ninth play's own timestamps, so a `>`
+    where `>=` belongs drops two rows and an exclusive pair drops both ends --
+    eight rows is the only answer an inclusive range gives.
+    """
+    since = FIXTURE_PLAYS[1][0]
+    until = FIXTURE_PLAYS[-2][0]
+
+    ds = await serve(populated_db)
+    rows = await run_query(
+        ds, populated_db.stem, "plays_feed", limit="100", since=since, until=until
+    )
+
+    timestamps = {row["timestamp"] for row in rows}
+    assert since in timestamps, "the play at the since bound was excluded"
+    assert until in timestamps, "the play at the until bound was excluded"
+    assert len(rows) == len(FIXTURE_PLAYS) - 2
+    assert FIXTURE_PLAYS[0][0] not in timestamps
+    assert FIXTURE_PLAYS[-1][0] not in timestamps
+
+
+@pytest.mark.asyncio
+async def test_human_time_expressions_match_the_cli(registered_plugin, populated_db):
+    """
+    `1 january 2024` in a form field selects what `--since` selects.
+
+    Both sides are computed here rather than hard-coded, because the CLI reads
+    a naive expression as *local* wall clock, so the UTC instant -- and with a
+    play at midnight UTC, the row count -- depends on the host's timezone.
+    """
+    ds = await serve(populated_db)
+    db = sqlite_utils.Database(populated_db)
+    try:
+        expected = domain_queries.get_plays_with_filters(
+            db, limit=100, since=domain_queries.parse_relative_time("1 january 2024")
+        )
+    finally:
+        db.close()
+
+    rows = await run_query(
+        ds, populated_db.stem, "plays_feed", limit="100", since="1 january 2024"
+    )
+
+    assert expected, "the fixture must have plays in range or this proves nothing"
+    assert [row["timestamp"] for row in rows] == [p["timestamp"] for p in expected]
+
+
+def _counting_connection(path):
+    """
+    A connection prepared exactly as Datasette's is, counting `parse_when`.
+
+    Goes through `functions.prepare_connection` rather than registering a local
+    function, so the determinism flags and arities under test are production's.
+    """
+    calls = []
+    original = fns.SQL_FUNCTIONS
+
+    def counting(text):
+        calls.append(text)
+        return original["parse_when"][1](text)
+
+    conn = sqlite3.connect(path)
+    try:
+        fns.SQL_FUNCTIONS = dict(original, parse_when=(1, counting, False))
+        fns.prepare_connection(conn)
+    finally:
+        fns.SQL_FUNCTIONS = original
+    return conn, calls
+
+
+def test_each_bound_is_resolved_exactly_once_per_statement(populated_db):
+    """
+    The materialized CTE pins the bound; every comparison site reads that value.
+
+    `top_artists` has four bound comparison sites -- the ranked rows and the
+    scalar subquery computing the period total each carry both predicates --
+    over ten rows. Without the CTE those resolve independently, and a statement
+    straddling a cache generation boundary can total one range while ranking
+    another (design D5).
+    """
+    entries = time_ranged_entries()
+    assert entries, "no time-ranged entries found; the loop below would be vacuous"
+
+    conn, calls = _counting_connection(str(populated_db))
+    try:
+        for entry in entries:
+            calls.clear()
+            conn.execute(
+                entry.sql,
+                {
+                    "since": "2023-01-01T00:00:00+00:00",
+                    "until": "2025-01-01T00:00:00+00:00",
+                    **{
+                        name: ""
+                        for name in re.findall(r":(\w+)", entry.sql)
+                        if name not in cat.BOUND_PARAMETERS
+                    },
+                },
+            ).fetchall()
+            assert len(calls) == len(cat.BOUND_PARAMETERS), (
+                f"{entry.name}: expected one resolution per bound, "
+                f"got {len(calls)}: {calls}"
+            )
+    finally:
+        conn.close()
+
+
+def test_without_the_cte_a_bound_resolves_more_than_once(populated_db):
+    """
+    Evidence the test above is not vacuous.
+
+    The naive rewrite -- `parse_when` at each comparison site -- is applied to
+    the same builder output and counted the same way. If it resolved once too,
+    the CTE would be decoration.
+    """
+    entry = next(entry for entry in cat.CATALOG if entry.name == "top_artists")
+    sql, _params = entry.builder(form=domain_queries.SQL_FORM_NAMED)
+    for name in cat.BOUND_PARAMETERS:
+        sql = cat._guard_pattern(name).sub(
+            lambda m, name=name: (
+                f"(:{name} = '' OR {m['column']} {m['op']} parse_when(:{name}))"
+            ),
+            sql,
+        )
+
+    conn, calls = _counting_connection(str(populated_db))
+    try:
+        conn.execute(
+            sql,
+            {
+                "since": "2023-01-01T00:00:00+00:00",
+                "until": "2025-01-01T00:00:00+00:00",
+                "limit": "",
+            },
+        ).fetchall()
+    finally:
+        conn.close()
+
+    assert len(calls) > len(cat.BOUND_PARAMETERS), (
+        f"the naive form resolved only {len(calls)} times, so the CTE proves nothing"
+    )

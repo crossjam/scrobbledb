@@ -17,10 +17,19 @@ Nothing in the installed package mentions "canned" at all, and pluggy rejects a
 hookimpl whose name matches no hookspec, so defining one would be a startup
 error rather than a no-op.
 
-`stored_query_definitions()` therefore returns the classic canned-query dict
-shape (`{name: {"sql", "title", "description"}}`), which is both what
+The catalog is therefore projected in the `startup(datasette)` hook, which
+`invoke_startup` runs *after* the internal tables exist and after
+`save_queries_from_config` -- the same point config-declared queries are
+applied. `stored_query_definitions()` still returns the classic canned-query
+dict shape (`{name: {"sql", "title", "description"}}`), which is both what
 `add_query` consumes and what a future re-introduction of a per-database hook
-would want. Projecting it onto a running Datasette is the next commit.
+would want.
+
+Queries are registered `is_trusted=True`, matching what these entries would get
+if they were declared in `datasette.yaml` instead (`save_queries_from_config`
+defaults `is_trusted` to True). They are first-party, read-only and curated, so
+they stay runnable for a viewer whose `execute-sql` permission is withheld to
+block *ad hoc* SQL.
 
 Resolving `parse_when` once per statement (design D5)
 -----------------------------------------------------
@@ -72,6 +81,8 @@ import re
 import types
 from typing import Any, Callable, Mapping
 
+from datasette import hookimpl
+
 from scrobbledb import domain_queries
 
 # Name of the CTE that holds one resolution of each time bound per statement.
@@ -85,6 +96,15 @@ PARSE_WHEN = "parse_when"
 # The optional time bounds every time-ranged builder renders, in the guarded
 # named form of design D5.
 BOUND_PARAMETERS = ("since", "until")
+
+# `source` recorded on every row we write to the internal `queries` table, so
+# scrobbledb's entries are distinguishable from config-declared and
+# user-created ones.
+SOURCE = "scrobbledb"
+
+# A database is served the catalog only if it looks like a scrobbledb database.
+# Mirrors the `browse` pre-flight: `plays` is the table every entry reads.
+REQUIRED_TABLE = "plays"
 
 _NO_KWARGS: Mapping[str, Any] = types.MappingProxyType({})
 
@@ -386,3 +406,43 @@ def stored_query_definitions() -> dict[str, dict[str, str]]:
         }
         for entry in CATALOG
     }
+
+
+async def register_stored_queries(datasette) -> dict[str, list[str]]:
+    """
+    Write the catalog into Datasette's stored-query table, per database.
+
+    Returns the query names registered against each database, which is what
+    makes the projection observable without reading the internal database.
+    """
+    definitions = stored_query_definitions()
+    registered: dict[str, list[str]] = {}
+
+    for database_name, database in datasette.databases.items():
+        if REQUIRED_TABLE not in await database.table_names():
+            continue
+        for name, definition in definitions.items():
+            await datasette.add_query(
+                database_name,
+                name,
+                definition["sql"],
+                title=definition["title"],
+                description=definition["description"],
+                source=SOURCE,
+                is_trusted=True,
+            )
+        registered[database_name] = list(definitions)
+
+    return registered
+
+
+@hookimpl
+async def startup(datasette):
+    """
+    Project the catalog onto every scrobbledb-shaped database being served.
+
+    `invoke_startup` runs this after the internal tables exist and after
+    config-declared queries are applied, so an operator's `datasette.yaml` entry
+    of the same name is replaced by ours rather than racing it.
+    """
+    await register_stored_queries(datasette)
