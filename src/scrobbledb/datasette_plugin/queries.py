@@ -79,7 +79,7 @@ than silently filtering on the literal text `last march`.
 import dataclasses
 import re
 import types
-from typing import Any, Callable, Mapping
+from typing import AbstractSet, Any, Callable, Mapping, Optional
 
 from datasette import hookimpl
 
@@ -119,6 +119,30 @@ REQUIRED_SCHEMA: Mapping[str, frozenset[str]] = types.MappingProxyType(
 )
 
 _NO_KWARGS: Mapping[str, Any] = types.MappingProxyType({})
+
+#: What a query says when the table it reads has not been built.
+#:
+#: The text becomes a *table name*, which is the whole trick: SQLite gives a
+#: statement no way to raise an error of its own. `RAISE()` is valid only in a
+#: trigger body, and a Python SQL function that raises has its message replaced
+#: with the fixed string "user-defined function raised exception" -- verified
+#: against the interpreter this project runs on, not assumed. The unresolved-name
+#: error is the one error SQLite reports with text this module chooses, so a
+#: query whose prerequisite is missing is registered as a SELECT from a table
+#: named after the explanation, and the user reads
+#:
+#:     no such table: tracks_fts is not built; run `scrobbledb index` to ...
+#:
+#: rather than the bare "no such table: tracks_fts" they would get from the real
+#: query. The alternative -- leaving the entry out of the catalog entirely --
+#: was rejected because a query that is simply absent tells the user nothing
+#: about how to obtain it.
+MISSING_TABLE_SQL = 'SELECT * FROM "{hint}"'
+
+
+def missing_table_sql(hint: str) -> str:
+    """SQL that fails with `hint` as the body of a no-such-table error."""
+    return MISSING_TABLE_SQL.format(hint=hint.replace('"', '""'))
 
 
 def _guard_pattern(name: str) -> re.Pattern:
@@ -220,6 +244,8 @@ class QueryEntry:
     description: str
     builder: Callable[..., tuple[str, Any]]
     builder_kwargs: Mapping[str, Any] = _NO_KWARGS
+    requires_table: Optional[str] = None
+    missing_hint: Optional[str] = None
 
     @property
     def sql(self) -> str:
@@ -229,16 +255,39 @@ class QueryEntry:
         )
         return resolve_time_bounds_once(sql)
 
+    def sql_for(self, tables: Optional[AbstractSet[str]]) -> str:
+        """
+        The SQL to register against a database carrying `tables`.
+
+        An entry whose `requires_table` is absent is still registered -- so it
+        stays visible and self-explanatory -- but with SQL that fails naming
+        what to run. `tables` of None means "do not check", which is what the
+        pure-catalog callers want.
+
+        The substitution is decided once, at startup, so a database that gains
+        the table while the server runs keeps serving the explanation until the
+        server is restarted. `missing_hint` says so.
+        """
+        if (
+            tables is not None
+            and self.requires_table is not None
+            and self.requires_table not in tables
+        ):
+            assert self.missing_hint is not None, (
+                f"{self.name} declares requires_table without a missing_hint"
+            )
+            return missing_table_sql(self.missing_hint)
+        return self.sql
+
 
 #: Every stored query scrobbledb serves, in the order they are registered.
 #:
 #: Adding one is a single data addition: a `QueryEntry` naming the builder.
 #: The SQL, its parameters and its rewritten time bounds all follow from that.
 #:
-#: Pending (task 3.5/3.6, owned elsewhere): the daily rollup, the hour-of-day
-#: and day-of-week distributions, consecutive-day streaks, per-artist discovery
-#: dates, and the FTS search entry. Each becomes one more line here once its
-#: builder lands in `domain_queries`.
+#: The five analytics entries after `yearly_rollup` have no CLI equivalent --
+#: they exist only here, built on builders written in the `domain_queries` style
+#: so the CLI can adopt them later.
 #:
 #: Deliberately absent: `build_artist_albums_sql` groups by `albums.id`, so it
 #: does not satisfy the album-aggregate requirement (an alias group would be
@@ -404,19 +453,90 @@ CATALOG: tuple[QueryEntry, ...] = (
         ),
         builder=domain_queries.build_track_plays_sql,
     ),
+    QueryEntry(
+        name="daily_rollup",
+        title="Plays by day",
+        description=(
+            "One row per calendar day with plays, carrying that day's play "
+            "count and its distinct artist, album and track counts. Days with "
+            "no plays are absent rather than zero."
+        ),
+        builder=domain_queries.build_daily_rollup_sql,
+    ),
+    QueryEntry(
+        name="listening_clock",
+        title="Listening clock",
+        description=(
+            "Plays by hour of day, 0-23 in UTC, showing when listening "
+            "actually happens. At most 24 rows; an hour with no plays is "
+            "absent."
+        ),
+        builder=domain_queries.build_hour_of_day_sql,
+    ),
+    QueryEntry(
+        name="weekday_rollup",
+        title="Plays by day of week",
+        description=(
+            "Plays by weekday in UTC, Monday first, each row carrying the "
+            "weekday number, its name and the play count."
+        ),
+        builder=domain_queries.build_day_of_week_sql,
+    ),
+    QueryEntry(
+        name="streaks",
+        title="Listening streaks",
+        description=(
+            "Runs of consecutive calendar days that each have at least one "
+            "play, longest first, with each run's start date, end date, length "
+            "in days and the number of plays inside it."
+        ),
+        builder=domain_queries.build_listening_streaks_sql,
+    ),
+    QueryEntry(
+        name="discovery",
+        title="Artist discovery dates",
+        description=(
+            "Every artist with the timestamp of its earliest recorded play, "
+            "most recently discovered first. Within a time range, 'earliest' "
+            "means earliest in that range."
+        ),
+        builder=domain_queries.build_artist_discovery_sql,
+    ),
+    QueryEntry(
+        name="search",
+        title="Full-text search",
+        description=(
+            "Search artist, album and track names together for `q`, best "
+            "match first. The term is matched as a prefix, so `radio` finds "
+            "`Radiohead`; a term matching nothing returns no rows. Requires "
+            "the search index built by `scrobbledb index`."
+        ),
+        builder=domain_queries.build_fts_search_sql,
+        requires_table="tracks_fts",
+        missing_hint=(
+            "tracks_fts is not built; run `scrobbledb index` to build the "
+            "full-text search index, then restart the server"
+        ),
+    ),
 )
 
 
-def stored_query_definitions() -> dict[str, dict[str, str]]:
+def stored_query_definitions(
+    tables: Optional[AbstractSet[str]] = None,
+) -> dict[str, dict[str, str]]:
     """
     The catalog as `{name: {"sql", "title", "description"}}`.
 
     The classic canned-query dict shape, which is also exactly what
     `datasette.add_query()` consumes.
+
+    `tables` names what the target database actually has, so an entry with an
+    unmet prerequisite is given SQL that explains itself instead. Omitted, no
+    entry is substituted.
     """
     return {
         entry.name: {
-            "sql": entry.sql,
+            "sql": entry.sql_for(tables),
             "title": entry.title,
             "description": entry.description,
         }
@@ -424,14 +544,19 @@ def stored_query_definitions() -> dict[str, dict[str, str]]:
     }
 
 
-async def is_scrobbledb(database) -> bool:
+async def is_scrobbledb(database, tables: Optional[AbstractSet[str]] = None) -> bool:
     """
     Whether a served database carries the schema the catalog reads.
 
     Checked against the live database rather than assumed from the file name,
     because the plugin is registered on the process, not on one database.
+
+    `tables` is accepted so a caller that has already listed them does not pay
+    for a second listing.
     """
-    if not REQUIRED_SCHEMA.keys() <= set(await database.table_names()):
+    if tables is None:
+        tables = set(await database.table_names())
+    if not REQUIRED_SCHEMA.keys() <= tables:
         return False
     for table, columns in REQUIRED_SCHEMA.items():
         if not columns <= set(await database.table_columns(table)):
@@ -446,12 +571,15 @@ async def register_stored_queries(datasette) -> dict[str, list[str]]:
     Returns the query names registered against each database, which is what
     makes the projection observable without reading the internal database.
     """
-    definitions = stored_query_definitions()
     registered: dict[str, list[str]] = {}
 
     for database_name, database in datasette.databases.items():
-        if not await is_scrobbledb(database):
+        tables = set(await database.table_names())
+        if not await is_scrobbledb(database, tables):
             continue
+        # Built per database, not once: an entry whose prerequisite table is
+        # missing here is registered with SQL that names what to run.
+        definitions = stored_query_definitions(tables)
         for name, definition in definitions.items():
             await datasette.add_query(
                 database_name,

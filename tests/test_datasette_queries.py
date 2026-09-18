@@ -24,11 +24,12 @@ manager, the real hook, the real HTTP surface:
 import re
 import sqlite3
 from html import unescape
+from urllib.parse import unquote
 
 import pytest
 import sqlite_utils
 
-from scrobbledb import domain_queries
+from scrobbledb import domain_queries, lastfm
 from scrobbledb.datasette_plugin import functions as fns
 from scrobbledb.datasette_plugin import queries as cat
 from scrobbledb.domain_queries import VARIOUS_ARTISTS
@@ -103,10 +104,8 @@ FIXTURE_PLAYS = (
 )
 
 
-@pytest.fixture
-def populated_db(tmp_path):
-    """A populated scrobbledb database: 10 plays, 2 artists, 3 albums, 5 tracks."""
-    path = tmp_path / "scrobbles.db"
+def _populate(path):
+    """The shared fixture content, without a search index. Returns an open db."""
     db = sqlite_utils.Database(path)
     _create_schema(db)
 
@@ -132,6 +131,33 @@ def populated_db(tmp_path):
     db["plays"].insert_all(
         [{"timestamp": ts, "track_id": track} for ts, track in FIXTURE_PLAYS]
     )
+    return db
+
+
+@pytest.fixture
+def populated_db(tmp_path):
+    """
+    A populated scrobbledb database: 10 plays, 2 artists, 3 albums, 5 tracks,
+    with the search index built.
+
+    The index is built through the production seam -- the same two functions
+    `scrobbledb index` calls -- rather than by a hand-written CREATE VIRTUAL
+    TABLE, so a change to the indexed columns reaches this fixture.
+    """
+    path = tmp_path / "scrobbles.db"
+    db = _populate(path)
+    lastfm.setup_fts5(db)
+    lastfm.rebuild_fts5(db)
+    db.conn.commit()
+    db.close()
+    return path
+
+
+@pytest.fixture
+def unindexed_db(tmp_path):
+    """The same database with the base tables but no search index built."""
+    path = tmp_path / "scrobbles.db"
+    db = _populate(path)
     db.conn.commit()
     db.close()
     return path
@@ -226,6 +252,38 @@ async def run_query(ds, database, name, **params):
     return response.json()
 
 
+#: How many stored queries 1.0a39's *rendered* listing puts on one page. The
+#: JSON listing honours `limit` up to 1000; the HTML one ignores it and
+#: paginates with `_next` instead, so a catalog larger than this is only wholly
+#: visible by following the link. Asserted, not assumed -- if a later alpha
+#: renders them all, `_whole_rendered_listing` still works and this constant is
+#: what says the behaviour changed.
+RENDERED_LISTING_PAGE_SIZE = 20
+
+_NEXT_LINK = re.compile(r'href="[^"]*?/-/queries\?[^"]*?_next=([^"&]+)"')
+
+
+async def _whole_rendered_listing(ds, database) -> str:
+    """
+    The rendered stored-query listing, every page of it, concatenated.
+
+    Following `_next` rather than raising `limit`, because the HTML listing
+    ignores `limit`. The loop is bounded by the catalog size so a paginator that
+    ever pointed at itself fails the test instead of hanging it.
+    """
+    pages = []
+    params = {}
+    for _ in range(len(cat.CATALOG) + 1):
+        page = await ds.client.get(f"/{database}/-/queries", params=params)
+        assert page.status_code == 200, page.text
+        pages.append(page.text)
+        match = _NEXT_LINK.search(page.text)
+        if not match:
+            return "".join(pages)
+        params = {"_next": unquote(match.group(1))}
+    raise AssertionError("the stored-query listing never stopped paginating")
+
+
 # --------------------------------------------------------------------------
 # 3.1 -- the catalog itself
 # --------------------------------------------------------------------------
@@ -233,7 +291,7 @@ async def run_query(ds, database, name, **params):
 #: The catalog must stay at least this large. A floor rather than an equality
 #: so the pending 3.5/3.6 entries can be added without touching this test,
 #: while a silently emptied catalog still fails.
-CATALOG_FLOOR = 16
+CATALOG_FLOOR = 22
 
 
 def test_catalog_entries_are_complete_and_uniquely_named():
@@ -466,9 +524,7 @@ async def test_every_entry_is_discoverable_from_the_database_index(
             f"{name} is shown on the index page without its description"
         )
 
-    page = await ds.client.get(f"/{database}/-/queries", params={"limit": 1000})
-    assert page.status_code == 200
-    rendered_listing = unescape(page.text)
+    rendered_listing = unescape(await _whole_rendered_listing(ds, database))
     for entry in cat.CATALOG:
         assert f"/{database}/{entry.name}" in rendered_listing, (
             f"{entry.name} is not linked from the rendered listing"
@@ -548,7 +604,46 @@ PARAMETERS_FOR = {
     "album_tracks": {"album_ids": '["alb1", "alb2"]'},
     "track_detail": {"track_id": "t1"},
     "track_plays": {"track_id": "t1"},
+    "daily_rollup": {},
+    "listening_clock": {},
+    "weekday_rollup": {},
+    "streaks": {},
+    "discovery": {},
+    "search": {"q": "Track"},
 }
+
+
+@pytest.mark.asyncio
+async def test_the_rendered_listing_paginates_rather_than_showing_everything(
+    registered_plugin, populated_db
+):
+    """
+    Pin the surface `_whole_rendered_listing` exists to work around.
+
+    The catalog outgrew one rendered page. `limit` raises the cap on the JSON
+    listing but is ignored entirely by the HTML one, which is why following
+    `_next` is the only way to see all of it -- so `limit` is passed here in
+    three forms and asserted to change nothing. If a later Datasette renders
+    them all, this is what says so, rather than the discovery test failing for a
+    reason that looks like ours.
+    """
+    assert len(cat.CATALOG) > RENDERED_LISTING_PAGE_SIZE, (
+        "the catalog no longer exercises pagination; this test proves nothing"
+    )
+    ds = await serve(populated_db)
+    database = populated_db.stem
+
+    for params in ({}, {"limit": len(cat.CATALOG)}, {"limit": 1000}):
+        page = await ds.client.get(f"/{database}/-/queries", params=params)
+        linked = {
+            entry.name
+            for entry in cat.CATALOG
+            if f"/{database}/{entry.name}" in page.text
+        }
+        assert len(linked) == RENDERED_LISTING_PAGE_SIZE, (
+            f"the rendered listing showed {len(linked)} entries for {params}"
+        )
+        assert _NEXT_LINK.search(page.text), "a truncated listing must link onward"
 
 
 def test_every_entry_has_an_execution_expectation():
@@ -974,3 +1069,335 @@ async def test_no_album_aggregate_names_an_artist_that_does_not_own_it(
                 assert owners == {row["artist_name"]}, (
                     f"{entry.name}: false attribution: {row}"
                 )
+
+
+# --------------------------------------------------------------------------
+# 3.5 -- the analytics the CLI does not have
+# --------------------------------------------------------------------------
+
+#: A deliberately uneven history, because the shared `populated_db` fixture
+#: cannot tell a right answer from a wrong one here: it has exactly one play on
+#: each of ten days, so `COUNT(*)` and `COUNT(DISTINCT tracks.id)` agree, a
+#: streak's length equals its play count, and every hour bucket holds one row.
+#:
+#: This one breaks all three ties. 2024-01-01 carries three plays of two tracks
+#: by one artist, so the day's counts are three different numbers; 01-01 to
+#: 01-03 is a three-day run holding five plays, so a streak that numbered rows
+#: over plays rather than distinct days would split it; and two plays share an
+#: hour while falling on different days.
+ANALYTICS_PLAYS = (
+    ("2024-01-01T09:00:00+00:00", "t1"),
+    ("2024-01-01T09:30:00+00:00", "t1"),
+    ("2024-01-01T22:00:00+00:00", "t2"),
+    ("2024-01-02T09:00:00+00:00", "t3"),
+    ("2024-01-03T09:00:00+00:00", "t1"),
+    ("2024-02-10T09:00:00+00:00", "t1"),
+)
+
+
+@pytest.fixture
+def analytics_db(tmp_path):
+    """A small history shaped to discriminate the analytics entries."""
+    path = tmp_path / "analytics.db"
+    db = sqlite_utils.Database(path)
+    _create_schema(db)
+    db["artists"].insert_all(
+        [{"id": "a1", "name": "Artist One"}, {"id": "a2", "name": "Artist Two"}]
+    )
+    db["albums"].insert_all(
+        [
+            {"id": "alb1", "title": "Album One", "artist_id": "a1"},
+            {"id": "alb2", "title": "Album Two", "artist_id": "a2"},
+        ]
+    )
+    db["tracks"].insert_all(
+        [
+            {"id": "t1", "title": "Track One", "album_id": "alb1"},
+            {"id": "t2", "title": "Track Two", "album_id": "alb1"},
+            {"id": "t3", "title": "Track Three", "album_id": "alb2"},
+        ]
+    )
+    db["plays"].insert_all(
+        [{"timestamp": ts, "track_id": track} for ts, track in ANALYTICS_PLAYS]
+    )
+    lastfm.setup_fts5(db)
+    lastfm.rebuild_fts5(db)
+    db.conn.commit()
+    db.close()
+    return path
+
+
+@pytest.mark.asyncio
+async def test_daily_rollup_counts_each_day_separately(
+    registered_plugin, analytics_db
+):
+    """
+    One row per day with plays, most recent first, with distinct-entity counts.
+
+    2024-01-01's three values differ, so a rollup that reported plays where it
+    means distinct tracks -- or the reverse -- fails here.
+    """
+    ds = await serve(analytics_db)
+    rows = await run_query(ds, analytics_db.stem, "daily_rollup")
+
+    assert [
+        (r["day"], r["scrobbles"], r["unique_artists"], r["unique_albums"],
+         r["unique_tracks"])
+        for r in rows
+    ] == [
+        ("2024-02-10", 1, 1, 1, 1),
+        ("2024-01-03", 1, 1, 1, 1),
+        ("2024-01-02", 1, 1, 1, 1),
+        ("2024-01-01", 3, 1, 1, 2),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_listening_clock_buckets_plays_by_hour(registered_plugin, analytics_db):
+    """
+    Hours ascending, in UTC, with empty hours absent.
+
+    Four of the six plays are at 09:00 and one at 09:30, so the 09 bucket
+    holding five is what distinguishes counting plays from counting days.
+    """
+    ds = await serve(analytics_db)
+    rows = await run_query(ds, analytics_db.stem, "listening_clock")
+
+    assert [(r["hour"], r["scrobbles"]) for r in rows] == [(9, 5), (22, 1)]
+    assert len(rows) <= 24
+
+
+@pytest.mark.asyncio
+async def test_weekday_rollup_is_monday_first(registered_plugin, analytics_db):
+    """
+    Weekdays ascending from Monday, each with its name.
+
+    2024-01-01 is a Monday carrying three plays. Under SQLite's own Sunday-first
+    `strftime('%w')` it would be weekday 1 and Saturday would be 6, so this
+    fixture fails on the wrong convention rather than merely renaming rows.
+    """
+    ds = await serve(analytics_db)
+    rows = await run_query(ds, analytics_db.stem, "weekday_rollup")
+
+    assert [(r["weekday"], r["weekday_name"], r["scrobbles"]) for r in rows] == [
+        (0, "Monday", 3),
+        (1, "Tuesday", 1),
+        (2, "Wednesday", 1),
+        (5, "Saturday", 1),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_streaks_are_runs_of_consecutive_days(registered_plugin, analytics_db):
+    """
+    Consecutive-day runs, longest first, with length and play count separate.
+
+    The three-day run holds five plays. A streak query that numbered rows over
+    plays instead of distinct days would see the two 2024-01-01 plays consume
+    two row numbers and report the run as broken.
+    """
+    ds = await serve(analytics_db)
+    rows = await run_query(ds, analytics_db.stem, "streaks")
+
+    assert [
+        (r["start_date"], r["end_date"], r["days"], r["scrobbles"]) for r in rows
+    ] == [
+        ("2024-01-01", "2024-01-03", 3, 5),
+        ("2024-02-10", "2024-02-10", 1, 1),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_discovery_reports_each_artists_first_play(
+    registered_plugin, analytics_db
+):
+    """
+    One row per artist with its earliest play, most recently discovered first.
+
+    Artist One is played on 01-01 and again on 01-03 and 02-10, so a query
+    reporting the *latest* play would put it first and carry 2024-02-10.
+    """
+    ds = await serve(analytics_db)
+    rows = await run_query(ds, analytics_db.stem, "discovery")
+
+    assert [(r["artist_id"], r["first_played"]) for r in rows] == [
+        ("a2", "2024-01-02T09:00:00+00:00"),
+        ("a1", "2024-01-01T09:00:00+00:00"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_the_analytics_entries_accept_bounds_like_every_other(
+    registered_plugin, analytics_db
+):
+    """
+    The new entries take the same optional bounds as the rest of the catalog.
+
+    Bounding to January alone drops the isolated February day from every one of
+    them, which is the cheapest thing that fails if an entry were registered
+    from a builder whose bounds the catalog could not rewrite.
+    """
+    ds = await serve(analytics_db)
+    database = analytics_db.stem
+    bounds = {"since": "2024-01-01", "until": "2024-01-31"}
+
+    assert len(await run_query(ds, database, "daily_rollup", **bounds)) == 3
+    assert await run_query(ds, database, "listening_clock", **bounds) == [
+        {"hour": 9, "scrobbles": 4},
+        {"hour": 22, "scrobbles": 1},
+    ]
+    assert [r["days"] for r in await run_query(ds, database, "streaks", **bounds)] == [3]
+
+
+# --------------------------------------------------------------------------
+# 3.6 -- full-text search
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_matches_across_artist_album_and_track(
+    registered_plugin, populated_db
+):
+    """
+    One term searches all three names at once.
+
+    `Three` is the title of a track and a word in a different album's title, so
+    a search of the track column alone returns one row and a search of the album
+    column alone returns two. Only searching all three returns all three rows.
+    """
+    ds = await serve(populated_db)
+    rows = await run_query(ds, populated_db.stem, "search", q="Three")
+
+    assert {r["track_id"] for r in rows} == {"t3", "t4", "t5"}
+    assert all(
+        r["artist_name"] and r["album_title"] and r["track_title"] for r in rows
+    )
+
+
+@pytest.mark.asyncio
+async def test_search_matches_a_prefix(registered_plugin, populated_db):
+    """A partial word finds what it starts, so a search box works as typed."""
+    ds = await serve(populated_db)
+    rows = await run_query(ds, populated_db.stem, "search", q="Art")
+
+    assert len(rows) == 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "term", ["zzzznothinghere", "*", "**", '"', 'a"b', "OR", "NEAR(", "^", "-", ""]
+)
+async def test_search_returns_an_empty_result_set_rather_than_an_error(
+    registered_plugin, populated_db, term
+):
+    """
+    A term that matches nothing returns no rows, and does not fail.
+
+    The list is not only terms that fail to match: most of these are fts5
+    *syntax* errors on a bare `MATCH ?`, and an empty term is what Datasette
+    sends for a parameter the user left blank. All of them have to come back as
+    an empty result set, because a search box that 500s on a stray quote is
+    worse than one that finds nothing.
+    """
+    ds = await serve(populated_db)
+    assert await run_query(ds, populated_db.stem, "search", q=term) == []
+
+
+# --------------------------------------------------------------------------
+# 3.7 -- the search index is not built
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_search_without_an_index_names_the_command_that_builds_it(
+    registered_plugin, unindexed_db
+):
+    """
+    On a database with the scrobble tables but no search index, the search
+    entry fails with a message naming `scrobbledb index`.
+
+    The bare SQLite error for this is `no such table: tracks_fts`, which tells
+    a user nothing about how to obtain one -- so the message, not merely the
+    failure, is what is asserted.
+    """
+    ds = await serve(unindexed_db)
+    response = await ds.client.get(
+        f"/{unindexed_db.stem}/search.json", params={"q": "Track"}
+    )
+
+    assert response.status_code != 200, "search must fail without an index"
+    assert "scrobbledb index" in response.text, response.text
+
+
+@pytest.mark.asyncio
+async def test_the_rest_of_the_catalog_still_works_without_an_index(
+    registered_plugin, unindexed_db
+):
+    """
+    Only the entry that needs the index is affected.
+
+    A missing index is the normal state of a freshly ingested database, so
+    withholding the whole catalog over it -- or failing startup -- would make
+    the server useless exactly when it is first opened.
+    """
+    ds = await serve(unindexed_db)
+    database = unindexed_db.stem
+
+    for entry in cat.CATALOG:
+        if entry.requires_table is not None:
+            continue
+        rows = await run_query(ds, database, entry.name, **PARAMETERS_FOR[entry.name])
+        assert rows, f"{entry.name} returned no rows without a search index"
+
+
+@pytest.mark.asyncio
+async def test_an_entry_with_its_prerequisite_present_runs_the_real_query(
+    registered_plugin, populated_db
+):
+    """
+    The substitution is conditional, not permanent.
+
+    Without this the 3.7 test above would pass just as well against a catalog
+    that had replaced the search entry with the error unconditionally.
+    """
+    ds = await serve(populated_db)
+    rows = await run_query(ds, populated_db.stem, "search", q="Track")
+
+    assert len(rows) == 5
+
+
+def test_only_the_search_entry_declares_a_prerequisite():
+    """
+    Derived rather than typed, so a second prerequisite entry is noticed.
+
+    Any entry naming a `requires_table` must also carry the hint that explains
+    how to get it, since the hint is the entire point of the mechanism.
+    """
+    with_prerequisites = [e for e in cat.CATALOG if e.requires_table is not None]
+
+    assert [e.name for e in with_prerequisites] == ["search"]
+    for entry in with_prerequisites:
+        assert entry.missing_hint, f"{entry.name} has no missing_hint"
+        assert "scrobbledb" in entry.missing_hint, (
+            f"{entry.name}'s hint must name the command that builds "
+            f"{entry.requires_table}"
+        )
+
+
+def test_the_missing_table_sql_carries_the_hint_into_the_error(unindexed_db):
+    """
+    The mechanism itself: SQLite reports the hint as the unresolved name.
+
+    Asserted directly against sqlite3 as well as over HTTP, because this rests
+    on how SQLite words one specific error, and that is the assumption most
+    worth failing loudly if a future SQLite reworded it.
+    """
+    sql = cat.missing_table_sql("tracks_fts is not built; run `scrobbledb index`")
+    conn = sqlite3.connect(unindexed_db)
+    try:
+        with pytest.raises(sqlite3.OperationalError) as caught:
+            conn.execute(sql)
+    finally:
+        conn.close()
+
+    assert "scrobbledb index" in str(caught.value)
