@@ -510,10 +510,23 @@ sequential joined counts over `plays JOIN tracks` gave a worst case of 0.072s wi
 errors — with a 250-row batch size the commit windows are short enough that readers slip
 between them. So this is a known interaction, not a present defect.
 
-One consequence to configure for: `busy_timeout` is 5000ms while Datasette’s default
+~~One consequence to configure for: `busy_timeout` is 5000ms while Datasette’s default
 `sql_time_limit_ms` is 1000ms, so a read landing in a commit window can trip Datasette’s
-own limit and surface as a query error long before SQLite’s busy handler would give up.
-The two must be set consistently (see task 6.4).
+own limit and surface as a query error long before SQLite’s busy handler would give
+up.~~ **Corrected in task group 6: the two budgets do not interact.** Measured on 1.0a39
+with an `ingest` holding an EXCLUSIVE lock, a read waits the lock out and then succeeds
+*even at a 1000ms limit* — on the table path, the stored-query path and the ad hoc query
+path alike. The wait is absorbed before any timed statement begins, and
+`sqlite_timelimit` computes its deadline after that, so the SQL budget never sees it.
+Held past the 5000ms `busy_timeout`, all three paths fail as `database is locked` at
+~6s, with the time limit still never firing.
+A lock wait is governed by `busy_timeout` alone.
+
+So `sql_time_limit_ms` is set for query *cost*, not for lock contention: measured
+against the live 56,388-play database with no analytics indexes, the slowest stored
+query takes ~730ms warm, which is a 27% margin against the 1000ms default and no margin
+at all on a cold cache.
+Task 6.4 raises it to 10000ms on that basis.
 
 Switching to WAL would remove the contention entirely, but `journal_mode` is a
 persistent write, so `serve` cannot do it without breaking its own read-only guarantee.

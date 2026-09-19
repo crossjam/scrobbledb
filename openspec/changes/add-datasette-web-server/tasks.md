@@ -252,25 +252,67 @@
 
 ## 6. Datasette metadata and configuration
 
-- [ ] 6.1 Ship two packaged files per the D9 finding — `metadata.yaml` carrying the
+- [x] 6.1 Ship two packaged files per the D9 finding — `metadata.yaml` carrying the
   table `description` and per-column `columns` descriptions for `artists`, `albums`,
   `tracks` and `plays`, and `datasette.yaml` carrying the config-side keys used by
   6.2–6.4 — loaded via `importlib.resources.files(...)` following the
   `ensure_default_log_config` precedent at `cli.py:100-113` and passed to the matching
   `Datasette(metadata=..., config=...)` arguments; verify the descriptions render on
   each table page, and do not route them through `config=`, where 1.0a39 ignores them
-  silently
-- [ ] 6.2 Hide the five FTS shadow tables (`tracks_fts_data`, `_idx`, `_content`,
+  silently. `tracks_fts` is described too, so the search index explains what it is rather
+  than appearing as a fifth unexplained table.
+  Both files key their contents by database name, which is whatever the user named their
+  file, so they ship with a `$DATABASE` placeholder that `config.py` renames at load
+  time — rewritten as a key, not as a text substitution, since the descriptions are
+  prose and prose may contain a dollar sign.
+  Verified by rendering every description in the document against its own table page
+  rather than a chosen few, with the `config=` misrouting pinned as a control: handed
+  the same document through the wrong argument the page still returns 200 and the
+  description is simply absent, so a test asserting only that the file contains it would
+  pass against a server showing none of them
+- [x] 6.2 Hide the five FTS shadow tables (`tracks_fts_data`, `_idx`, `_content`,
   `_docsize`, `_config`); verify the database index page lists exactly the four scrobble
-  tables plus `tracks_fts`
-- [ ] 6.3 Set the default sort on `plays` to most-recent-first and add facets matching
+  tables plus `tracks_fts`. **Datasette 1.0a39 already does this unprompted** —
+  verified, the five arrive with `hidden=true` and are absent from the index page with
+  no config at all. They are named in `datasette.yaml` anyway so the requirement is this
+  project’s rather than inherited from an alpha’s detection heuristic.
+  The hidden set is compared against the shadow tables actually present in
+  `sqlite_master`, so an FTS5 version that adds a sixth fails here rather than leaking
+  it onto the index page
+- [x] 6.3 Set the default sort on `plays` to most-recent-first and add facets matching
   the TUI’s whitelists (`browse.py:22,31,39`); verify the default `plays` page returns
-  descending timestamps
-- [ ] 6.4 Set `sql_time_limit_ms` high enough that rollups complete on an unindexed
+  descending timestamps.
+  **The facet half of this task did not map onto the served schema and was decided with
+  the user.** The referenced whitelists are artist, album and track — columns of the
+  query the TUI builds, not of any served table.
+  `plays` carries `timestamp` and `track_id` and nothing else, and `track_id` is
+  near-unique and renders as opaque `md5:`/MusicBrainz strings, so a facet on it is a
+  thousand-entry list nobody filters by.
+  The decision was a `date` facet on `plays.timestamp` — the browsable form of what the
+  TUI’s sort options are for — and no facets on the other three tables, where every
+  candidate column is a synthesized identifier or a free-text title.
+  Verified through the facet Datasette computes rather than the parsed config, since a
+  date facet over a column it cannot read as a date is accepted and then silently not
+  applied
+- [x] 6.4 Set `sql_time_limit_ms` high enough that rollups complete on an unindexed
   ~47k-play database, and reconcile it with the database’s 5000ms `busy_timeout` so a
   read landing in an ingest commit window does not trip Datasette’s limit first (design
   D7); verify the monthly rollup succeeds with no analytics indexes, and that queries
-  succeed against a database being written by a concurrent ingest
+  succeed against a database being written by a concurrent ingest.
+  Set to 10000ms on the basis of measured query cost: against the live 56,388-play
+  database with no analytics indexes the slowest stored query (`top_albums`) takes
+  ~730ms warm, a 27% margin against the 1000ms default and none at all on a cold cache.
+  **The reconciliation half of this task rested on a premise that does not hold, and D7
+  is corrected.** The two budgets do not interact: measured on all three read paths with
+  an EXCLUSIVE lock held, a read waits the lock out and succeeds even at a 1000ms limit,
+  because the wait is absorbed before any timed statement begins and `sqlite_timelimit`
+  sets its deadline afterwards.
+  Held past `busy_timeout`, the request fails as `database is locked` at ~6s with the
+  limit never firing. Verified with the concurrent-write case on all three paths, a test
+  pinning the corrected claim so a later alpha moving the wait inside the timed region
+  fails here, and a paired enforcement test — the limit is real, since a ten-row read
+  never reaches the progress handler’s 1000-instruction check and cannot be interrupted
+  by any limit at all
 
 ## 7. The serve command
 
