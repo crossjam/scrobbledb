@@ -2160,3 +2160,425 @@ def get_top_albums(
         form=SQL_FORM_POSITIONAL,
     )
     return shape_top_albums(db.execute(sql, params).fetchall())
+
+
+# ---------------------------------------------------------------------------
+# Analytics the CLI does not expose yet (tasks 3.5 / 3.6).
+#
+# These follow the builder/shaper split of design D4 but deliberately ship
+# without a `get_*` executor: nothing in the CLI calls them today, and an
+# unused executor would be untested surface. The Datasette catalog and the MCP
+# tools consume the builders directly; the CLI adopts them later.
+# ---------------------------------------------------------------------------
+
+
+def build_daily_rollup_sql(
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: Optional[int] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the per-day rollup query. Pure: touches no database.
+
+    The per-month sibling's shape, one calendar day at a time: the same
+    distinct artist/album/track counts, the same most-recent-first ordering,
+    and the same refusal of a non-positive limit.
+
+    Only days that have at least one play produce a row -- there is no
+    calendar-spine join, so a gap in listening is a missing row rather than a
+    zero. `build_listening_streaks_sql` is the query that reads those gaps.
+    """
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
+
+    params = _Params(form)
+    where_clause = _where_clause(_time_bound_conditions(params, since, until))
+    limit_clause = _limit_clause(params, limit)
+
+    sql = f"""
+        SELECT
+            date(plays.timestamp) as day,
+            COUNT(*) as scrobbles,
+            COUNT(DISTINCT artists.id) as unique_artists,
+            COUNT(DISTINCT albums.id) as unique_albums,
+            COUNT(DISTINCT tracks.id) as unique_tracks
+        {_PLAYS_JOINS}
+        {where_clause}
+        GROUP BY day
+        ORDER BY day DESC
+        {limit_clause}
+    """
+    return sql, params.values
+
+
+def shape_daily_rollup(rows) -> list[dict]:
+    """Shape per-day rollup rows into dicts. Pure."""
+    return [
+        {
+            "day": row[0],
+            "scrobbles": row[1],
+            "unique_artists": row[2],
+            "unique_albums": row[3],
+            "unique_tracks": row[4],
+        }
+        for row in rows
+    ]
+
+
+def build_hour_of_day_sql(
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: Optional[int] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the hour-of-day distribution query. Pure: touches no database.
+
+    At most 24 rows, so `limit` has nothing to cap in ordinary use and
+    defaults to unbounded. It is still accepted, because every time-ranged
+    query in the catalog takes the same three parameters and a client walking
+    the catalog should not have to know which ones quietly differ.
+
+    Hours are read straight off `plays.timestamp`, which is stored UTC-aware
+    (see `_to_utc_iso`), so the distribution is in UTC rather than in the
+    listener's local time. Presenting it locally is a formatting concern, not a
+    query one; doing it here would make the result depend on the server's zone.
+
+    An hour with no plays in range is absent rather than zero, matching the
+    rollups. Joins only `plays`: a play count needs no entity tables.
+    """
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
+
+    params = _Params(form)
+    where_clause = _where_clause(_time_bound_conditions(params, since, until))
+    limit_clause = _limit_clause(params, limit)
+
+    sql = f"""
+        SELECT
+            CAST(strftime('%H', plays.timestamp) AS INTEGER) as hour,
+            COUNT(*) as scrobbles
+        FROM plays
+        {where_clause}
+        GROUP BY hour
+        ORDER BY hour ASC
+        {limit_clause}
+    """
+    return sql, params.values
+
+
+def shape_hour_of_day(rows) -> list[dict]:
+    """Shape hour-of-day rows into dicts. Pure."""
+    return [{"hour": row[0], "scrobbles": row[1]} for row in rows]
+
+
+def _weekday_expression(column: str = "plays.timestamp") -> str:
+    """
+    Render a Monday-first weekday index (0=Monday .. 6=Sunday) for `column`.
+
+    SQLite's `strftime('%w', ...)` is Sunday-first (0=Sunday), which disagrees
+    with both `_WEEKDAY_NAMES` at the top of this module and Python's
+    `datetime.weekday()`. Rotating by 6 here means every weekday integer this
+    project produces -- in SQL, in the parser, in a caller indexing
+    `_WEEKDAY_NAMES` -- carries the same meaning, so callers never have to ask
+    which convention a given number is in.
+    """
+    return f"(CAST(strftime('%w', {column}) AS INTEGER) + 6) % 7"
+
+
+def _weekday_name_case(expression: str) -> str:
+    """
+    Render a CASE mapping `expression` to a weekday name.
+
+    Derived from `_WEEKDAY_NAMES` rather than spelled out, so the SQL and the
+    parser cannot drift apart on either the names or their order.
+    """
+    branches = "\n                ".join(
+        f"WHEN {index} THEN '{name.capitalize()}'"
+        for index, name in enumerate(_WEEKDAY_NAMES)
+    )
+    return f"""CASE {expression}
+                {branches}
+            END"""
+
+
+def build_day_of_week_sql(
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: Optional[int] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the day-of-week distribution query. Pure: touches no database.
+
+    Seven rows at most, so `limit` defaults to unbounded and is accepted for
+    the same reason the hour histogram accepts it: one parameter set across
+    every time-ranged query in the catalog.
+
+    `weekday` is **Monday-first** -- 0=Monday through 6=Sunday -- not SQLite's
+    Sunday-first `strftime('%w', ...)`. See `_weekday_expression` for why.
+    `weekday_name` comes along so a consumer that renders the row (a Datasette
+    canned query, notably) does not have to know the convention at all.
+
+    Like the hour histogram, weekdays are counted in UTC, and a weekday with no
+    plays in range is absent rather than zero.
+    """
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
+
+    params = _Params(form)
+    where_clause = _where_clause(_time_bound_conditions(params, since, until))
+    weekday = _weekday_expression()
+    limit_clause = _limit_clause(params, limit)
+
+    sql = f"""
+        SELECT
+            {weekday} as weekday,
+            {_weekday_name_case(weekday)} as weekday_name,
+            COUNT(*) as scrobbles
+        FROM plays
+        {where_clause}
+        GROUP BY weekday, weekday_name
+        ORDER BY weekday ASC
+        {limit_clause}
+    """
+    return sql, params.values
+
+
+def shape_day_of_week(rows) -> list[dict]:
+    """Shape day-of-week rows into dicts. Pure."""
+    return [
+        {"weekday": row[0], "weekday_name": row[1], "scrobbles": row[2]}
+        for row in rows
+    ]
+
+
+def build_listening_streaks_sql(
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: Optional[int] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the consecutive-listening-day query. Pure: touches no database.
+
+    Runs of consecutive calendar days that each have at least one play, found
+    by gaps and islands: over the *distinct* play dates in ascending order,
+    `julianday(day) - ROW_NUMBER()` is constant exactly while the dates advance
+    one day at a time, so that difference is the island key. Collapsing to
+    distinct days first is what makes it work -- several plays on one day would
+    otherwise each consume a row number and split the run.
+
+    `days` is the length of the run and `scrobbles` the plays inside it; the
+    two differ whenever any day in the run had more than one play.
+
+    Ordered longest first, then by `start_date` descending so equal-length runs
+    come back most recent first rather than in whatever order the scan produced.
+
+    The bounds clip the runs: a streak that straddles `since` is reported from
+    `since` onwards, since the query cannot see plays it was told to exclude.
+    """
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
+
+    params = _Params(form)
+    where_clause = _where_clause(_time_bound_conditions(params, since, until))
+    limit_clause = _limit_clause(params, limit)
+
+    sql = f"""
+        WITH play_days AS (
+            SELECT
+                date(plays.timestamp) as day,
+                COUNT(*) as scrobbles
+            FROM plays
+            {where_clause}
+            GROUP BY day
+        ),
+        islands AS (
+            SELECT
+                day,
+                scrobbles,
+                julianday(day) - ROW_NUMBER() OVER (ORDER BY day) as island
+            FROM play_days
+        )
+        SELECT
+            MIN(day) as start_date,
+            MAX(day) as end_date,
+            COUNT(*) as days,
+            SUM(scrobbles) as scrobbles
+        FROM islands
+        GROUP BY island
+        ORDER BY days DESC, start_date DESC
+        {limit_clause}
+    """
+    return sql, params.values
+
+
+def shape_listening_streaks(rows) -> list[dict]:
+    """Shape streak rows into dicts. Pure."""
+    return [
+        {
+            "start_date": row[0],
+            "end_date": row[1],
+            "days": row[2],
+            "scrobbles": row[3],
+        }
+        for row in rows
+    ]
+
+
+def build_artist_discovery_sql(
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+    limit: Optional[int] = None,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the per-artist first-play query. Pure: touches no database.
+
+    One row per artist carrying the earliest play of that artist, ordered by
+    that timestamp **descending** -- most recently discovered first. Descending
+    is the useful default because the tail of the list is what a listener does
+    not already know: "who did I start listening to lately" is a question,
+    "who did I start listening to in 2007" is a fact they can look up.
+    Ties break on `artist_name` and then on `artist_id`, so the order really is
+    total: two artists can share both a name and a first play -- the same
+    artist under an MBID and a synthesized `md5:` id is exactly that case --
+    and without the id the rows they occupy under a LIMIT would depend on scan
+    order.
+
+    `first_played` is the earliest play *within the range*, not the artist's
+    absolute first play, because a bounded query cannot see outside its bounds.
+    With no bounds -- how the catalog exposes it -- the two coincide.
+    """
+    if limit is not None:
+        limit = _as_int(limit, "limit")
+        if limit <= 0:
+            raise ValueError("limit must be a positive integer")
+
+    params = _Params(form)
+    where_clause = _where_clause(_time_bound_conditions(params, since, until))
+    limit_clause = _limit_clause(params, limit)
+
+    sql = f"""
+        SELECT
+            artists.id as artist_id,
+            artists.name as artist_name,
+            MIN(plays.timestamp) as first_played
+        {_PLAYS_JOINS}
+        {where_clause}
+        GROUP BY artists.id, artists.name
+        ORDER BY first_played DESC, artist_name ASC, artist_id ASC
+        {limit_clause}
+    """
+    return sql, params.values
+
+
+def shape_artist_discovery(rows) -> list[dict]:
+    """Shape artist-discovery rows into dicts. Pure."""
+    return [
+        {"artist_id": row[0], "artist_name": row[1], "first_played": row[2]}
+        for row in rows
+    ]
+
+
+# The three indexed columns of tracks_fts (lastfm.setup_fts5); the other three
+# are UNINDEXED ids. Naming them makes the search explicit rather than relying
+# on FTS5's "every indexed column" default, which would silently widen if a
+# column were ever added to the table.
+_FTS_SEARCH_COLUMNS = "artist_name album_title track_title"
+
+
+def _fts_match_expression(placeholder: str) -> str:
+    """
+    Render the FTS5 MATCH expression for a *raw*, untrusted search term.
+
+    The term cannot be sanitized in Python, because the canned-query path never
+    passes through Python: Datasette binds whatever is in the URL straight to
+    the static SQL. So the neutralizing happens in SQL, where it covers every
+    consumer.
+
+    An fts5 syntax error raises rather than returning nothing, and plenty of
+    ordinary keystrokes are syntax errors: a bare `*` is "unknown special
+    query", a lone `"` is "unterminated string", and `OR`, `NEAR(` or an empty
+    term are each "syntax error". Wrapping the term in double quotes -- with
+    any embedded quote doubled, which is FTS5's own escape -- turns any string
+    whatsoever into one well-formed phrase, so hostile input searches for a
+    phrase that matches nothing instead of failing the query. A blank term
+    becomes the empty phrase `""`, which fts5 accepts and matches nothing.
+
+    The trailing `*` makes the last token a prefix, so a partial word typed
+    into a search box finds the thing it starts.
+    """
+    quoted = f"REPLACE(COALESCE({placeholder}, ''), '\"', '\"\"')"
+    return f"""'{{{_FTS_SEARCH_COLUMNS}}} : \"' || {quoted} || '\"*'"""
+
+
+def build_fts_search_sql(
+    query: str = "",
+    limit: int = 50,
+    form: str = SQL_FORM_NAMED,
+) -> tuple[str, object]:
+    """
+    Build the full-text search query over `tracks_fts`. Pure.
+
+    Searches `artist_name`, `album_title` and `track_title` together, so one
+    box finds a track, the album it is on, or the artist behind it. The term is
+    bound as `q` -- the Datasette canned query depends on that name -- and is
+    neutralized in SQL; see `_fts_match_expression` for what that costs and
+    buys. A term matching nothing returns no rows rather than raising.
+
+    `album_id` comes from the `albums` row reached through `tracks` rather than
+    from the UNINDEXED copy in `tracks_fts`, so the id is the one the rest of
+    the schema agrees on. The titles stay the indexed copies, which are what
+    the MATCH actually matched.
+
+    Ordered by FTS5 `rank` (best match first), then by name, and finally by
+    `track_id` so the order really is total. Two tracks can agree on rank and
+    on all three titles -- a track present on both an album and its deluxe
+    reissue, say -- and without the id which of them survives a LIMIT would
+    depend on scan order.
+    """
+    params = _Params(form)
+    match_expression = _fts_match_expression(params.add("q", query))
+
+    sql = f"""
+        SELECT
+            tracks_fts.track_id as track_id,
+            tracks_fts.track_title as track_title,
+            albums.id as album_id,
+            tracks_fts.album_title as album_title,
+            tracks_fts.artist_id as artist_id,
+            tracks_fts.artist_name as artist_name
+        FROM tracks_fts
+        LEFT JOIN tracks ON tracks.id = tracks_fts.track_id
+        LEFT JOIN albums ON albums.id = tracks.album_id
+        WHERE tracks_fts MATCH {match_expression}
+        ORDER BY tracks_fts.rank, artist_name, album_title, track_title, track_id
+        LIMIT {_numeric_param(params, "limit", limit)}
+    """
+    return sql, params.values
+
+
+def shape_fts_search(rows) -> list[dict]:
+    """Shape full-text search hits into dicts. Pure."""
+    return [
+        {
+            "track_id": row[0],
+            "track_title": row[1],
+            "album_id": row[2],
+            "album_title": row[3],
+            "artist_id": row[4],
+            "artist_name": row[5],
+        }
+        for row in rows
+    ]
