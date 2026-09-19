@@ -24,6 +24,7 @@ against the real served connection, not only the isolated one.
 """
 
 import hashlib
+import pathlib
 import shutil
 import sqlite3
 
@@ -424,6 +425,76 @@ def test_the_temp_variants_are_the_ones_query_only_would_have_hidden(open_writab
         conn.set_authorizer(readonly.authorize)
         with pytest.raises(sqlite3.DatabaseError):
             conn.execute(DENIED_STATEMENTS[name])
+
+
+# --------------------------------------------------------------------------
+# 5.4 -- no allowlisted pragma can write, whatever it is handed
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("pragma", sorted(readonly.ALLOWED_PRAGMAS))
+def test_no_allowlisted_pragma_can_change_the_file(pragma, open_writable):
+    """
+    Assigning to any allowlisted pragma leaves the file byte-for-byte alone.
+
+    The invariant is checked against the mapping itself rather than a list of
+    names typed here, so a pragma added to the allowlist later is covered the
+    moment it is added -- which is the only way this catches the entry nobody
+    thought to question. `PRAGMA schema_version = N` is that entry: it reads
+    like introspection, Datasette runs it on every request, and its assignment
+    form rewrites the database header.
+
+    Raising is an acceptable outcome, and so is succeeding as a no-op. Writing
+    is not, and the file is what says which happened.
+    """
+    conn = open_writable()
+    path = pathlib.Path(conn.execute("PRAGMA database_list").fetchall()[0][2])
+    before = path.read_bytes()
+
+    conn.set_authorizer(readonly.authorize)
+    try:
+        conn.execute(f"PRAGMA {pragma} = 1")
+    except sqlite3.DatabaseError:
+        pass
+    conn.set_authorizer(None)
+    conn.commit()
+
+    assert path.read_bytes() == before, f"PRAGMA {pragma} = 1 modified the database"
+
+
+def test_the_pragma_check_is_not_vacuous(open_writable):
+    """
+    The control for the test above: unguarded, the assignment does write.
+
+    Without this, a policy that denied every pragma outright and a policy that
+    allowed a header rewrite would both pass, because neither would be
+    distinguishable from "nothing happened".
+    """
+    conn = open_writable()
+    path = pathlib.Path(conn.execute("PRAGMA database_list").fetchall()[0][2])
+    before = path.read_bytes()
+
+    conn.execute("PRAGMA schema_version = 999")
+    conn.commit()
+
+    assert path.read_bytes() != before, (
+        "PRAGMA schema_version = N no longer writes; this control proves nothing"
+    )
+
+
+def test_the_introspection_pragmas_still_answer_under_the_policy(open_writable):
+    """
+    The other control: tightening the rule did not deny the reads Datasette needs.
+
+    Both shapes are covered -- a pragma taking the name of an object, and one
+    read bare -- since the rule now turns on exactly that difference.
+    """
+    conn = open_writable()
+    conn.set_authorizer(readonly.authorize)
+
+    assert conn.execute("PRAGMA table_xinfo(t)").fetchall()
+    assert conn.execute("PRAGMA schema_version").fetchone() is not None
+    assert conn.execute("PRAGMA main.schema_version").fetchone() is not None
 
 
 # --------------------------------------------------------------------------

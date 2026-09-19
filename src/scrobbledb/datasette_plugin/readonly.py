@@ -67,51 +67,65 @@ DENIED_ACTIONS = {
     )
 }
 
-#: The only pragmas a served connection may run: introspection, all of it
-#: read-only. Everything else is refused, which is the point -- an allowlist is
-#: the only form that answers "read-only cannot be switched off", because a
-#: denylist silently permits whatever pragma it has not heard of yet.
+#: The pragmas a served connection may run, each mapped to whether SQLite may
+#: be handed an argument alongside it. Everything else is refused, which is the
+#: point -- an allowlist is the only form that answers "read-only cannot be
+#: switched off", because a denylist silently permits whatever pragma it has
+#: not heard of yet.
 #:
-#: The authorizer cannot distinguish `PRAGMA journal_mode=WAL` from
-#: `PRAGMA table_xinfo(artists)`: SQLite reports both as `SQLITE_PRAGMA` with
-#: the pragma in `arg1` and the assigned value or the call argument, equally,
-#: in `arg2`. So a rule of the form "refuse any pragma carrying a value" reads
-#: plausibly and breaks Datasette's schema introspection outright. The name is
-#: the only thing worth deciding on.
+#: The name alone is not enough, because `arg2` carries two different things.
+#: SQLite reports `PRAGMA journal_mode=WAL` and `PRAGMA table_xinfo(artists)`
+#: identically -- `SQLITE_PRAGMA`, the pragma in `arg1`, the assigned value or
+#: the call argument equally in `arg2` -- so "refuse any pragma carrying an
+#: argument" reads plausibly and takes Datasette's schema introspection down
+#: with it. Deciding per name *and* per argument is what separates them.
+#: (A schema qualifier is not an argument: `PRAGMA main.schema_version` puts
+#: `main` in `arg3` and leaves `arg2` empty.)
 #:
-#: This is Datasette's own `utils.allowed_pragmas` (which it enforces only over
-#: the `pragma_*()` table-valued form, in a layer above the connection), minus
-#: `max_page_count`, which is settable, plus `compile_options` and
-#: `cache_size`, which Datasette itself executes in statement form, and
+#: `True` is therefore reserved for two kinds of entry, and adding a third is
+#: how a write gets in:
+#:
+#: - introspection over a named object -- `table_info`, `index_list` and the
+#:   rest -- which have no assignment form at all;
+#: - `cache_size` and `recursive_triggers`, which *are* set but cannot touch
+#:   the file. `cache_size` allocates memory, and Datasette issues it on every
+#:   connection. `recursive_triggers` governs whether a trigger may fire
+#:   another trigger, and no trigger can run when every statement that would
+#:   fire one is denied; `sqlite_utils.Database(conn)` sets it in its
+#:   constructor, and Datasette builds one of those around the served
+#:   connection to resolve foreign-key label columns.
+#:
+#: Everything else is `False` and readable only in its bare form.
+#: `schema_version` is the entry that makes the distinction load-bearing rather
+#: than tidy: Datasette reads it on every request to detect schema changes, but
+#: `PRAGMA schema_version = N` rewrites the database header -- verified, on a
+#: writable connection carrying this authorizer and nothing else, by comparing
+#: the file's bytes. `page_size` is the same shape, and `max_page_count` is
+#: absent for it (Datasette allows that one, but only through the
+#: `pragma_*()` table-valued form, which has no assignment syntax to abuse).
+#:
+#: The rest of the list is Datasette's own `utils.allowed_pragmas` plus
+#: `compile_options`, which Datasette executes in statement form, and
 #: `data_version`, which FTS5 reads internally on every `MATCH` -- omitting it
 #: turns every search into an "authorization denied" rather than a result set.
-#:
-#: `recursive_triggers` is the one entry here that is *set* rather than read:
-#: `sqlite_utils.Database(conn)` turns it on in its constructor, and Datasette
-#: builds one of those around the served connection to resolve foreign-key
-#: label columns. It is safe to allow because it cannot make the connection
-#: writable -- it governs whether a trigger may fire another trigger, and no
-#: trigger can run at all when every statement that would fire one is denied.
-ALLOWED_PRAGMAS = frozenset(
-    {
-        "cache_size",
-        "compile_options",
-        "data_version",
-        "database_list",
-        "foreign_key_list",
-        "function_list",
-        "index_info",
-        "index_list",
-        "index_xinfo",
-        "page_count",
-        "page_size",
-        "recursive_triggers",
-        "schema_version",
-        "table_info",
-        "table_list",
-        "table_xinfo",
-    }
-)
+ALLOWED_PRAGMAS = {
+    "cache_size": True,
+    "compile_options": False,
+    "data_version": False,
+    "database_list": False,
+    "foreign_key_list": True,
+    "function_list": False,
+    "index_info": True,
+    "index_list": True,
+    "index_xinfo": True,
+    "page_count": False,
+    "page_size": False,
+    "recursive_triggers": True,
+    "schema_version": False,
+    "table_info": True,
+    "table_list": True,
+    "table_xinfo": True,
+}
 
 #: The function whose denial is the whole point of the `SQLITE_FUNCTION` case.
 #: Python refuses extension loading by default, but that default is a
@@ -131,7 +145,10 @@ def authorize(action, arg1, arg2, db_name, trigger_or_view):
     if action in DENIED_ACTIONS.values():
         return sqlite3.SQLITE_DENY
     if action == sqlite3.SQLITE_PRAGMA:
-        if (arg1 or "").lower() not in ALLOWED_PRAGMAS:
+        argument_allowed = ALLOWED_PRAGMAS.get((arg1 or "").lower())
+        if argument_allowed is None:
+            return sqlite3.SQLITE_DENY
+        if arg2 is not None and not argument_allowed:
             return sqlite3.SQLITE_DENY
         return sqlite3.SQLITE_OK
     if action == sqlite3.SQLITE_FUNCTION and (arg2 or "").lower() == _EXTENSION_LOADER:

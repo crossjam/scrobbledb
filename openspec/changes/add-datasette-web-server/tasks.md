@@ -186,9 +186,14 @@
   every mutating action.
   Pragmas turned out not to be decidable by “does it carry a value”: SQLite reports
   `PRAGMA journal_mode=WAL` and `PRAGMA table_xinfo(artists)` identically, so the policy
-  is an allowlist of read-only introspection pragmas.
+  is an allowlist of pragma names, each carrying whether an argument may accompany it.
+  Both halves are needed: `PRAGMA schema_version` is introspection Datasette runs on
+  every request, while `PRAGMA schema_version = N` rewrites the database header.
   See the correction recorded in D7, including the two entries (`data_version`,
-  `recursive_triggers`) that only running the server reveals
+  `recursive_triggers`) that only running the server reveals.
+  Verified by a test parametrized over the allowlist mapping itself — assigning to any
+  allowlisted pragma must leave the file byte-identical — so an entry added later is
+  covered the moment it is added
 - [x] 5.4 Prove the authorizer policy in isolation, on a **writable temporary database**
   with `query_only` off, so neither `mode=ro` nor `query_only` can mask a missing rule —
   verified necessary: on a `mode=ro` connection with `query_only=OFF`, SQLite still
