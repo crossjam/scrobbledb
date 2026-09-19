@@ -165,18 +165,31 @@
 
 ## 5. Read-only enforcement
 
-- [ ] 5.1 Register the database with an explicit SQLite open mode of `ro` —
+- [x] 5.1 Register the database with an explicit SQLite open mode of `ro` —
   `Database(ds, path=..., mode="ro")` — so the read-only property is stated rather than
   inherited from Datasette’s default, and so the `write=True` branch that clears the URI
   query string cannot produce a read-write handle (design D7); verify the connection URI
-  carries `mode=ro` and that `db.execute_write()` fails rather than succeeding
-- [ ] 5.2 Issue `PRAGMA query_only=ON` in `prepare_connection` per design D7; verify
+  carries `mode=ro` and that `db.execute_write()` fails rather than succeeding.
+  `readonly.add_read_only_database` is the registration seam; task 7.x calls it from
+  `serve`. Verified by capturing the URI `Database.connect()` passes to
+  `sqlite3.connect` on both the `write=False` and `write=True` branches, and by
+  asserting `execute_write` raises *and* leaves the row count unchanged
+- [x] 5.2 Issue `PRAGMA query_only=ON` in `prepare_connection` per design D7; verify
   `INSERT`, `UPDATE`, `DELETE` and `DROP` submitted through the query interface are each
-  rejected
-- [ ] 5.3 Install a `sqlite3` authorizer via `conn.set_authorizer` in
+  rejected. Also covers `ATTACH`/`DETACH`, the two the spec scenario names alongside
+  them, and each is checked twice — once over HTTP, which is the scenario, and once
+  against the served connection itself, since Datasette’s `validate_sql_select` would
+  refuse most of them at the view layer and D7 exists so the answer does not depend on
+  that
+- [x] 5.3 Install a `sqlite3` authorizer via `conn.set_authorizer` in
   `prepare_connection` rejecting `SQLITE_ATTACH`, `SQLITE_DETACH`, extension loading and
-  every mutating action (design D7)
-- [ ] 5.4 Prove the authorizer policy in isolation, on a **writable temporary database**
+  every mutating action.
+  Pragmas turned out not to be decidable by “does it carry a value”: SQLite reports
+  `PRAGMA journal_mode=WAL` and `PRAGMA table_xinfo(artists)` identically, so the policy
+  is an allowlist of read-only introspection pragmas.
+  See the correction recorded in D7, including the two entries (`data_version`,
+  `recursive_triggers`) that only running the server reveals
+- [x] 5.4 Prove the authorizer policy in isolation, on a **writable temporary database**
   with `query_only` off, so neither `mode=ro` nor `query_only` can mask a missing rule —
   verified necessary: on a `mode=ro` connection with `query_only=OFF`, SQLite still
   rejects `INSERT` itself with “attempt to write a readonly database”, so a test run
@@ -186,25 +199,51 @@
   including the `_TEMP_TABLE`/`_TEMP_INDEX`/`_TEMP_TRIGGER`/`_TEMP_VIEW` and `_VTABLE`
   variants, `SQLITE_REINDEX`, `SQLITE_ANALYZE`, `SQLITE_ATTACH`, `SQLITE_DETACH`.
   Include a `SELECT` control that must still succeed.
-  Verify that removing any single rule fails the suite
-- [ ] 5.5 Cover the three statements that reach the database unless the authorizer stops
-  them, since these are the cases with no second line of defence: `REINDEX` is allowed
-  by both `mode=ro` and `query_only=ON`, and `ATTACH`/`DETACH` are allowed by both;
-  verify each is denied on the real served connection, not only on the isolated test
-  connection
-- [ ] 5.6 Distinguish authorizer denial from Python’s default refusal for extension
+  Verify that removing any single rule fails the suite.
+  All 26 covered, each on three connections: no authorizer (the statement succeeds, so
+  the case is not vacuous), the real policy (refused), and a policy denying only that
+  one action (still refused, which attributes the refusal to that rule rather than to a
+  neighbour firing on the same statement).
+  The statement table is declared in the test and compared for set equality against the
+  policy, so deleting a rule fails the suite instead of silently deleting its own test
+  case
+- [x] 5.5 Cover the statements that reach the database unless the authorizer stops them,
+  since these are the cases with no second line of defence; verify each is denied on the
+  real served connection, not only on the isolated test connection.
+  **The premise was half wrong and is corrected in D7.** Re-measured on SQLite 3.47.1,
+  `REINDEX` is refused by `mode=ro` *and* by `query_only=ON` on a writable connection —
+  it is defence in depth, not the only layer.
+  `ATTACH` and `DETACH` are the genuine cases: permitted by both other layers on a
+  read-only connection and a writable one alike.
+  All three are verified denied on the served connection anyway
+- [x] 5.6 Distinguish authorizer denial from Python’s default refusal for extension
   loading: `SELECT load_extension(...)` raises “not authorized” on a connection with
   **no** authorizer at all, so the naive case proves nothing.
-  Call `enable_load_extension(True)` first, then verify the authorizer still denies it
-- [ ] 5.7 Verify `VACUUM INTO` and `PRAGMA journal_mode=WAL` are rejected on the served
+  Call `enable_load_extension(True)` first, then verify the authorizer still denies it.
+  The control asserts the trap is real rather than assuming it: with loading enabled and
+  no authorizer the statement gets past authorization and fails in the dynamic loader,
+  with an error naming neither
+- [x] 5.7 Verify `VACUUM INTO` and `PRAGMA journal_mode=WAL` are rejected on the served
   connection — both produce files on disk rather than writing rows, so they are not
-  covered by the row-mutation cases above
-- [ ] 5.8 Open the database non-immutably despite the `ro` mode, per the alternative
+  covered by the row-mutation cases above.
+  `VACUUM INTO` is caught by the `SQLITE_ATTACH` rule: SQLite reports the output file to
+  the authorizer as an attach.
+  Verified that the output file does not exist afterwards, since “raised an error” and
+  “wrote nothing” are not the same claim.
+  The spec’s “read-only cannot be switched off” scenario is covered alongside: `PRAGMA
+  query_only=OFF` is itself refused, and a temp-table write is still refused after it
+- [x] 5.8 Open the database non-immutably despite the `ro` mode, per the alternative
   rejected in D7; verify the server still starts and serves after the database file is
-  modified by an out-of-band `ingest`
-- [ ] 5.9 Verify a full session — start, browse tables, run every canned query, shut
+  modified by an out-of-band `ingest`. Verified both as a property (`is_mutable` true,
+  `mode` `ro`) and behaviourally, with the new row asserted *visible* — a server that
+  kept serving from a stale snapshot would satisfy “still serves” and still violate the
+  spec’s “Database changes while being served” scenario
+- [x] 5.9 Verify a full session — start, browse tables, run every canned query, shut
   down — leaves the database file byte-identical (hash before and after), including when
-  the analytics indexes are absent
+  the analytics indexes are absent.
+  Run over both the indexed and unindexed fixtures, enumerating `CATALOG` rather than a
+  chosen few so a query added later is covered the day it is added, and asserting no
+  `-journal` or `-wal` file is left behind
 
 ## 6. Datasette metadata and configuration
 

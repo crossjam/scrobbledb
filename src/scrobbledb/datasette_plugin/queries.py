@@ -89,7 +89,7 @@ from scrobbledb import domain_queries
 BOUNDS_CTE = "scrobbledb_bounds"
 
 # The SQL function the CTE resolves bounds with. It is registered by
-# `functions.prepare_connection`, not by this module; the pairing is asserted in
+# `functions.register_sql_functions`, not by this module; the pairing is asserted in
 # the tests rather than imported, so the catalog stays free of that dependency.
 PARSE_WHEN = "parse_when"
 

@@ -423,13 +423,25 @@ is rejected”), so the authorizer is what actually satisfies it.
 | --- | --- | --- | --- |
 | `INSERT`/`UPDATE`/`DELETE`, DDL on main | blocked | blocked | defence in depth |
 | `CREATE TEMP TABLE` / `TEMP VIEW` | **allowed** | blocked | **yes — `query_only` is resettable** |
-| `REINDEX` | **allowed** | **allowed** | **yes — only layer** |
+| `REINDEX` | blocked | blocked | defence in depth |
 | `ANALYZE` | blocked | blocked | defence in depth |
 | `ATTACH` / `DETACH` | allowed | allowed | **yes — only layer** |
-| `load_extension()` | refused by Python’s default | — | belt and braces |
+| `VACUUM INTO '<path>'` | blocked | blocked | **yes — `query_only` is resettable** |
+| `PRAGMA journal_mode=WAL` | blocked | blocked | **yes — `query_only` is resettable** |
+| `load_extension()` | refused by Python’s default | — | **yes — the default is a flag Datasette flips** |
+
+**Corrected in task group 5.** The `REINDEX` row above read “allowed / allowed / only
+layer” and was wrong: re-measured on the same Python 3.13 / SQLite 3.47.1, `REINDEX`
+raises “attempt to write a readonly database” on a `mode=ro` connection *and* on a
+writable connection with `query_only=ON`. It stays on the deny list as defence in depth,
+but it is not a case with no second line of defence.
+`ATTACH` and `DETACH` are — they are permitted by both other layers, on a writable
+connection and a read-only one alike.
 
 So the three layers are not redundant restatements of one another.
-`REINDEX`, `ATTACH` and `DETACH` reach the database unless the authorizer stops them.
+`ATTACH` and `DETACH` reach the database unless the authorizer stops them, and with them
+`VACUUM INTO`, which SQLite reports to the authorizer as a `SQLITE_ATTACH` naming the
+output file rather than as a write.
 Temp-object creation is stopped by `query_only` during normal operation, but
 `query_only` is resettable via `PRAGMA query_only=OFF`, so under a guarantee that must
 not depend on a layer above it the authorizer is the only durable protection there too —
@@ -438,6 +450,35 @@ The authorizer must therefore deny, at minimum: `SQLITE_INSERT`, `SQLITE_UPDATE`
 `SQLITE_DELETE`, `SQLITE_ALTER_TABLE`, the `SQLITE_CREATE_*` and `SQLITE_DROP_*`
 families **including their `_TEMP_` and `_VTABLE` variants**, `SQLITE_REINDEX`,
 `SQLITE_ANALYZE`, `SQLITE_ATTACH`, `SQLITE_DETACH`, and extension loading.
+
+**Pragmas are decided by name, not by whether they carry a value.** The obvious rule —
+“refuse any pragma that assigns something” — cannot be written: SQLite hands the
+authorizer `SQLITE_PRAGMA` with the pragma in `arg1` and, identically in `arg2`, either
+the assigned value or the call argument.
+`PRAGMA journal_mode=WAL` and `PRAGMA table_xinfo(artists)` are indistinguishable, so
+that rule denies Datasette’s own schema introspection.
+The policy is therefore an allowlist of read-only introspection pragmas, which is also
+the stronger shape: a pragma nobody has thought of yet is denied rather than permitted.
+Two entries on it are not obvious and were found by running the server rather than by
+reading: FTS5 issues `PRAGMA data_version` internally on every `MATCH`, and
+`sqlite_utils.Database(conn)` — which Datasette constructs around the served connection
+to resolve foreign-key label columns — sets `PRAGMA recursive_triggers=on` in its
+constructor.
+Allowing the latter is safe because no trigger can fire when every statement
+that would fire one is denied.
+
+One consequence to keep in mind when reading tests: `PRAGMA query_only` cannot be read
+through the authorizer either, for the same reason — allowing the read would allow
+`PRAGMA query_only=OFF`. Observing layer 2 means lifting layer 3 for the duration.
+
+**Datasette 1.0a39 installs an authorizer of its own**, in
+`utils/sql_analysis.analyze_sql_tables`, and finishes by calling
+`conn.set_authorizer(None)` — which would strip this plugin’s policy off any connection
+it ran against. It does not, because `Database.analyze_sql` routes through
+`execute_isolated_fn`, which opens a fresh connection for the call and closes it
+afterwards, and that connection never passes through `prepare_connection`. It is worth
+re-checking on each alpha bump: if analysis ever moves onto the pooled read connection,
+the authorizer has to be reinstalled after it.
 
 *Why:* together they are a positive, testable guarantee that does not depend on getting
 a Datasette-alpha constructor argument right, nor on Datasette’s SQL validation.

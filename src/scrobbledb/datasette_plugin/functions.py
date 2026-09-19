@@ -15,8 +15,6 @@ import functools
 import time
 from typing import Optional
 
-from datasette import hookimpl
-
 from scrobbledb import domain_format, domain_queries
 
 # `dateparser` costs milliseconds per call, and SQLite may choose to evaluate a
@@ -148,10 +146,13 @@ SQL_FUNCTIONS = {
 }
 
 
-@hookimpl
-def prepare_connection(conn):
+def register_sql_functions(conn):
     """
     Register scrobbledb's SQL functions on a Datasette connection.
+
+    Called from the package's `prepare_connection` hookimpl rather than being
+    one itself, so that hook stays the single place where everything a served
+    connection needs is composed.
 
     Only the genuinely deterministic functions carry `deterministic=True`.
     `parse_when` reads the wall clock, so claiming determinism for it would be
