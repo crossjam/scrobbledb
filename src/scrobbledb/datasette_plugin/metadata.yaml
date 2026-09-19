@@ -33,15 +33,22 @@ databases:
             The track played, referencing tracks.id.
       tracks:
         description: >-
-          One row per track, belonging to exactly one album. A track heard on
-          two albums is two rows here, because the identifier is derived from
-          the album it appeared on.
+          One row per track identifier, each referencing exactly one album --
+          but "one track, one album" holds in two different ways depending on
+          where the identifier came from. A track scrobbled with an upstream
+          identifier stays a single row even if it is later scrobbled from a
+          different album; the row's album_id is simply updated to whichever
+          was seen most recently. A track whose identifier had to be
+          synthesized gets one derived from its album, so the same track heard
+          on two albums is two rows.
         columns:
           id: >-
             Either the upstream MusicBrainz identifier, or, when the scrobble
-            carried none, an `md5:` identifier synthesized from the names. The
-            two kinds are not interchangeable: the same track can exist under
-            both if it was scrobbled with and without upstream identifiers.
+            carried none, an `md5:` identifier synthesized from the album
+            identifier and the title. The two kinds are not interchangeable:
+            the same track can exist under both if it was scrobbled with and
+            without upstream identifiers, and only the synthesized kind ties
+            the track to one album for good.
           album_id: >-
             The album this track belongs to, referencing albums.id.
           title: >-

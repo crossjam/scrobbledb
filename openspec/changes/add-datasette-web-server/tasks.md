@@ -312,7 +312,15 @@
   pinning the corrected claim so a later alpha moving the wait inside the timed region
   fails here, and a paired enforcement test — the limit is real, since a ten-row read
   never reaches the progress handler’s 1000-instruction check and cannot be interrupted
-  by any limit at all
+  by any limit at all.
+  The unindexed workload is exercised at representative *shape*, not merely row count:
+  47,000 plays over 22,000 tracks, 18,000 albums and 12,000 artists, matching the live
+  database’s near-1:1 ratio of history to vocabulary, which is what makes the aggregates
+  expensive. Getting that ratio wrong hid the problem twice — ten plays answered in
+  microseconds, and 47k plays over a small vocabulary still ran four times faster than
+  the real thing, so both passed with the limit reverted to Datasette’s default.
+  At the corrected scale the slowest entry takes ~570ms and reverting to 1000ms fails
+  the suite
 
 ## 7. The serve command
 

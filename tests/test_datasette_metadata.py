@@ -24,6 +24,7 @@ pytest.importorskip("pytest_asyncio")
 import sqlite_utils  # noqa: E402
 
 from scrobbledb.datasette_plugin import config as cfg  # noqa: E402
+from scrobbledb.datasette_plugin import queries as cat  # noqa: E402
 from scrobbledb.datasette_plugin import readonly  # noqa: E402
 
 from tests import test_datasette_queries as catalog_tests  # noqa: E402
@@ -373,24 +374,216 @@ async def test_plays_offers_a_date_facet(registered_plugin, populated_db):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_the_rollups_run_without_analytics_indexes(
-    registered_plugin, unindexed_db
-):
-    """Every rollup answers on a database carrying no indexes of its own."""
-    db = sqlite_utils.Database(unindexed_db)
-    indexes = db.execute(
-        "SELECT name FROM sqlite_master WHERE type='index' AND sql IS NOT NULL"
-    ).fetchall()
-    db.close()
-    assert indexes == [], f"fixture is indexed; this proves nothing: {indexes}"
+#: The shape of the live database, not merely its row count. Measured there:
+#: 56,388 plays over 26,408 tracks, 22,008 albums and 14,682 artists -- a
+#: vocabulary nearly as large as the history itself, because `md5:` identifiers
+#: fragment the same album and artist across many rows. That ratio is what
+#: makes the aggregates expensive, and getting it wrong is how this test first
+#: failed to do its job twice over: ten plays answered in microseconds, and a
+#: scaled-up 47k plays over a *small* vocabulary still ran four times faster
+#: than the real thing, so reverting the limit to Datasette's 1000ms default
+#: passed both.
+REPRESENTATIVE_PLAYS = 47_000
+REPRESENTATIVE_TRACKS = 22_000
+REPRESENTATIVE_ALBUMS = 18_000
+REPRESENTATIVE_ARTISTS = 12_000
 
-    ds = await serve_configured(unindexed_db)
+#: Parameter *values* that exist in that fixture. The parameter *names* come
+#: from the catalog tests' map, so an entry that grows a new parameter fails
+#: here with a KeyError rather than being quietly run without it.
+FIXTURE_VALUES = {
+    "artist_id": "art0",
+    "album_id": "alb0",
+    "album_ids": '["alb0"]',
+    "track_id": "trk0",
+    "q": "Track",
+}
+
+#: How much of the configured limit the slowest query may consume. The setting
+#: exists to leave analytics room on a cold cache and a slower disk than
+#: whatever runs this, so "it finished" is not the bar -- "it finished with the
+#: limit still an order of magnitude away" is.
+REQUIRED_HEADROOM = 2.0
+
+
+@pytest.fixture(scope="session")
+def representative_db(tmp_path_factory):
+    """
+    An unindexed database at the scale the setting was chosen for.
+
+    Session-scoped and read-only: building it costs a fraction of a second, but
+    there is no reason to pay it per test.
+
+    Deliberately carries no indexes at all, which is the state `serve` warns
+    about and the state the time limit has to survive. The play timestamps walk
+    forward in fixed steps so every rollup -- daily, monthly, yearly -- has many
+    non-empty buckets to group rather than one.
+    """
+    import datetime as dt
+
+    path = tmp_path_factory.mktemp("representative") / "scrobbles.db"
+    db = sqlite_utils.Database(path)
+    db.execute("CREATE TABLE artists (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+    db.execute(
+        "CREATE TABLE albums (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
+        " artist_id TEXT NOT NULL REFERENCES artists(id))"
+    )
+    db.execute(
+        "CREATE TABLE tracks (id TEXT PRIMARY KEY, title TEXT NOT NULL,"
+        " album_id TEXT NOT NULL REFERENCES albums(id))"
+    )
+    db.execute(
+        "CREATE TABLE plays (timestamp TEXT NOT NULL,"
+        " track_id TEXT NOT NULL REFERENCES tracks(id),"
+        " PRIMARY KEY (timestamp, track_id))"
+    )
+    db["artists"].insert_all(
+        [{"id": f"art{i}", "name": f"Artist {i}"} for i in range(REPRESENTATIVE_ARTISTS)]
+    )
+    db["albums"].insert_all(
+        [
+            {
+                "id": f"alb{i}",
+                "title": f"Album {i}",
+                "artist_id": f"art{i % REPRESENTATIVE_ARTISTS}",
+            }
+            for i in range(REPRESENTATIVE_ALBUMS)
+        ]
+    )
+    db["tracks"].insert_all(
+        [
+            {
+                "id": f"trk{i}",
+                "title": f"Track {i}",
+                "album_id": f"alb{i % REPRESENTATIVE_ALBUMS}",
+            }
+            for i in range(REPRESENTATIVE_TRACKS)
+        ]
+    )
+    base = dt.datetime(2019, 1, 1, tzinfo=dt.timezone.utc)
+    db["plays"].insert_all(
+        [
+            {
+                "timestamp": (base + dt.timedelta(minutes=7 * i)).isoformat(),
+                # A stride coprime with the track count, so plays spread over
+                # the whole vocabulary instead of cycling through a few rows.
+                "track_id": f"trk{(i * 37) % REPRESENTATIVE_TRACKS}",
+            }
+            for i in range(REPRESENTATIVE_PLAYS)
+        ],
+        batch_size=5_000,
+    )
+    db.conn.commit()
+    db.close()
+    return path
+
+
+def runnable_entries(path):
+    """Every catalog entry whose prerequisite table the fixture actually has."""
+    db = sqlite_utils.Database(path)
+    tables = set(db.table_names())
+    db.close()
+    return [
+        entry
+        for entry in cat.CATALOG
+        if not entry.requires_table or entry.requires_table in tables
+    ]
+
+
+def parameters_for(entry):
+    return {
+        name: FIXTURE_VALUES[name] for name in catalog_tests.PARAMETERS_FOR[entry.name]
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_whole_catalog_fits_the_limit_at_representative_scale(
+    registered_plugin, representative_db
+):
+    """
+    Every stored query answers on ~47k unindexed plays, with headroom to spare.
+
+    The whole catalog rather than the three rollups, because "the slowest one"
+    is not knowable in advance and changes as entries are added. The slowest
+    observed is compared against the configured limit, so lowering the limit
+    back toward Datasette's default fails here -- which is the assertion the
+    ten-row version of this test could not make.
+    """
+    db = sqlite_utils.Database(representative_db)
+    assert db.execute("SELECT COUNT(*) FROM plays").fetchone()[0] >= 40_000
+    assert (
+        db.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND sql IS NOT NULL"
+        ).fetchone()[0]
+        == 0
+    ), "fixture is indexed; it is not the state the limit was chosen for"
+    db.close()
+
+    entries = runnable_entries(representative_db)
+    assert set(catalog_tests.PARAMETERS_FOR) == {e.name for e in cat.CATALOG}
+    assert len(entries) >= 20, f"only {len(entries)} entries ran"
+
+    slowest = (0.0, None)
+    ds = await serve_configured(representative_db)
     try:
-        for name in ("monthly_rollup", "yearly_rollup", "daily_rollup"):
-            response = await ds.client.get(f"/{DATABASE}/{name}.json?_shape=array")
-            assert response.status_code == 200, f"{name}: {response.text}"
-            assert response.json(), f"{name} returned no rows"
+        limit_ms = ds.setting("sql_time_limit_ms")
+        for entry in entries:
+            started = time.perf_counter()
+            response = await ds.client.get(
+                f"/{DATABASE}/{entry.name}.json",
+                params={"_shape": "array", **parameters_for(entry)},
+            )
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            assert response.status_code == 200, f"{entry.name}: {response.text}"
+            slowest = max(slowest, (elapsed_ms, entry.name))
+    finally:
+        ds.close()
+
+    elapsed_ms, name = slowest
+    assert elapsed_ms > 0
+    assert limit_ms >= elapsed_ms * REQUIRED_HEADROOM, (
+        f"{name} took {elapsed_ms:.0f}ms against a {limit_ms}ms limit; that is "
+        f"less than {REQUIRED_HEADROOM}x headroom on an unindexed database"
+    )
+
+
+#: The analytics the task names as the workload ("rollups complete on an
+#: unindexed ~47k-play database"), plus the aggregate measured slowest of all.
+#: Used for the control below rather than the whole catalog, which costs 20s to
+#: run against a limit it is all failing against -- the same evidence, slowly.
+HEAVIEST_ENTRIES = ("monthly_rollup", "yearly_rollup", "daily_rollup", "top_albums")
+
+
+@pytest.mark.asyncio
+async def test_that_workload_is_capable_of_failing(
+    registered_plugin, representative_db
+):
+    """
+    The control: those queries are killable, so succeeding above meant something.
+
+    Run under a limit far below what they need. Without this, a catalog that had
+    somehow become trivially fast would pass the headroom assertion while
+    telling us nothing about whether the limit governs these queries at all.
+    """
+    names = {entry.name for entry in cat.CATALOG}
+    assert set(HEAVIEST_ENTRIES) <= names, (
+        f"renamed out from under this test: {set(HEAVIEST_ENTRIES) - names}"
+    )
+    by_name = {entry.name: entry for entry in cat.CATALOG}
+
+    ds = await serve_configured(
+        representative_db, config={"settings": {"sql_time_limit_ms": 5}}
+    )
+    try:
+        for name in HEAVIEST_ENTRIES:
+            response = await ds.client.get(
+                f"/{DATABASE}/{name}.json",
+                params={"_shape": "array", **parameters_for(by_name[name])},
+            )
+            assert response.status_code != 200, f"{name} survived a 5ms limit"
+            assert "sql_time_limit_ms" in response.text, (
+                f"{name} was refused, but not by the time limit: {response.text}"
+            )
     finally:
         ds.close()
 
