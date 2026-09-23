@@ -1,0 +1,95 @@
+# Table and per-column descriptions for a scrobbledb database.
+#
+# This file is passed to `Datasette(metadata=...)`, never to `config=`. The 1.0
+# config split keeps `description`, `title` and the per-column `columns` mapping
+# in metadata; routing them through `config=` renders nothing at all, with no
+# warning and no error (design D9). The config-side keys live in the sibling
+# `datasette.yaml`.
+#
+# `$DATABASE` is substituted with the served database's registered name when
+# this file is loaded -- see `config.py`. Datasette keys metadata by database
+# name, and a scrobbledb database is whatever the user named their file.
+databases:
+  $DATABASE:
+    description: >-
+      A scrobbledb listening history: every play, and the artists, albums and
+      tracks it refers to. Four tables, each a plain row store -- the analytics
+      live in the stored queries listed below the tables, not in the schema.
+    tables:
+      plays:
+        description: >-
+          One row per play. This is the only table that grows with listening;
+          the other three are the vocabulary it points at. A play carries no
+          duration, source or device -- the upstream scrobble does not provide
+          them.
+        columns:
+          timestamp: >-
+            When the play was recorded, as a UTC ISO 8601 string. Sorts
+            correctly as text, which is why it is stored this way. Together with
+            track_id it is the primary key, so one track cannot be recorded
+            twice in the same second -- a play repeated within a second is lost
+            rather than double-counted.
+          track_id: >-
+            The track played, referencing tracks.id.
+      tracks:
+        description: >-
+          One row per track identifier, each referencing exactly one album --
+          but "one track, one album" holds in two different ways depending on
+          where the identifier came from. A track scrobbled with an upstream
+          identifier stays a single row even if it is later scrobbled from a
+          different album; the row's album_id is simply updated to whichever
+          was seen most recently. A track whose identifier had to be
+          synthesized gets one derived from its album, so the same track heard
+          on two albums is two rows.
+        columns:
+          id: >-
+            Either the upstream MusicBrainz identifier, or, when the scrobble
+            carried none, an `md5:` identifier synthesized from the album
+            identifier and the title. The two kinds are not interchangeable:
+            the same track can exist under both if it was scrobbled with and
+            without upstream identifiers, and only the synthesized kind ties
+            the track to one album for good.
+          album_id: >-
+            The album this track belongs to, referencing albums.id.
+          title: >-
+            The track title as scrobbled. Not normalized -- case and
+            punctuation are whatever the scrobbling client sent.
+      albums:
+        description: >-
+          One row per album identifier, which is not the same as one row per
+          album. Roughly half of all identifiers here are synthesized from the
+          title, so the same album commonly exists under several ids, and a
+          compilation exists as one row per contributing artist. Aggregating
+          these rows by id will therefore overcount albums; the stored queries
+          group by title instead, and report `Various Artists` where a group
+          spans several artists.
+        columns:
+          id: >-
+            MusicBrainz identifier where the scrobble carried one, otherwise an
+            `md5:` identifier synthesized from the names.
+          title: >-
+            The album title as scrobbled.
+          artist_id: >-
+            One artist who has a track on this album, referencing artists.id.
+            Not the album's artist: the schema has no album-level artist, and
+            for a compilation this is whichever contributor this row was created
+            for.
+      artists:
+        description: >-
+          One row per artist identifier. As with albums, an artist scrobbled
+          both with and without an upstream identifier exists under more than
+          one id, so counting rows here overstates the number of distinct
+          artists.
+        columns:
+          id: >-
+            MusicBrainz identifier where the scrobble carried one, otherwise an
+            `md5:` identifier synthesized from the name.
+          name: >-
+            The artist name as scrobbled.
+      tracks_fts:
+        description: >-
+          The full-text search index over artist, album and track names, built
+          by `scrobbledb index`. Query it through the `search` stored query
+          rather than directly: it is an FTS5 table, so a bare filter here does
+          not use the index. It is a snapshot, not a view -- if it covers fewer
+          tracks than the tracks table, it needs rebuilding.

@@ -349,7 +349,7 @@ def test_definitions_expose_the_stored_query_dict_shape():
 
 def test_the_bound_resolver_calls_a_function_the_plugin_registers():
     """
-    The CTE is useless unless `prepare_connection` registers what it calls.
+    The CTE is useless unless the connection registers what it calls.
 
     Read from the registration table rather than repeating the name, so
     renaming the function without updating the catalog fails here instead of at
@@ -874,7 +874,7 @@ def _counting_connection(path):
     """
     A connection prepared exactly as Datasette's is, counting `parse_when`.
 
-    Goes through `functions.prepare_connection` rather than registering a local
+    Goes through `functions.register_sql_functions` rather than a local
     function, so the determinism flags and arities under test are production's.
     """
     calls = []
@@ -887,7 +887,7 @@ def _counting_connection(path):
     conn = sqlite3.connect(path)
     try:
         fns.SQL_FUNCTIONS = dict(original, parse_when=(1, counting, False))
-        fns.prepare_connection(conn)
+        fns.register_sql_functions(conn)
     finally:
         fns.SQL_FUNCTIONS = original
     return conn, calls
