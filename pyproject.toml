@@ -78,7 +78,9 @@ scrobbledb = ["default_loguru_config.toml"]
 #             doubly-encoded index URLs. Fixed in 26.1.2 and 26.2.
 #   msgpack - via cachecontrol, for pip-audit's HTTP cache. CVE-2026-57585 is
 #             an out-of-bounds read crashing a reused Unpacker. Fixed in 1.2.1.
-constraint-dependencies = ["pip>=26.2", "msgpack>=1.2.1"]
+#   anyio   - via httpx, starlette and mcp (pylast, datasette, datasette-mcp).
+#             CVE-2026-63374 and CVE-2026-64847. Fixed in 4.14.2.
+constraint-dependencies = ["pip>=26.2", "msgpack>=1.2.1", "anyio>=4.14.2"]
 
 [tool.uv.sources]
 loguru-config = { git = "https://github.com/crossjam/loguru-config" }
@@ -112,9 +114,21 @@ help = "Run ty type checker on source files"
 cmd = "ty check src/"
 
 # Security auditing
+# Audits uv.lock rather than the installed environment. pip-audit identifies
+# installed packages by name and version only, so the environment audit
+# matched our loguru-config fork (a git source) against the unrelated
+# loguru-config project on PyPI. From the lockfile the fork arrives as a URL
+# requirement, which pip-audit skips instead of misattributing. The export
+# covers every extra and group, and omits scrobbledb itself (not on PyPI).
+# pipefail keeps a failed export from passing as an empty, clean audit.
 [tool.poe.tasks.audit]
-help = "Run pip-audit to check for known vulnerabilities"
-cmd = "pip-audit"
+help = "Run pip-audit against uv.lock to check for known vulnerabilities"
+interpreter = "bash"
+shell = """
+set -o pipefail
+uv export --frozen --all-extras --all-groups --no-emit-project --no-hashes --quiet \
+  | pip-audit --requirement /dev/stdin --disable-pip --no-deps
+"""
 
 # Testing
 [tool.poe.tasks.test]
