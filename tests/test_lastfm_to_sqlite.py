@@ -1138,6 +1138,22 @@ def test_recent_tracks_count_uses_retry():
     assert count == 10
 
 
+def test_recent_tracks_count_can_disable_cache():
+    """The recent-track count request can bypass pylast's response cache."""
+    mock_user = Mock()
+    xml_response = """<?xml version="1.0" encoding="UTF-8"?>
+    <lfm status="ok">
+        <recenttracks user="testuser" page="1" perPage="1" totalPages="1" total="1">
+        </recenttracks>
+    </lfm>"""
+    mock_user._request.return_value = minidom.parseString(xml_response)
+    mock_user._get_params.return_value = {}
+
+    assert lastfm.recent_tracks_count(mock_user, None, cacheable=False) == 1
+    mock_user._request.assert_called_once()
+    assert mock_user._request.call_args.kwargs["cacheable"] is False
+
+
 def test_recent_tracks_uses_retry():
     """Test that recent_tracks generator uses retry logic."""
     mock_user = Mock()
@@ -1175,6 +1191,31 @@ def test_recent_tracks_uses_retry():
     assert len(tracks) == 1
     assert tracks[0]["artist"]["name"] == "Test Artist"
     assert tracks[0]["track"]["title"] == "Test Track"
+
+
+def test_recent_tracks_can_disable_cache():
+    """The recent-track page request can bypass pylast's response cache."""
+    mock_user = Mock()
+    xml_response = """<?xml version="1.0" encoding="UTF-8"?>
+    <lfm status="ok">
+        <recenttracks user="testuser" page="1" perPage="200" totalPages="1" total="1">
+            <track>
+                <artist mbid="artist-123">Test Artist</artist>
+                <name>Test Track</name>
+                <mbid>track-123</mbid>
+                <album mbid="album-123">Test Album</album>
+                <date uts="1213031819">9 Jun 2008, 17:16</date>
+            </track>
+        </recenttracks>
+    </lfm>"""
+    mock_user._request.return_value = minidom.parseString(xml_response)
+    mock_user._get_params.return_value = {}
+
+    tracks = list(lastfm.recent_tracks(mock_user, None, cacheable=False))
+
+    assert len(tracks) == 1
+    mock_user._request.assert_called_once()
+    assert mock_user._request.call_args.kwargs["cacheable"] is False
 
 
 # Tests for logging functionality

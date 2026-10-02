@@ -858,6 +858,12 @@ def _ingest_batch(db, history, expected_count, batch_size):
     help="Disable batch inserts and insert records one at a time",
 )
 @click.option(
+    "--no-cache",
+    is_flag=True,
+    default=False,
+    help="Disable Last.fm response caching for this ingest",
+)
+@click.option(
     "--verbose",
     "-v",
     is_flag=True,
@@ -871,7 +877,19 @@ def _ingest_batch(db, history, expected_count, batch_size):
     help="Disable actual execution of ingest and db mods",
 )
 @click.pass_context
-def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_batch, verbose, dry_run):
+def ingest(
+    ctx,
+    database,
+    auth,
+    since_date,
+    until_date,
+    limit,
+    batch_size,
+    no_batch,
+    no_cache,
+    verbose,
+    dry_run,
+):
     """
     Ingest play history from last.fm/libre.fm to a SQLite database.
 
@@ -949,7 +967,12 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
     user = network.get_user(auth_data["lastfm_username"])
     # playcount = user.get_playcount()
 
-    playcount = lastfm.recent_tracks_count(user, since_date, until_date)
+    playcount = lastfm.recent_tracks_count(
+        user,
+        since_date,
+        until_date,
+        cacheable=not no_cache,
+    )
 
     # Use limit if specified, otherwise use total playcount
 
@@ -959,7 +982,13 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
         console.print("[green]dry run indicated, ingest complete[/green]")
         return
 
-    history = lastfm.recent_tracks(user, since_date, until_date, limit=limit)
+    history = lastfm.recent_tracks(
+        user,
+        since_date,
+        until_date,
+        limit=limit,
+        cacheable=not no_cache,
+    )
 
     # Set up FTS5 index if it doesn't exist
     if "tracks_fts" not in db.table_names():

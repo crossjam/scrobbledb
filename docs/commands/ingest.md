@@ -33,6 +33,7 @@ Options:
   --batch-size INTEGER  Number of records to insert in each batch (default: 100)
                         [default: 100]
   --no-batch            Disable batch inserts and insert records one at a time
+  --no-cache            Disable Last.fm response caching for this ingest
   -v, --verbose         Enable verbose logging output
   --dry-run             Disable actual execution of ingest and db mods
   --help                Show this message and exit.

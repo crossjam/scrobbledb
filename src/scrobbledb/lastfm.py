@@ -58,7 +58,12 @@ def _api_request_with_retry(user: pylast.User, method: str, cacheable: bool = Tr
                 raise
 
 
-def recent_tracks_count(user: pylast.User, since: dt.datetime, until: dt.datetime = None):
+def recent_tracks_count(
+    user: pylast.User,
+    since: dt.datetime,
+    until: dt.datetime = None,
+    cacheable: bool = True,
+):
     """
     Return the number of tracks recorded since a given datetime.
 
@@ -76,7 +81,12 @@ def recent_tracks_count(user: pylast.User, since: dt.datetime, until: dt.datetim
             params["to"] = int(until.timestamp())
         params["page"] = 1
         params["limit"] = 1
-        doc = _api_request_with_retry(user, "user.getRecentTracks", cacheable=True, params=params)
+        doc = _api_request_with_retry(
+            user,
+            "user.getRecentTracks",
+            cacheable=cacheable,
+            params=params,
+        )
 
         # Safely navigate XML response structure
         cleaned_doc = pylast.cleanup_nodes(doc)
@@ -130,7 +140,13 @@ def recent_tracks_count(user: pylast.User, since: dt.datetime, until: dt.datetim
         return 0
 
 
-def recent_tracks(user: pylast.User, since: dt.datetime, until: dt.datetime = None, limit: int = None):
+def recent_tracks(
+    user: pylast.User,
+    since: dt.datetime,
+    until: dt.datetime = None,
+    limit: int = None,
+    cacheable: bool = True,
+):
     """
     This is similar to pylast.User.get_recent_tracks
     (https://github.com/pylast/pylast/blob/master/src/pylast/__init__.py#L2362),
@@ -173,7 +189,12 @@ def recent_tracks(user: pylast.User, since: dt.datetime, until: dt.datetime = No
         logger.info(
             f"Fetching page {page}" + (f" of {total_pages}" if total_pages else "")
         )
-        doc = _api_request_with_retry(user, "user.getRecentTracks", cacheable=True, params=params)
+        doc = _api_request_with_retry(
+            user,
+            "user.getRecentTracks",
+            cacheable=cacheable,
+            params=params,
+        )
         main = pylast.cleanup_nodes(doc).documentElement.childNodes[0]
 
         # Get total pages on first request

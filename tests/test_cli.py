@@ -125,6 +125,36 @@ def test_about_command_uses_package_metadata(runner):
     assert "authors: Alice Example; Bob Example" in result.output
 
 
+def test_ingest_no_cache_option_disables_lastfm_cache(
+    runner, temp_db, temp_auth
+):
+    """The ingest flag forwards cache bypassing to Last.fm requests."""
+    mock_user = Mock()
+    mock_network = Mock()
+    mock_network.get_user.return_value = mock_user
+
+    with (
+        patch("scrobbledb.lastfm.get_network", return_value=mock_network),
+        patch("scrobbledb.lastfm.recent_tracks_count", return_value=0) as count,
+    ):
+        result = runner.invoke(
+            cli.cli,
+            [
+                "ingest",
+                temp_db[0],
+                "--auth",
+                temp_auth,
+                "--since-date",
+                "2026-01-01",
+                "--no-cache",
+                "--dry-run",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert count.call_args.kwargs["cacheable"] is False
+
+
 class TestTableExistsFix:
     """Tests for the table.exists() method call fix.
 
