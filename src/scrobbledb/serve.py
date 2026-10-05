@@ -12,11 +12,13 @@ generation test runs in-process -- has to work without it (design D2).
 
 import asyncio
 import errno
+import shlex
 import socket
 import sqlite3
 from pathlib import Path
 
 import click
+from rich.markup import escape
 
 from .analytics_indexes import missing_analytics_indexes
 from .command_utils import check_database, console, database_option
@@ -34,14 +36,19 @@ INSTALL_HINT = (
 )
 
 
-def startup_warnings(path) -> list[str]:
+def startup_warnings(path, explicit: bool = False) -> list[str]:
     """
     Everything worth telling the user about the database before serving it.
+
+    When the database was named with `--database`, every remedy names it too:
+    the commands default to the XDG database, and a remedy that silently acted
+    on a different file would leave the reported problem in place.
 
     Read through a `mode=ro` connection: these checks are the only access
     `serve` makes outside Datasette, and they must not be the exception to its
     read-only guarantee. Each one reports a remedy and none applies it.
     """
+    target = f" {shlex.quote(str(path))}" if explicit else ""
     conn = sqlite3.connect(f"{Path(path).resolve().as_uri()}?mode=ro", uri=True)
     try:
         tables = {
@@ -51,7 +58,7 @@ def startup_warnings(path) -> list[str]:
         if "plays" not in tables:
             return [
                 "This database has no plays yet. "
-                "Run `scrobbledb ingest` to import your listening history."
+                f"Run `scrobbledb ingest{target}` to import your listening history."
             ]
 
         warnings = []
@@ -59,7 +66,7 @@ def startup_warnings(path) -> list[str]:
         if missing:
             warnings.append(
                 f"{len(missing)} analytics index(es) are missing, so analytical "
-                "queries may be slow. Run `scrobbledb index --analytics` to create them."
+                f"queries may be slow. Run `scrobbledb index --analytics{target}` to create them."
             )
 
         if "tracks" in tables:
@@ -73,7 +80,7 @@ def startup_warnings(path) -> list[str]:
                 warnings.append(
                     f"The search index covers {indexed:,} of {track_count:,} tracks "
                     f"({track_count - indexed:,} missing), so search results will be "
-                    "incomplete. Run `scrobbledb index` to rebuild it."
+                    f"incomplete. Run `scrobbledb index{target}` to rebuild it."
                 )
         return warnings
     finally:
@@ -214,8 +221,8 @@ def serve(ctx, database, host, port):
     check_database(ctx, path).close()
     sock = bind_socket(host, port)
 
-    for warning in startup_warnings(path):
-        console.print(f"[yellow]![/yellow] {warning}")
+    for warning in startup_warnings(path, explicit=database is not None):
+        console.print(f"[yellow]![/yellow] {escape(warning)}")
 
     ds = build_datasette(path)
     try:

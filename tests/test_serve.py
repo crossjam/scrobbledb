@@ -14,6 +14,7 @@ import hashlib
 import os
 import queue
 import re
+import shlex
 import signal
 import socket
 import sqlite3
@@ -442,6 +443,57 @@ def test_absent_search_index_warns(tmp_path):
     assert any("search index covers 0 of" in w for w in warnings), warnings
 
 
+def remedies_for_every_warning(tmp_path, name):
+    """
+    Two databases at `tmp_path / name` that between them raise every warning:
+    one never ingested into, one with no analytics indexes and a short search
+    index. Returns the warnings from both, served as if named explicitly.
+    """
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    empty = tmp_path / "a" / name
+    sqlite_utils.Database(empty)["notes"].insert({"id": 1})
+    short = tmp_path / "b" / name
+    catalog_tests._populate(short).close()
+    return {
+        empty: serve_module.startup_warnings(empty, explicit=True),
+        short: serve_module.startup_warnings(short, explicit=True),
+    }
+
+
+def test_every_remedy_names_an_explicit_database(tmp_path):
+    """
+    The remedy commands default to the XDG database, so a remedy for a database
+    named with `--database` that left the path off would repair the wrong file.
+    The path has a space in it, so it must arrive shell-quoted.
+    """
+    found = remedies_for_every_warning(tmp_path, "my scrobbles.db")
+    warnings = [w for ws in found.values() for w in ws]
+    assert len(warnings) >= 3, "fixtures do not raise every warning"
+    for path, ws in found.items():
+        for warning in ws:
+            assert f"{shlex.quote(str(path))}`" in warning, warning
+
+
+def test_remedies_for_the_default_database_name_no_path(populated_db):
+    drop_from_search_index(populated_db, 1)
+    warnings = serve_module.startup_warnings(populated_db)
+    assert len(warnings) == 2
+    for warning in warnings:
+        assert str(populated_db) not in warning
+
+
+def test_a_path_with_markup_characters_prints_intact(
+    tmp_path, monkeypatch, recorded_start
+):
+    """Rich would read `[b]` in a path as markup and drop it from the remedy."""
+    monkeypatch.chdir(tmp_path)
+    sqlite_utils.Database("a [b].db")["notes"].insert({"id": 1})
+    result = invoke("-d", "a [b].db", "--port", "0")
+    assert result.exit_code == 0, result.output
+    assert "scrobbledb ingest 'a [b].db'" in result.output
+
+
 # --------------------------------------------------------------------------
 # 7.10  Bound port
 # --------------------------------------------------------------------------
@@ -466,6 +518,9 @@ def test_bound_port_names_the_port(populated_db, recorded_start):
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="interrupts the server with SIGINT, which is POSIX-only"
+)
 def test_live_session(live_server, populated_db):
     """
     Start the real command, browse it, interrupt it.
