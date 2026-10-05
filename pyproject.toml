@@ -80,7 +80,21 @@ scrobbledb = ["default_loguru_config.toml"]
 #             an out-of-bounds read crashing a reused Unpacker. Fixed in 1.2.1.
 #   anyio   - via httpx, starlette and mcp (pylast, datasette, datasette-mcp).
 #             CVE-2026-63374 and CVE-2026-64847. Fixed in 4.14.2.
-constraint-dependencies = ["pip>=26.2", "msgpack>=1.2.1", "anyio>=4.14.2"]
+#   pyjwt   - via mcp[crypto] (datasette-mcp). CVE-2026-101918: a token
+#             payload nested deeply enough makes `json.loads` raise
+#             RecursionError, which escapes PyJWT's documented exception types
+#             before any signature is checked. Fixed in 2.15.0.
+#   urllib3 - via requests (pip-audit). CVE-2026-97687 mixes HTTPS-proxy and
+#             target TLS settings; CVE-2026-97688 loops forever on trailing
+#             bytes after a chunked Deflate stream; CVE-2026-97689 buffers an
+#             unbounded chunk-size line. Fixed in 2.8.0.
+constraint-dependencies = [
+    "pip>=26.2",
+    "msgpack>=1.2.1",
+    "anyio>=4.14.2",
+    "pyjwt>=2.15.0",
+    "urllib3>=2.8.0",
+]
 
 [tool.uv.sources]
 loguru-config = { git = "https://github.com/crossjam/loguru-config" }
