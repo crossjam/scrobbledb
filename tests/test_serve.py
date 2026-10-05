@@ -152,14 +152,18 @@ class LiveServer:
         self.lines = []
         deadline = time.monotonic() + self.STARTUP_TIMEOUT
         while not (self.lines and self.lines[-1].startswith("Press Ctrl+C")):
+            # Checked before every read, not only when the queue runs dry: a
+            # server printing endlessly would otherwise never reach the timeout.
             remaining = deadline - time.monotonic()
             try:
-                line = self.stdout.get(timeout=max(remaining, 0))
+                if remaining <= 0:
+                    raise queue.Empty
+                line = self.stdout.get(timeout=remaining)
             except queue.Empty:
                 self.kill()
                 pytest.fail(
-                    f"server printed nothing for {self.STARTUP_TIMEOUT}s:"
-                    f" {self.lines!r} {self.err!r}"
+                    f"server did not finish starting within {self.STARTUP_TIMEOUT}s:"
+                    f" {self.lines[-20:]!r} {self.err[-2000:]!r}"
                 )
             if line is None:
                 break
