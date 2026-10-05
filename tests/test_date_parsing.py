@@ -5,7 +5,10 @@ plus the natural-language expressions that parse_relative_time() should
 support once Phase 2 swaps its body to use dateparser.
 """
 
+import calendar
 from datetime import datetime, timedelta
+
+import pytest
 
 from scrobbledb.domain_queries import parse_relative_time
 
@@ -140,3 +143,92 @@ class TestNaturalLanguageCases:
         result = parse_relative_time("6 months ago")
         expected = datetime.now() - timedelta(days=6 * 30)
         assert abs((result - expected).days) <= 5
+
+
+#: A fixed local "now": a Sunday evening, clear of any DST changeover.
+#:
+#: Evening matters for the story rather than the mechanism. The defect this
+#: guards against showed up when the UTC date had already rolled over to the
+#: next day -- 20:00 onwards in US Eastern time -- because dateparser, left
+#: without a base, resolved weekday names and bare times of day against UTC.
+PINNED_NOW = datetime(2025, 6, 15, 21, 30)
+
+
+@pytest.fixture
+def pinned_clock(monkeypatch):
+    """
+    Pin the clock parse_relative_time reads, and only that clock.
+
+    dateparser's own clock is deliberately left alone. That is what makes
+    these tests deterministic in both directions: with the fix, every result
+    follows the pinned instant; without it, dateparser reads the real clock,
+    which is nowhere near 2025-06-15, so the tests fail on every run instead
+    of only during the evening window the original test happened to catch.
+    """
+    import scrobbledb.domain_queries as domain_queries
+
+    class PinnedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            assert tz is None, "parse_relative_time reads a naive local clock"
+            return PINNED_NOW
+
+    monkeypatch.setattr(domain_queries, "datetime", PinnedDatetime)
+    return PINNED_NOW
+
+
+class TestResolvesAgainstTheLocalClock:
+    """Every relative expression is resolved against the same local "now"."""
+
+    WEEKDAYS = list(calendar.day_name)
+
+    def test_all_seven_weekdays_are_covered(self):
+        assert len(self.WEEKDAYS) == 7
+
+    @pytest.mark.parametrize("name", list(calendar.day_name))
+    def test_a_bare_weekday_is_its_most_recent_occurrence(self, pinned_clock, name):
+        """
+        Never in the future, and never more than six days back.
+
+        On the named day itself that is today at midnight. Every weekday is
+        checked rather than only Monday, because the old failure moved with
+        the clock: "Monday" broke on Sunday evenings, "Tuesday" on Monday
+        evenings, and so on.
+        """
+        target = list(calendar.day_name).index(name)
+        days_back = (pinned_clock.weekday() - target) % 7
+        expected = (pinned_clock - timedelta(days=days_back)).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+
+        result = parse_relative_time(name)
+
+        assert result == expected
+        assert result <= pinned_clock
+
+    def test_a_bare_time_of_day_is_today(self, pinned_clock):
+        """
+        "noon" is today's noon, not tomorrow's.
+
+        The same missing base sent bare times of day to the UTC date, so in
+        the evening window this resolved to the next day.
+        """
+        assert parse_relative_time("noon") == pinned_clock.replace(
+            hour=12, minute=0, second=0, microsecond=0
+        )
+
+    def test_last_weekday_on_that_weekday_steps_back_a_week(self, pinned_clock):
+        """
+        The "last <weekday>" adjustment reads the same clock dateparser was given.
+
+        On a Sunday, "last Sunday" is a week ago -- which only holds if the
+        resolved Sunday and the comparison against "today" agree on what today
+        is.
+        """
+        assert pinned_clock.weekday() == 6, "the pinned instant must be a Sunday"
+        assert parse_relative_time("last Sunday") == datetime(2025, 6, 8)
+
+    def test_relative_offsets_follow_the_same_clock(self, pinned_clock):
+        """The expressions that already used local time still agree with it."""
+        assert parse_relative_time("yesterday") == pinned_clock - timedelta(days=1)
+        assert parse_relative_time("3 weeks ago") == pinned_clock - timedelta(weeks=3)
