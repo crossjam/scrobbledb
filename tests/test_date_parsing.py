@@ -6,7 +6,9 @@ support once Phase 2 swaps its body to use dateparser.
 """
 
 import calendar
-from datetime import datetime, timedelta
+import os
+import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -177,6 +179,31 @@ def pinned_clock(monkeypatch):
     return PINNED_NOW
 
 
+
+@pytest.fixture
+def eastern_host():
+    """
+    Make the host's local timezone US Eastern for the duration of a test.
+
+    The offset-qualified case can only show its failure when the offset in
+    the expression differs from the host's own. CI runs on UTC, where
+    "UTC+00:00" coincides with the host and the defect would be invisible,
+    so the host zone is pinned rather than inherited.
+    """
+    if not hasattr(time, "tzset"):
+        pytest.skip("time.tzset is unavailable on this platform")
+    saved = os.environ.get("TZ")
+    os.environ["TZ"] = "America/New_York"
+    time.tzset()
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = saved
+        time.tzset()
+
 class TestResolvesAgainstTheLocalClock:
     """Every relative expression is resolved against the same local "now"."""
 
@@ -232,3 +259,33 @@ class TestResolvesAgainstTheLocalClock:
         """The expressions that already used local time still agree with it."""
         assert parse_relative_time("yesterday") == pinned_clock - timedelta(days=1)
         assert parse_relative_time("3 weeks ago") == pinned_clock - timedelta(weeks=3)
+
+    @pytest.mark.parametrize(
+        "text, ago",
+        [
+            ("3 hours ago UTC+00:00", timedelta(hours=3)),
+            ("2 days ago -05:00", timedelta(days=2)),
+            ("yesterday +09:00", timedelta(days=1)),
+        ],
+    )
+    def test_an_offset_qualified_relative_expression_counts_back_from_the_instant(
+        self, pinned_clock, eastern_host, text, ago
+    ):
+        """
+        "3 hours ago UTC+00:00" is three hours before *now*, as an instant.
+
+        With a naive base, dateparser stamped the expression's offset onto the
+        local wall-clock digits rather than converting the instant, so on an
+        Eastern host the UTC case came out four hours early, the -05:00 case
+        one hour late and the +09:00 case thirteen hours early. The pinned
+        local evening is 2025-06-16 01:30 in UTC.
+        """
+        instant = pinned_clock.astimezone()
+        assert instant.utcoffset() == timedelta(hours=-4), "pinned EDT host expected"
+
+        result = parse_relative_time(text)
+
+        assert result is not None
+        assert result.tzinfo is not None
+        assert result == instant - ago
+        assert result.tzinfo == timezone.utc

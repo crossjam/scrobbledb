@@ -531,7 +531,14 @@ def parse_relative_time(time_str: str) -> Optional[datetime]:
     # and "noon" on tomorrow's noon. Reusing the same reading for the
     # "last <weekday>" check below keeps a call straddling midnight from
     # disagreeing with itself.
-    now = datetime.now()
+    #
+    # The reading is timezone-aware, carrying the host's local offset. A
+    # naive base fixes the weekday case but breaks relative expressions that
+    # name an offset of their own: dateparser attaches that offset directly
+    # to the base's wall-clock digits instead of converting the instant, so
+    # "3 hours ago UTC+00:00" on an Eastern host came out four hours early.
+    # Unqualified expressions still come back naive local, as before.
+    now = datetime.now().astimezone()
 
     result = dateparser.parse(
         normalized,
