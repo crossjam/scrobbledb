@@ -324,40 +324,53 @@
 
 ## 7. The serve command
 
-- [ ] 7.1 Create `src/scrobbledb/serve.py` with a click command following the
+- [x] 7.1 Create `src/scrobbledb/serve.py` with a click command following the
   `export.py` single-command module pattern, options `--database/-d`, `--host` (default
   `127.0.0.1`), `--port` (default `8001`); wire it with
   `cli.add_command(serve_command.serve)` alongside the block at `cli.py:144-157`; verify
   `scrobbledb serve --help` exits 0
-- [ ] 7.2 Import `datasette` lazily inside the command body per design D2 and convert
+- [x] 7.2 Import `datasette` lazily inside the command body per design D2 and convert
   `ImportError` into a `click.ClickException` naming the extra; verify in an environment
   without the extra that `scrobbledb serve` exits non-zero with the install hint and
   `scrobbledb serve --help` still exits 0
-- [ ] 7.3 Resolve the database with `check_database` (`command_utils.py:156-173`);
+- [x] 7.3 Resolve the database with `check_database` (`command_utils.py:156-173`);
   verify a missing database exits non-zero naming the path and pointing at
   `scrobbledb config init`, and that `--database` overrides the XDG default
-- [ ] 7.4 Warn but still start when the database exists without a `plays` table,
+- [x] 7.4 Warn but still start when the database exists without a `plays` table,
   mirroring the `browse` pre-flight at `cli.py:1567+`; verify the warning text and that
   the server starts
-- [ ] 7.5 Register the plugin with `pm.register(datasette_plugin, name="scrobbledb")`
+- [x] 7.5 Register the plugin with `pm.register(datasette_plugin, name="scrobbledb")`
   before constructing `Datasette`, guarded by `pm.is_registered`; verify
-  `/-/plugins.json` on a running server lists `scrobbledb`
-- [ ] 7.6 Construct `Datasette`, `await ds.invoke_startup()`, and serve `ds.app()`
+  `/-/plugins.json` on a running server lists `scrobbledb`. Datasette reports plugins
+  there by module `__name__`, not by registration name, so the endpoint lists
+  `scrobbledb.datasette_plugin`; the test asserts that and, separately, that
+  `pm.get_plugin("scrobbledb")` is the plugin module.
+  A second build in one process is verified not to raise
+- [x] 7.6 Construct `Datasette`, `await ds.invoke_startup()`, and serve `ds.app()`
   through uvicorn; verify the printed URL responds 200 and the database index page lists
   the four tables
-- [ ] 7.7 Print both the web UI URL and the MCP endpoint URL at startup; verify both
-  appear in the output
-- [ ] 7.8 Detect missing analytics indexes by inspecting `sqlite_master` and print the
+- [x] 7.7 Print both the web UI URL and the MCP endpoint URL at startup; verify both
+  appear in the output.
+  Without `datasette-mcp` the MCP line says the endpoint is unavailable and how to
+  enable it, rather than printing a URL that would 404
+- [x] 7.8 Detect missing analytics indexes by inspecting `sqlite_master` and print the
   `scrobbledb index --analytics` remedy without creating them; verify the warning
   appears on an unindexed database, is absent on an indexed one, and that the indexes
-  are still absent after the session
-- [ ] 7.9 Detect a stale search index by comparing `COUNT(tracks)` against
+  are still absent after the session.
+  The four index definitions live in `analytics_indexes.py` so task 9.1 creates exactly
+  the set `serve` checks for; dropping any one of them brings the warning back.
+  The pre-serve checks read through their own `mode=ro` connection, and the live-session
+  test asserts the file hash is unchanged
+- [x] 7.9 Detect a stale search index by comparing `COUNT(tracks)` against
   `COUNT(tracks_fts)` and warn at startup naming the shortfall and the rebuild command,
   reusing the detection pattern from 7.8; verify the warning appears on a database whose
   index is short, is absent when the counts match, and that serving never rebuilds the
-  index
-- [ ] 7.10 Handle a bound port with an actionable error naming the port, and handle
-  interrupt with a clean exit 0 and no traceback; verify both
+  index. A database with no `tracks_fts` at all reports a shortfall of every track
+- [x] 7.10 Handle a bound port with an actionable error naming the port, and handle
+  interrupt with a clean exit 0 and no traceback; verify both.
+  The socket is bound by `serve` itself and handed to uvicorn, so an address in use is
+  reported before any warnings and before Datasette is built.
+  Interrupt is verified by sending SIGINT to a real `scrobbledb serve` subprocess
 
 ## 8. MCP tools
 

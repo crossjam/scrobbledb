@@ -25,6 +25,7 @@ from rich.table import Table
 from . import lastfm
 from . import sql as sql_commands
 from . import export as export_command
+from . import serve as serve_command
 from .commands import stats as stats_command
 from .commands import plays as plays_command
 from .commands import albums as albums_command
@@ -146,6 +147,9 @@ cli.add_command(sql_commands.sql)
 
 # Register export command
 cli.add_command(export_command.export)
+
+# Register serve command
+cli.add_command(serve_command.serve)
 
 # Register stats command group
 cli.add_command(stats_command.stats)

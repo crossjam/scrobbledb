@@ -58,6 +58,13 @@ reads as coverage. Four habits, each earned from a review finding here:
   tolerance. Otherwise it fails at midnight, on Sundays, or across a DST change.
 
 <!-- BEGIN KATA (managed by `kata init --with-agents`) -->
+## 🖥️ Platform support
+
+Windows is not currently a supported target. CI runs on Linux only and development
+happens on macOS. A trivial guard for a POSIX-only test (`skipif(sys.platform ==
+"win32")`) is fine; Windows-specific handling — shell quoting for `cmd.exe`, process
+groups, console control events — is out of scope unless that changes.
+
 ## kata issue tracker
 
 This project uses [kata](https://github.com/kenn-io/kata) as its shared issue
