@@ -63,22 +63,27 @@ databases:
         description: >-
           One row per album identifier, which is not the same as one row per
           album. Roughly half of all identifiers here are synthesized from the
-          title, so the same album commonly exists under several ids, and a
-          compilation exists as one row per contributing artist. Aggregating
-          these rows by id will therefore overcount albums; the stored queries
-          group by title instead, and report `Various Artists` where a group
-          spans several artists.
+          artist and the title, so the same album commonly exists under several
+          ids, and a compilation without an upstream identifier exists as one
+          row per contributing artist. A compilation scrobbled with an upstream
+          identifier is the opposite case: one row, shared by every
+          contributor. Aggregating these rows by id will therefore overcount
+          albums; the stored queries group by title instead, and report
+          `Various Artists` where a group spans several artists.
         columns:
           id: >-
             MusicBrainz identifier where the scrobble carried one, otherwise an
-            `md5:` identifier synthesized from the names.
+            `md5:` identifier synthesized from the artist identifier and the
+            title -- so only the synthesized kind is specific to one artist.
           title: >-
             The album title as scrobbled.
           artist_id: >-
             One artist who has a track on this album, referencing artists.id.
-            Not the album's artist: the schema has no album-level artist, and
-            for a compilation this is whichever contributor this row was created
-            for.
+            Not the album's artist: the schema has no album-level artist. For a
+            synthesized album identifier this is the contributor the identifier
+            was derived from, and fixed. For an upstream identifier shared by a
+            compilation's contributors it is whichever contributor ingest
+            processed last, and says nothing about the others.
       artists:
         description: >-
           One row per artist identifier. As with albums, an artist scrobbled

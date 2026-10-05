@@ -18,9 +18,10 @@ that harder than it looks, and both are load-bearing here:
   cannot tell a working authorizer from an absent one, and the test here turns
   extension loading *on* first.
 
-What each layer alone leaves reachable -- `REINDEX`, `ATTACH`, `DETACH`, and
-anything at all once `query_only` has been switched back off -- is covered
-against the real served connection, not only the isolated one.
+What only the authorizer stops -- `ATTACH` and `DETACH`, which both other
+layers permit, and anything at all once `query_only` has been switched back
+off -- is covered against the real served connection, not only the isolated
+one.
 """
 
 import hashlib
@@ -498,7 +499,7 @@ def test_the_introspection_pragmas_still_answer_under_the_policy(open_writable):
 
 
 # --------------------------------------------------------------------------
-# 5.5 -- the statements with no second line of defence
+# 5.5 -- what the authorizer refuses on the served connection
 # --------------------------------------------------------------------------
 
 
@@ -511,15 +512,23 @@ def test_the_introspection_pragmas_still_answer_under_the_policy(open_writable):
         "DETACH DATABASE other",
     ],
 )
-async def test_the_authorizer_only_statements_are_denied_when_served(
+async def test_the_authorizer_refuses_these_on_the_served_connection(
     registered_plugin, populated_db, sql
 ):
     """
-    Denied on the real served connection, not merely on the isolated one.
+    Refused by the authorizer on the real served connection, not merely on the
+    isolated one.
 
-    These are the cases the D7 table marks as reaching the database through
-    both other layers, so a policy that were somehow not installed on the
-    served connection would show up right here.
+    `ATTACH` and `DETACH` are the cases with no second line of defence: both
+    `mode=ro` and `query_only` permit them, so a policy that were somehow not
+    installed on the served connection would let them through right here.
+    `REINDEX` is not such a case -- both other layers refuse it -- and is here
+    as defence in depth.
+
+    The "authorized" assertion is what keeps the `REINDEX` case meaningful. It
+    would fail under `mode=ro` alone either way; asserting the error comes from
+    authorization shows the authorizer is the layer that refused it, which is
+    what an attempt to switch the other layers off has to get past.
     """
     ds = await serve_read_only(populated_db)
     try:

@@ -10,9 +10,11 @@ Three layers, none of them a restatement of the others:
 2. **`PRAGMA query_only=ON`**, issued on every connection. It stops temp-object
    creation that `mode=ro` allows, but it is resettable via
    `PRAGMA query_only=OFF`, so it cannot be the last word.
-3. **A `sqlite3` authorizer**, which is the only durable layer: `ATTACH`,
-   `DETACH` and `REINDEX` are reachable without it, and it is what survives an
-   attempt to switch layer 2 off.
+3. **A `sqlite3` authorizer**, which is the only durable layer: `ATTACH` and
+   `DETACH` are permitted by both layers above, so this is the only thing that
+   stops them, and it is what survives an attempt to switch layer 2 off.
+   `REINDEX` is on its deny list too, as defence in depth -- `mode=ro` and
+   `query_only` each refuse it already.
 
 The authorizer denies a named set of actions and allows everything else.
 A default-deny policy is not usable here: `SQLITE_READ`, `SQLITE_SELECT` and
