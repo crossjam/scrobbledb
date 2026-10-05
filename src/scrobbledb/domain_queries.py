@@ -523,11 +523,29 @@ def parse_relative_time(time_str: str) -> Optional[datetime]:
     # where a given local wall-clock time occurs twice.
     has_explicit_offset = bool(_TZ_OFFSET_RE.search(normalized))
 
+    # One local clock reading for the whole call. dateparser has to be given
+    # it: left to itself it takes "now" in UTC for weekday names and bare
+    # times of day, while resolving "yesterday" and "3 weeks ago" in local
+    # time. Whenever the UTC date has already rolled over -- every evening in
+    # the Americas -- "Monday" asked on a Sunday night then lands on tomorrow,
+    # and "noon" on tomorrow's noon. Reusing the same reading for the
+    # "last <weekday>" check below keeps a call straddling midnight from
+    # disagreeing with itself.
+    #
+    # The reading is timezone-aware, carrying the host's local offset. A
+    # naive base fixes the weekday case but breaks relative expressions that
+    # name an offset of their own: dateparser attaches that offset directly
+    # to the base's wall-clock digits instead of converting the instant, so
+    # "3 hours ago UTC+00:00" on an Eastern host came out four hours early.
+    # Unqualified expressions still come back naive local, as before.
+    now = datetime.now().astimezone()
+
     result = dateparser.parse(
         normalized,
         settings={
             "RETURN_AS_TIMEZONE_AWARE": has_explicit_offset,
             "PREFER_DAY_OF_MONTH": "first",
+            "RELATIVE_BASE": now,
         },
     )
 
@@ -540,7 +558,7 @@ def parse_relative_time(time_str: str) -> Optional[datetime]:
     if result.tzinfo is not None:
         result = result.astimezone(timezone.utc)
 
-    if is_last_weekday_phrase and result.date() >= datetime.now().date():
+    if is_last_weekday_phrase and result.date() >= now.date():
         result -= timedelta(weeks=1)
 
     return result
