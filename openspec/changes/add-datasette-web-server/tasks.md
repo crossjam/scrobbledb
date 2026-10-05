@@ -165,18 +165,36 @@
 
 ## 5. Read-only enforcement
 
-- [ ] 5.1 Register the database with an explicit SQLite open mode of `ro` —
+- [x] 5.1 Register the database with an explicit SQLite open mode of `ro` —
   `Database(ds, path=..., mode="ro")` — so the read-only property is stated rather than
   inherited from Datasette’s default, and so the `write=True` branch that clears the URI
   query string cannot produce a read-write handle (design D7); verify the connection URI
-  carries `mode=ro` and that `db.execute_write()` fails rather than succeeding
-- [ ] 5.2 Issue `PRAGMA query_only=ON` in `prepare_connection` per design D7; verify
+  carries `mode=ro` and that `db.execute_write()` fails rather than succeeding.
+  `readonly.add_read_only_database` is the registration seam; task 7.x calls it from
+  `serve`. Verified by capturing the URI `Database.connect()` passes to
+  `sqlite3.connect` on both the `write=False` and `write=True` branches, and by
+  asserting `execute_write` raises *and* leaves the row count unchanged
+- [x] 5.2 Issue `PRAGMA query_only=ON` in `prepare_connection` per design D7; verify
   `INSERT`, `UPDATE`, `DELETE` and `DROP` submitted through the query interface are each
-  rejected
-- [ ] 5.3 Install a `sqlite3` authorizer via `conn.set_authorizer` in
+  rejected. Also covers `ATTACH`/`DETACH`, the two the spec scenario names alongside
+  them, and each is checked twice — once over HTTP, which is the scenario, and once
+  against the served connection itself, since Datasette’s `validate_sql_select` would
+  refuse most of them at the view layer and D7 exists so the answer does not depend on
+  that
+- [x] 5.3 Install a `sqlite3` authorizer via `conn.set_authorizer` in
   `prepare_connection` rejecting `SQLITE_ATTACH`, `SQLITE_DETACH`, extension loading and
-  every mutating action (design D7)
-- [ ] 5.4 Prove the authorizer policy in isolation, on a **writable temporary database**
+  every mutating action.
+  Pragmas turned out not to be decidable by “does it carry a value”: SQLite reports
+  `PRAGMA journal_mode=WAL` and `PRAGMA table_xinfo(artists)` identically, so the policy
+  is an allowlist of pragma names, each carrying whether an argument may accompany it.
+  Both halves are needed: `PRAGMA schema_version` is introspection Datasette runs on
+  every request, while `PRAGMA schema_version = N` rewrites the database header.
+  See the correction recorded in D7, including the two entries (`data_version`,
+  `recursive_triggers`) that only running the server reveals.
+  Verified by a test parametrized over the allowlist mapping itself — assigning to any
+  allowlisted pragma must leave the file byte-identical — so an entry added later is
+  covered the moment it is added
+- [x] 5.4 Prove the authorizer policy in isolation, on a **writable temporary database**
   with `query_only` off, so neither `mode=ro` nor `query_only` can mask a missing rule —
   verified necessary: on a `mode=ro` connection with `query_only=OFF`, SQLite still
   rejects `INSERT` itself with “attempt to write a readonly database”, so a test run
@@ -186,47 +204,123 @@
   including the `_TEMP_TABLE`/`_TEMP_INDEX`/`_TEMP_TRIGGER`/`_TEMP_VIEW` and `_VTABLE`
   variants, `SQLITE_REINDEX`, `SQLITE_ANALYZE`, `SQLITE_ATTACH`, `SQLITE_DETACH`.
   Include a `SELECT` control that must still succeed.
-  Verify that removing any single rule fails the suite
-- [ ] 5.5 Cover the three statements that reach the database unless the authorizer stops
-  them, since these are the cases with no second line of defence: `REINDEX` is allowed
-  by both `mode=ro` and `query_only=ON`, and `ATTACH`/`DETACH` are allowed by both;
-  verify each is denied on the real served connection, not only on the isolated test
-  connection
-- [ ] 5.6 Distinguish authorizer denial from Python’s default refusal for extension
+  Verify that removing any single rule fails the suite.
+  All 26 covered, each on three connections: no authorizer (the statement succeeds, so
+  the case is not vacuous), the real policy (refused), and a policy denying only that
+  one action (still refused, which attributes the refusal to that rule rather than to a
+  neighbour firing on the same statement).
+  The statement table is declared in the test and compared for set equality against the
+  policy, so deleting a rule fails the suite instead of silently deleting its own test
+  case
+- [x] 5.5 Cover the statements that reach the database unless the authorizer stops them,
+  since these are the cases with no second line of defence; verify each is denied on the
+  real served connection, not only on the isolated test connection.
+  **The premise was half wrong and is corrected in D7.** Re-measured on SQLite 3.47.1,
+  `REINDEX` is refused by `mode=ro` *and* by `query_only=ON` on a writable connection —
+  it is defence in depth, not the only layer.
+  `ATTACH` and `DETACH` are the genuine cases: permitted by both other layers on a
+  read-only connection and a writable one alike.
+  All three are verified denied on the served connection anyway
+- [x] 5.6 Distinguish authorizer denial from Python’s default refusal for extension
   loading: `SELECT load_extension(...)` raises “not authorized” on a connection with
   **no** authorizer at all, so the naive case proves nothing.
-  Call `enable_load_extension(True)` first, then verify the authorizer still denies it
-- [ ] 5.7 Verify `VACUUM INTO` and `PRAGMA journal_mode=WAL` are rejected on the served
+  Call `enable_load_extension(True)` first, then verify the authorizer still denies it.
+  The control asserts the trap is real rather than assuming it: with loading enabled and
+  no authorizer the statement gets past authorization and fails in the dynamic loader,
+  with an error naming neither
+- [x] 5.7 Verify `VACUUM INTO` and `PRAGMA journal_mode=WAL` are rejected on the served
   connection — both produce files on disk rather than writing rows, so they are not
-  covered by the row-mutation cases above
-- [ ] 5.8 Open the database non-immutably despite the `ro` mode, per the alternative
+  covered by the row-mutation cases above.
+  `VACUUM INTO` is caught by the `SQLITE_ATTACH` rule: SQLite reports the output file to
+  the authorizer as an attach.
+  Verified that the output file does not exist afterwards, since “raised an error” and
+  “wrote nothing” are not the same claim.
+  The spec’s “read-only cannot be switched off” scenario is covered alongside: `PRAGMA
+  query_only=OFF` is itself refused, and a temp-table write is still refused after it
+- [x] 5.8 Open the database non-immutably despite the `ro` mode, per the alternative
   rejected in D7; verify the server still starts and serves after the database file is
-  modified by an out-of-band `ingest`
-- [ ] 5.9 Verify a full session — start, browse tables, run every canned query, shut
+  modified by an out-of-band `ingest`. Verified both as a property (`is_mutable` true,
+  `mode` `ro`) and behaviourally, with the new row asserted *visible* — a server that
+  kept serving from a stale snapshot would satisfy “still serves” and still violate the
+  spec’s “Database changes while being served” scenario
+- [x] 5.9 Verify a full session — start, browse tables, run every canned query, shut
   down — leaves the database file byte-identical (hash before and after), including when
-  the analytics indexes are absent
+  the analytics indexes are absent.
+  Run over both the indexed and unindexed fixtures, enumerating `CATALOG` rather than a
+  chosen few so a query added later is covered the day it is added, and asserting no
+  `-journal` or `-wal` file is left behind
 
 ## 6. Datasette metadata and configuration
 
-- [ ] 6.1 Ship two packaged files per the D9 finding — `metadata.yaml` carrying the
+- [x] 6.1 Ship two packaged files per the D9 finding — `metadata.yaml` carrying the
   table `description` and per-column `columns` descriptions for `artists`, `albums`,
   `tracks` and `plays`, and `datasette.yaml` carrying the config-side keys used by
   6.2–6.4 — loaded via `importlib.resources.files(...)` following the
   `ensure_default_log_config` precedent at `cli.py:100-113` and passed to the matching
   `Datasette(metadata=..., config=...)` arguments; verify the descriptions render on
   each table page, and do not route them through `config=`, where 1.0a39 ignores them
-  silently
-- [ ] 6.2 Hide the five FTS shadow tables (`tracks_fts_data`, `_idx`, `_content`,
+  silently. `tracks_fts` is described too, so the search index explains what it is rather
+  than appearing as a fifth unexplained table.
+  Both files key their contents by database name, which is whatever the user named their
+  file, so they ship with a `$DATABASE` placeholder that `config.py` renames at load
+  time — rewritten as a key, not as a text substitution, since the descriptions are
+  prose and prose may contain a dollar sign.
+  Verified by rendering every description in the document against its own table page
+  rather than a chosen few, with the `config=` misrouting pinned as a control: handed
+  the same document through the wrong argument the page still returns 200 and the
+  description is simply absent, so a test asserting only that the file contains it would
+  pass against a server showing none of them
+- [x] 6.2 Hide the five FTS shadow tables (`tracks_fts_data`, `_idx`, `_content`,
   `_docsize`, `_config`); verify the database index page lists exactly the four scrobble
-  tables plus `tracks_fts`
-- [ ] 6.3 Set the default sort on `plays` to most-recent-first and add facets matching
+  tables plus `tracks_fts`. **Datasette 1.0a39 already does this unprompted** —
+  verified, the five arrive with `hidden=true` and are absent from the index page with
+  no config at all. They are named in `datasette.yaml` anyway so the requirement is this
+  project’s rather than inherited from an alpha’s detection heuristic.
+  The hidden set is compared against the shadow tables actually present in
+  `sqlite_master`, so an FTS5 version that adds a sixth fails here rather than leaking
+  it onto the index page
+- [x] 6.3 Set the default sort on `plays` to most-recent-first and add facets matching
   the TUI’s whitelists (`browse.py:22,31,39`); verify the default `plays` page returns
-  descending timestamps
-- [ ] 6.4 Set `sql_time_limit_ms` high enough that rollups complete on an unindexed
+  descending timestamps.
+  **The facet half of this task did not map onto the served schema and was decided with
+  the user.** The referenced whitelists are artist, album and track — columns of the
+  query the TUI builds, not of any served table.
+  `plays` carries `timestamp` and `track_id` and nothing else, and `track_id` is
+  near-unique and renders as opaque `md5:`/MusicBrainz strings, so a facet on it is a
+  thousand-entry list nobody filters by.
+  The decision was a `date` facet on `plays.timestamp` — the browsable form of what the
+  TUI’s sort options are for — and no facets on the other three tables, where every
+  candidate column is a synthesized identifier or a free-text title.
+  Verified through the facet Datasette computes rather than the parsed config, since a
+  date facet over a column it cannot read as a date is accepted and then silently not
+  applied
+- [x] 6.4 Set `sql_time_limit_ms` high enough that rollups complete on an unindexed
   ~47k-play database, and reconcile it with the database’s 5000ms `busy_timeout` so a
   read landing in an ingest commit window does not trip Datasette’s limit first (design
   D7); verify the monthly rollup succeeds with no analytics indexes, and that queries
-  succeed against a database being written by a concurrent ingest
+  succeed against a database being written by a concurrent ingest.
+  Set to 10000ms on the basis of measured query cost: against the live 56,388-play
+  database with no analytics indexes the slowest stored query (`top_albums`) takes
+  ~730ms warm, a 27% margin against the 1000ms default and none at all on a cold cache.
+  **The reconciliation half of this task rested on a premise that does not hold, and D7
+  is corrected.** The two budgets do not interact: measured on all three read paths with
+  an EXCLUSIVE lock held, a read waits the lock out and succeeds even at a 1000ms limit,
+  because the wait is absorbed before any timed statement begins and `sqlite_timelimit`
+  sets its deadline afterwards.
+  Held past `busy_timeout`, the request fails as `database is locked` at ~6s with the
+  limit never firing. Verified with the concurrent-write case on all three paths, a test
+  pinning the corrected claim so a later alpha moving the wait inside the timed region
+  fails here, and a paired enforcement test — the limit is real, since a ten-row read
+  never reaches the progress handler’s 1000-instruction check and cannot be interrupted
+  by any limit at all.
+  The unindexed workload is exercised at representative *shape*, not merely row count:
+  47,000 plays over 22,000 tracks, 18,000 albums and 12,000 artists, matching the live
+  database’s near-1:1 ratio of history to vocabulary, which is what makes the aggregates
+  expensive. Getting that ratio wrong hid the problem twice — ten plays answered in
+  microseconds, and 47k plays over a small vocabulary still ran four times faster than
+  the real thing, so both passed with the limit reverted to Datasette’s default.
+  At the corrected scale the slowest entry takes ~570ms and reverting to 1000ms fails
+  the suite
 
 ## 7. The serve command
 

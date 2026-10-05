@@ -1,0 +1,75 @@
+# Config-side settings for a served scrobbledb database.
+#
+# This file is passed to `Datasette(config=...)`, never to `metadata=`. The 1.0
+# split puts exactly these keys -- hidden, sort, sort_desc, size,
+# sortable_columns, label_column, facets, fts_table, fts_pk, searchmode -- on
+# the config side, and leaves descriptions in metadata (design D9). The
+# descriptions live in the sibling `metadata.yaml`.
+#
+# `$DATABASE` is substituted with the served database's registered name when
+# this file is loaded -- see `config.py`.
+settings:
+  # Datasette's default is 1000ms, and the queries here do not fit inside it.
+  #
+  # Measured against the live 56,388-play database with no analytics indexes,
+  # the slowest stored query (top_albums) takes ~730ms warm, with top_tracks
+  # and monthly_rollup just behind it. A 27% margin on a warm cache is not a
+  # margin: a cold page cache or a slower disk crosses it, and the failure a
+  # user sees is "interrupted" on an analytics page rather than a slow one.
+  #
+  # 10000ms is chosen to leave that class of query an order of magnitude of
+  # headroom rather than a fraction. It is a localhost, single-reader server;
+  # the cost of a generous limit is one thread occupied by a runaway ad hoc
+  # query, and the cost of a tight one is the curated analytics failing on the
+  # databases they were written for.
+  #
+  # It does *not* need to accommodate a wait for the write lock, and the
+  # original reasoning here said it did. Measured on 1.0a39: with an `ingest`
+  # holding an EXCLUSIVE lock, a read waits the lock out and then succeeds even
+  # at a 1000ms limit -- on the table path, the stored-query path and the ad hoc
+  # query path alike -- because the wait is absorbed before any timed statement
+  # begins, and `sqlite_timelimit` sets its deadline after that. Held past
+  # SQLite's own 5000ms busy_timeout, the request fails as "database is locked"
+  # at ~6s with the time limit never firing. So the lock wait is governed by
+  # busy_timeout alone, and these two budgets do not interact. See D7.
+  sql_time_limit_ms: 10000
+databases:
+  $DATABASE:
+    tables:
+      # Datasette 1.0a39 already detects and hides FTS5 shadow tables on its
+      # own -- verified, they arrive with hidden=true and are absent from the
+      # index page without any config at all. They are named here anyway, so
+      # the guarantee is this project's rather than inherited from an alpha's
+      # detection heuristic. If that detection ever changes, this file is what
+      # keeps the index page showing four tables and a search index.
+      tracks_fts_data:
+        hidden: true
+      tracks_fts_idx:
+        hidden: true
+      tracks_fts_content:
+        hidden: true
+      tracks_fts_docsize:
+        hidden: true
+      tracks_fts_config:
+        hidden: true
+      plays:
+        # Most recent first: a listening history read from the top is a
+        # timeline, and read from the bottom is an archive. The spec asks for
+        # the timeline.
+        sort_desc: timestamp
+        # A date facet, and only a date facet.
+        #
+        # The task asked for facets matching the TUI's whitelists at
+        # browse.py:22,31,39 -- artist, album, track. Those are columns of the
+        # query the TUI builds, not of any table served here: `plays` carries a
+        # timestamp and a track id and nothing else, and faceting a join is not
+        # something Datasette does. Of the columns that do exist, `track_id` is
+        # near-unique and renders as opaque `md5:`/MusicBrainz strings, so a
+        # facet on it is a thousand-entry list nobody filters by.
+        #
+        # `date` is the one that earns its place: it buckets the history by
+        # day, which is the browsable form of what the TUI's sort options are
+        # for. The other three tables get none -- every candidate column there
+        # is either a synthesized identifier or a free-text title.
+        facets:
+          - date: timestamp

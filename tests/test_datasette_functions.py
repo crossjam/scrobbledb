@@ -175,7 +175,7 @@ def test_parse_when_yields_null_inside_sql():
     everything.
     """
     conn = sqlite3.connect(":memory:")
-    fns.prepare_connection(conn)
+    fns.register_sql_functions(conn)
 
     assert conn.execute("SELECT parse_when('not a date')").fetchone()[0] is None
     assert conn.execute("SELECT parse_when('')").fetchone()[0] is None
@@ -190,7 +190,7 @@ def test_the_guard_idiom_short_circuits_an_empty_bound():
     match every row, not none.
     """
     conn = sqlite3.connect(":memory:")
-    fns.prepare_connection(conn)
+    fns.register_sql_functions(conn)
     conn.execute("CREATE TABLE plays (timestamp TEXT)")
     conn.executemany(
         "INSERT INTO plays VALUES (?)",
@@ -330,14 +330,14 @@ def test_absolute_expressions_are_unaffected_by_the_generation(monkeypatch):
 
 
 # --------------------------------------------------------------------------
-# 4.5 -- registered through prepare_connection and reachable from SQL
+# 4.5 -- registered through the connection hook and reachable from SQL
 # --------------------------------------------------------------------------
 
 
-def test_prepare_connection_registers_every_function():
+def test_registration_covers_every_function():
     """Each declared function resolves on a bare sqlite3 connection."""
     conn = sqlite3.connect(":memory:")
-    fns.prepare_connection(conn)
+    fns.register_sql_functions(conn)
 
     assert conn.execute("SELECT parse_when('2024-01-01')").fetchone()[0]
     assert conn.execute("SELECT fuzz_partial_ratio('a','ab')").fetchone()[0] is not None
@@ -394,7 +394,7 @@ async def test_functions_resolve_in_ad_hoc_sql_through_datasette(
     Each function is reachable from a real SQL request, not just a bare
     connection.
 
-    This is what proves the `prepare_connection` hook is actually wired: the
+    This is what proves the connection hook is actually wired: the
     functions have to be registered on the connection Datasette hands to a
     query, in its own thread pool, not on one the test made itself.
     """
@@ -452,13 +452,13 @@ async def test_guarded_bound_filters_over_http(registered_plugin, plays_db):
     assert await count("not a date") == 0
 
 
-def test_prepare_connection_marks_only_the_deterministic_functions():
+def test_registration_marks_only_the_deterministic_functions():
     """
     The determinism flag is claimed only where it is true.
 
     `parse_when` reads the wall clock, so asserting determinism for it would be
-    a false claim to SQLite. Checked through `prepare_connection` rather than a
-    locally registered function, so losing or misapplying the flag in
+    a false claim to SQLite. Checked through `register_sql_functions` rather
+    than a locally registered function, so losing or misapplying the flag in
     production registration fails here.
     """
     conn = sqlite3.connect(":memory:")
@@ -478,7 +478,7 @@ def test_prepare_connection_marks_only_the_deterministic_functions():
     original = fns.SQL_FUNCTIONS
     try:
         fns.SQL_FUNCTIONS = wrapped
-        fns.prepare_connection(conn)
+        fns.register_sql_functions(conn)
     finally:
         fns.SQL_FUNCTIONS = original
 
