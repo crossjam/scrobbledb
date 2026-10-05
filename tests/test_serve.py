@@ -12,12 +12,14 @@ subprocess on a kernel-chosen port.
 
 import hashlib
 import os
+import queue
 import re
 import signal
 import socket
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 import urllib.request
 
@@ -124,6 +126,9 @@ def subprocess_env():
 class LiveServer:
     """`scrobbledb serve` running as a real process on a kernel-chosen port."""
 
+    #: Seconds to wait for the startup announcement before failing the test.
+    STARTUP_TIMEOUT = 60
+
     def __init__(self, database):
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "scrobbledb", "serve", "-d", str(database), "--port", "0"],
@@ -132,18 +137,60 @@ class LiveServer:
             text=True,
             env=subprocess_env(),
         )
+        # Both pipes are drained by threads for the life of the process, so the
+        # startup wait below is a queue read with a timeout rather than a
+        # `readline()` that blocks forever when startup stalls silently.
+        self.stdout = queue.Queue()
+        self.stderr = []
+        self.readers = [
+            threading.Thread(target=self._drain_stdout, daemon=True),
+            threading.Thread(target=self._drain_stderr, daemon=True),
+        ]
+        for reader in self.readers:
+            reader.start()
+
         self.lines = []
-        deadline = time.monotonic() + 60
-        while time.monotonic() < deadline:
-            line = self.proc.stdout.readline()
-            if not line:
+        deadline = time.monotonic() + self.STARTUP_TIMEOUT
+        while not (self.lines and self.lines[-1].startswith("Press Ctrl+C")):
+            remaining = deadline - time.monotonic()
+            try:
+                line = self.stdout.get(timeout=max(remaining, 0))
+            except queue.Empty:
+                self.kill()
+                pytest.fail(
+                    f"server printed nothing for {self.STARTUP_TIMEOUT}s:"
+                    f" {self.lines!r} {self.err!r}"
+                )
+            if line is None:
                 break
             self.lines.append(line)
-            if line.startswith("Press Ctrl+C"):
-                break
         match = re.search(r"Serving scrobbledb at (\S+)", "".join(self.lines))
-        assert match, f"no URL printed: {self.lines!r} {self.proc.stderr.read()!r}"
+        if not match:
+            self.kill()
+            pytest.fail(f"no URL printed: {self.lines!r} {self.err!r}")
         self.url = match.group(1)
+
+    def _drain_stdout(self):
+        for line in self.proc.stdout:
+            self.stdout.put(line)
+        self.stdout.put(None)
+
+    def _drain_stderr(self):
+        for line in self.proc.stderr:
+            self.stderr.append(line)
+
+    @property
+    def err(self):
+        return "".join(self.stderr)
+
+    def _finish(self):
+        self.proc.wait(timeout=30)
+        for reader in self.readers:
+            reader.join(timeout=10)
+        while not self.stdout.empty():
+            line = self.stdout.get_nowait()
+            if line is not None:
+                self.lines.append(line)
 
     def get(self, path=""):
         with urllib.request.urlopen(self.url + path, timeout=10) as response:
@@ -151,13 +198,13 @@ class LiveServer:
 
     def interrupt(self):
         self.proc.send_signal(signal.SIGINT)
-        out, err = self.proc.communicate(timeout=30)
-        return self.proc.returncode, "".join(self.lines) + out, err
+        self._finish()
+        return self.proc.returncode, "".join(self.lines), self.err
 
     def kill(self):
         if self.proc.poll() is None:
             self.proc.kill()
-            self.proc.communicate()
+            self._finish()
 
 
 @pytest.fixture
