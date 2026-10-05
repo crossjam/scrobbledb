@@ -27,6 +27,12 @@ dependencies = [
     "rapidfuzz>=3.0.0",
     "dateparser>=1.1.0",
     "click-default-group>=1.2.4",
+    # Security floors, not direct imports: both are reached transitively at
+    # runtime (pip through sqlite-utils, anyio through pylast's httpx), so the
+    # floor has to be in published metadata for a pip install from source to
+    # honour it. The advisories are listed under [tool.uv] below.
+    "pip>=26.2",
+    "anyio>=4.14.2",
 ]
 
 [project.optional-dependencies]
@@ -38,6 +44,9 @@ dev = [
 serve = [
     "datasette>=1.0a39",
     "datasette-mcp>=0.2",
+    # Security floor, not a direct import: reached through datasette-mcp's
+    # mcp[crypto], which itself only requires >=2.10.1. See [tool.uv] below.
+    "pyjwt>=2.15.0",
 ]
 
 [project.scripts]
@@ -70,8 +79,16 @@ scrobbledb = ["default_loguru_config.toml"]
 
 [tool.uv]
 # Security floors for packages nothing in the tree pins, so a future
-# re-resolution cannot silently drop back below a fixed release. Neither is a
-# direct dependency, hence constraints rather than entries in [project]:
+# re-resolution cannot silently drop back below a fixed release.
+#
+# Every floor lives here, but a uv constraint governs only uv's own resolution:
+# it is not written to the package metadata, so `pip install .` ignores it and
+# keeps whatever vulnerable version an environment already holds. Floors on a
+# runtime path are therefore *also* declared in [project] -- pip and anyio in
+# the core dependencies, pyjwt in the `serve` extra. msgpack and urllib3 reach
+# the tree only through pip-audit in the dev group, which is not published, so
+# they stay here alone.
+#
 #   pip     - required unpinned by sqlite-utils and datasette (for their
 #             `install` subcommands). CVE-2026-8643 installs entry points
 #             outside the target directory; CVE-2026-13346 mishandles
