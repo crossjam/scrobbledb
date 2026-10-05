@@ -11,6 +11,7 @@ Every check here is therefore against what the *page* shows or what the server
 whichever argument it had been handed to.
 """
 
+import re
 import sqlite3
 import threading
 import time
@@ -388,6 +389,12 @@ REPRESENTATIVE_TRACKS = 22_000
 REPRESENTATIVE_ALBUMS = 18_000
 REPRESENTATIVE_ARTISTS = 12_000
 
+#: Plays land in runs of listening days broken by silent ones, so the history
+#: has islands for `streaks` to find and spans years for `yearly_rollup` to
+#: group. At these values 47,000 plays cover ~3,500 calendar days.
+PLAYS_PER_ACTIVE_DAY = 16
+ACTIVE_RUN_DAYS = 5
+
 #: Parameter *values* that exist in that fixture. The parameter *names* come
 #: from the catalog tests' map, so an entry that grows a new parameter fails
 #: here with a KeyError rather than being quietly run without it.
@@ -399,11 +406,34 @@ FIXTURE_VALUES = {
     "q": "Track",
 }
 
-#: How much of the configured limit the slowest query may consume. The setting
-#: exists to leave analytics room on a cold cache and a slower disk than
-#: whatever runs this, so "it finished" is not the bar -- "it finished with the
-#: limit still an order of magnitude away" is.
+#: The floor below which the limit is definitely too tight, not the margin the
+#: setting was chosen for.
+#:
+#: Those are different numbers and conflating them was a mistake worth naming.
+#: 10000ms was picked to leave the measured ~730ms live worst case an order of
+#: magnitude of room, for a colder cache and a slower disk than the machine it
+#: was measured on. But a test asserting 10x *is* an assertion about the
+#: machine running it: a CI box three times slower than this one would fail it
+#: while the limit was still perfectly adequate, which is a flaky test rather
+#: than a guarantee.
+#:
+#: So the rule enforced here is the robust half -- the slowest query may not
+#: consume half the budget -- and it is enough to catch the regression that
+#: matters: reverting to Datasette's 1000ms default fails it. The chosen value
+#: is pinned literally in `test_the_configured_time_limit_is_enforced`.
 REQUIRED_HEADROOM = 2.0
+
+#: Named parameters in a stored query's SQL. Bound values are whatever the
+#: fixture actually contains; everything else is the empty string, which is the
+#: guard idiom's "no bound supplied" (design D5).
+_NAMED_PARAMETER = re.compile(r":([a-zA-Z_][a-zA-Z0-9_]*)")
+
+
+def sql_parameters(sql):
+    return {
+        name: FIXTURE_VALUES.get(name, "")
+        for name in set(_NAMED_PARAMETER.findall(sql))
+    }
 
 
 @pytest.fixture(scope="session")
@@ -415,9 +445,15 @@ def representative_db(tmp_path_factory):
     there is no reason to pay it per test.
 
     Deliberately carries no indexes at all, which is the state `serve` warns
-    about and the state the time limit has to survive. The play timestamps walk
-    forward in fixed steps so every rollup -- daily, monthly, yearly -- has many
-    non-empty buckets to group rather than one.
+    about and the state the time limit has to survive.
+
+    The timestamps are shaped, not merely spaced. An earlier version walked
+    forward in seven-minute steps, which packed all 47,000 plays into 228
+    consecutive days: `yearly_rollup` had one bucket to group and `streaks` one
+    unbroken island, so two of the entries being timed were doing a fraction of
+    their real work while the fixture claimed to be representative. Plays now
+    fall in runs of listening days separated by silent ones, spanning years --
+    asserted below rather than left to arithmetic nobody re-checks.
     """
     import datetime as dt
 
@@ -460,19 +496,27 @@ def representative_db(tmp_path_factory):
             for i in range(REPRESENTATIVE_TRACKS)
         ]
     )
-    base = dt.datetime(2019, 1, 1, tzinfo=dt.timezone.utc)
-    db["plays"].insert_all(
-        [
+    base = dt.datetime(2017, 1, 1, tzinfo=dt.timezone.utc)
+    rows = []
+    for i in range(REPRESENTATIVE_PLAYS):
+        listening_day, nth = divmod(i, PLAYS_PER_ACTIVE_DAY)
+        # A silent day after every run of ACTIVE_RUN_DAYS, so the history is a
+        # sequence of islands rather than one unbroken block.
+        calendar_day = listening_day + listening_day // ACTIVE_RUN_DAYS
+        when = (
+            base
+            + dt.timedelta(days=calendar_day)
+            + dt.timedelta(hours=8, minutes=45 * nth)
+        )
+        rows.append(
             {
-                "timestamp": (base + dt.timedelta(minutes=7 * i)).isoformat(),
+                "timestamp": when.isoformat(),
                 # A stride coprime with the track count, so plays spread over
                 # the whole vocabulary instead of cycling through a few rows.
                 "track_id": f"trk{(i * 37) % REPRESENTATIVE_TRACKS}",
             }
-            for i in range(REPRESENTATIVE_PLAYS)
-        ],
-        batch_size=5_000,
-    )
+        )
+    db["plays"].insert_all(rows, batch_size=5_000)
     db.conn.commit()
     db.close()
     return path
@@ -494,6 +538,40 @@ def parameters_for(entry):
     return {
         name: FIXTURE_VALUES[name] for name in catalog_tests.PARAMETERS_FOR[entry.name]
     }
+
+
+def assert_the_fixture_has_the_shape_it_claims(path):
+    """
+    The history spans years and is broken into runs, not one solid block.
+
+    Checked against the built database rather than trusted to the generator's
+    arithmetic, because this is exactly what the previous version of the
+    fixture got wrong while its comment said otherwise: `yearly_rollup` had one
+    bucket to group and `streaks` one island, so both were timed doing a
+    fraction of their real work.
+    """
+    db = sqlite_utils.Database(path)
+    try:
+        years = db.execute(
+            "SELECT COUNT(DISTINCT strftime('%Y', timestamp)) FROM plays"
+        ).fetchone()[0]
+        days = db.execute(
+            "SELECT COUNT(DISTINCT date(timestamp)) FROM plays"
+        ).fetchone()[0]
+        span = db.execute(
+            "SELECT julianday(MAX(timestamp)) - julianday(MIN(timestamp)) FROM plays"
+        ).fetchone()[0]
+    finally:
+        db.close()
+
+    assert years >= 5, (
+        f"history covers {years} year(s); yearly_rollup has nothing to group"
+    )
+    assert days > 1000, f"only {days} listening days"
+    assert span > days, (
+        f"{days} listening days over a {span:.0f}-day span: the history has no "
+        "silent days, so streaks is one unbroken island"
+    )
 
 
 @pytest.mark.asyncio
@@ -519,22 +597,31 @@ async def test_the_whole_catalog_fits_the_limit_at_representative_scale(
     ), "fixture is indexed; it is not the state the limit was chosen for"
     db.close()
 
+    assert_the_fixture_has_the_shape_it_claims(representative_db)
+
     entries = runnable_entries(representative_db)
     assert set(catalog_tests.PARAMETERS_FOR) == {e.name for e in cat.CATALOG}
     assert len(entries) >= 20, f"only {len(entries)} entries ran"
 
+    tables = set(sqlite_utils.Database(representative_db).table_names())
     slowest = (0.0, None)
     ds = await serve_configured(representative_db)
     try:
         limit_ms = ds.setting("sql_time_limit_ms")
+        db = ds.get_database(DATABASE)
         for entry in entries:
+            sql = entry.sql_for(tables)
+            # Timed through `Database.execute`, the executor
+            # `sql_time_limit_ms` actually governs, rather than around an HTTP
+            # request. The round trip adds routing, JSON serialization and
+            # event-loop scheduling to the number, none of which the limit
+            # applies to, so comparing that total against the limit measures
+            # the test environment as much as the query. Every entry's HTTP
+            # surface is covered in tests/test_datasette_queries.py.
             started = time.perf_counter()
-            response = await ds.client.get(
-                f"/{DATABASE}/{entry.name}.json",
-                params={"_shape": "array", **parameters_for(entry)},
-            )
+            result = await db.execute(sql, sql_parameters(sql))
             elapsed_ms = (time.perf_counter() - started) * 1000
-            assert response.status_code == 200, f"{entry.name}: {response.text}"
+            assert result.rows, f"{entry.name} returned nothing at this scale"
             slowest = max(slowest, (elapsed_ms, entry.name))
     finally:
         ds.close()

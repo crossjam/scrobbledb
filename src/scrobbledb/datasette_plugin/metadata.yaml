@@ -36,9 +36,11 @@ databases:
           One row per track identifier, each referencing exactly one album --
           but "one track, one album" holds in two different ways depending on
           where the identifier came from. A track scrobbled with an upstream
-          identifier stays a single row even if it is later scrobbled from a
-          different album; the row's album_id is simply updated to whichever
-          was seen most recently. A track whose identifier had to be
+          identifier stays a single row even if it is also scrobbled from a
+          different album; the row's album_id is then whichever ingest
+          processed last, which is not necessarily the album of its most
+          recent play -- history arrives in pages, and a page's order is not
+          the timestamp order. A track whose identifier had to be
           synthesized gets one derived from its album, so the same track heard
           on two albums is two rows.
         columns:
@@ -50,7 +52,10 @@ databases:
             without upstream identifiers, and only the synthesized kind ties
             the track to one album for good.
           album_id: >-
-            The album this track belongs to, referencing albums.id.
+            The album this track belongs to, referencing albums.id. For a
+            synthesized track identifier this is fixed, because the identifier
+            was derived from it; for an upstream one it is simply whichever
+            album ingest last saw the track on.
           title: >-
             The track title as scrobbled. Not normalized -- case and
             punctuation are whatever the scrobbling client sent.
