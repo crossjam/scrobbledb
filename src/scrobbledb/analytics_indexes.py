@@ -67,6 +67,16 @@ class IndexingResult(NamedTuple):
     conflicts: list[str]
 
 
+def _fold(identifier: str) -> bytes:
+    """
+    `identifier` as SQLite compares it: ASCII letters folded, nothing else.
+
+    `str.lower()` is wider than that -- it maps the Kelvin sign to a plain `k` --
+    so it would call two names equal that SQLite keeps distinct.
+    """
+    return identifier.encode("utf-8").lower()
+
+
 def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
@@ -148,12 +158,12 @@ def create_analytics_indexes(conn: sqlite3.Connection) -> IndexingResult:
     # SQLite compares identifiers without regard to case, so IDX_PLAYS_TRACK_ID
     # on another column takes the name just as idx_plays_track_id would.
     taken = {
-        row[0].lower()
+        _fold(row[0])
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
     }
     created, conflicts = [], []
     for name in missing:
-        if name.lower() in taken:
+        if _fold(name) in taken:
             conflicts.append(name)
         else:
             conn.execute(ANALYTICS_INDEXES[name])

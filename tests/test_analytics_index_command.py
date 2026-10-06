@@ -438,3 +438,19 @@ def test_an_index_that_cannot_serve_the_lookup_does_not_count(scrobble_db):
     assert result.exit_code == 0, result.output
     assert "Created index idx_plays_track_id" in result.output
     assert "USING INDEX idx_plays_track_id" in lookup_plan()
+
+
+def test_a_name_that_only_unicode_folding_would_match_is_not_a_conflict(scrobble_db):
+    """
+    SQLite folds ASCII letters only. `str.lower()` maps the Kelvin sign to `k`, so
+    a name using it would be reported as taken when SQLite sees a different name
+    and would let the real index be created.
+    """
+    lookalike = "idx_plays_trac\u212a_id"
+    assert lookalike.lower() == "idx_plays_track_id", "the premise does not hold"
+    execute_sql(scrobble_db, f'CREATE INDEX "{lookalike}" ON plays(timestamp)')
+
+    result = run("--analytics", str(scrobble_db))
+
+    assert result.exit_code == 0, result.output
+    assert "Created index idx_plays_track_id" in result.output
