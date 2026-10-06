@@ -408,16 +408,26 @@
 
 ## 9. Analytics indexes
 
-- [ ] 9.1 Add `--analytics` to the existing `index` command creating `plays(track_id)`,
+- [x] 9.1 Add `--analytics` to the existing `index` command creating `plays(track_id)`,
   `tracks(album_id)`, `albums(artist_id)` and an expression index on
   `strftime('%Y-%m', timestamp)`, all as `CREATE INDEX IF NOT EXISTS`; verify each index
-  appears in `sqlite_master` afterward
-- [ ] 9.2 Verify `scrobbledb index` without the flag behaves exactly as before (existing
+  appears in `sqlite_master` afterward.
+  The flag creates the indexes and does *not* also rebuild the search index: the spec
+  has it report each index created and exit 0 on a database with nothing to index, where
+  plain `index` aborts.
+  Verified that the search index is left short when it starts short.
+  The definitions and the create/check helpers live in `analytics_indexes.py`, shared
+  with `serve`’s startup warning
+- [x] 9.2 Verify `scrobbledb index` without the flag behaves exactly as before (existing
   tests unchanged and passing)
-- [ ] 9.3 Verify idempotency: a second `--analytics` run succeeds, reports the indexes
-  already exist, and creates nothing
-- [ ] 9.4 Verify row data is untouched by index creation, and that running `--analytics`
-  against a database with no scrobble tables reports nothing to index and exits 0
+- [x] 9.3 Verify idempotency: a second `--analytics` run succeeds, reports the indexes
+  already exist, and creates nothing.
+  Verified by hash: the file is byte-identical after the second run, and a partial set
+  is completed with only the gap reported
+- [x] 9.4 Verify row data is untouched by index creation, and that running `--analytics`
+  against a database with no scrobble tables reports nothing to index and exits 0. Row
+  contents of all four tables are compared before and after; the nothing-to-index case
+  covers no tables and only some of them
 - [ ] 9.5 Verify a top-artists and a monthly-rollup query return identical results
   before and after indexing, and that `EXPLAIN QUERY PLAN` shows index use afterward
 

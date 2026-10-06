@@ -33,6 +33,11 @@ ANALYTICS_INDEXES = {
 }
 
 
+#: The tables the indexes above sit on. All four have to exist before any index
+#: can be created, and a database lacking them has nothing to index yet.
+SCROBBLE_TABLES = ("artists", "albums", "tracks", "plays")
+
+
 def missing_analytics_indexes(conn: sqlite3.Connection) -> list[str]:
     """The analytics indexes absent from `conn`'s database, in definition order."""
     present = {
@@ -40,3 +45,27 @@ def missing_analytics_indexes(conn: sqlite3.Connection) -> list[str]:
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
     }
     return [name for name in ANALYTICS_INDEXES if name not in present]
+
+
+def missing_scrobble_tables(conn: sqlite3.Connection) -> list[str]:
+    """The scrobble tables `conn`'s database does not have yet."""
+    present = {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+    return [name for name in SCROBBLE_TABLES if name not in present]
+
+
+def create_analytics_indexes(conn: sqlite3.Connection) -> tuple[list[str], list[str]]:
+    """
+    Create whichever analytics indexes are missing; return `(created, existing)`.
+
+    Only indexes are written -- no row is touched -- and an index that already
+    exists is left alone, so a second call creates nothing.
+    """
+    missing = missing_analytics_indexes(conn)
+    for name in missing:
+        conn.execute(ANALYTICS_INDEXES[name])
+    conn.commit()
+    existing = [name for name in ANALYTICS_INDEXES if name not in missing]
+    return missing, existing

@@ -20,11 +20,17 @@ Usage: scrobbledb index [OPTIONS] [DATABASE]
   from existing data. This enables fast full-text search across artists, albums,
   and tracks.
 
+  With --analytics, creates the secondary indexes that analytical queries
+  (rollups, top lists, `scrobbledb serve`) rely on, and leaves the search index
+  alone. Safe to repeat; it never changes any row.
+
   If DATABASE is not specified, uses the default location in the XDG data
   directory.
 
 Options:
-  --help  Show this message and exit.
+  --analytics  Create the secondary indexes that speed up analytical queries,
+               instead of rebuilding the search index.
+  --help       Show this message and exit.
 ```
 <!-- [[[end]]] -->
 
