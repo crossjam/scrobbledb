@@ -722,11 +722,12 @@ scrobbledb ever grows real multi-user auth.
   If profiling still shows a problem, the fallback is to resolve bounds in the MCP tool
   layer and leave the canned queries taking pre-normalized ISO strings, at the cost of
   the natural-language UX in the browser.
-- **Canned queries are slow without the analytics indexes** — a full 3-way join over
-  ~47k plays per request, and Datasette’s default SQL time limit is 1s → `serve` warns
-  at startup with the exact remedy.
-  If rollups still exceed the limit on large databases, raise `sql_time_limit_ms` in the
-  served config.
+- **Canned queries are slow, and the analytics indexes do not change that** — a full
+  3-way join over ~47k plays per request, and Datasette’s default SQL time limit is 1s →
+  `sql_time_limit_ms` is raised to 10000 in the served config (task 6.4). Measured in
+  task group 9, the foreign-key indexes leave the full-history rollups and top lists at
+  the same speed, so `serve`’s startup warning is about lookups that start from the
+  parent side, not about these queries.
 - **The `md5:` identity problem produces duplicate-looking albums** → Album aggregates
   group by `title COLLATE NOCASE`, replicating `domain_queries.py:670`. This is a
   genuine trade-off: two distinct albums that share a title collapse into one row.

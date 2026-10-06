@@ -1036,8 +1036,8 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
 @click.option(
     "--analytics",
     is_flag=True,
-    help="Create the secondary indexes that speed up analytical queries, "
-    "instead of rebuilding the search index.",
+    help="Create the foreign-key indexes used for lookups from a track, album or "
+    "artist, instead of rebuilding the search index.",
 )
 def index(database, analytics):
     """
@@ -1047,9 +1047,12 @@ def index(database, analytics):
     from existing data. This enables fast full-text search across artists,
     albums, and tracks.
 
-    With --analytics, creates the secondary indexes that analytical queries
-    (rollups, top lists, `scrobbledb serve`) rely on, and leaves the search
-    index alone. Safe to repeat; it never changes any row.
+    With --analytics, creates secondary indexes on the foreign-key columns that
+    join plays to tracks, tracks to albums and albums to artists, and leaves the
+    search index alone. They speed up lookups that start from the parent side,
+    such as the plays of a track; full-history rollups read every play and are
+    not helped. `scrobbledb serve` suggests this when they are missing. Safe to
+    repeat; it never changes any row.
 
     If DATABASE is not specified, uses the default location in the XDG data directory.
     """

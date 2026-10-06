@@ -1,17 +1,20 @@
 ## Purpose
 
-Adds the secondary indexes scrobbledb’s analytical queries need.
-The database currently has no indexes other than the implicit primary-key ones, so every
-top-N and rollup query scans and joins the full play history; this makes those queries
-acceptable to run interactively from a web server.
+Adds secondary indexes on the foreign-key columns that join plays to tracks to albums to
+artists.
+The database currently has no indexes other than the implicit primary-key ones, so a
+lookup that starts from the parent side — the plays of a track, the tracks of an album —
+scans the child table.
+Full-history rollups read every play whatever indexes exist, so they are not what these
+indexes are for.
 
 ## ADDED Requirements
 
 ### Requirement: Analytics indexes can be created on demand
 
-The system SHALL provide an opt-in way to create the secondary indexes that scrobbledb’s
-analytical queries depend on, covering at minimum the foreign-key columns joining plays
-to tracks, tracks to albums, and albums to artists.
+The system SHALL provide an opt-in way to create secondary indexes on the foreign-key
+columns joining plays to tracks, tracks to albums, and albums to artists, so that
+lookups starting from the parent side can use them.
 
 #### Scenario: Indexes are created
 
@@ -42,6 +45,20 @@ row data.
 - **THEN** the command succeeds, reports that the indexes already exist, and creates
   nothing
 
+#### Scenario: An equivalent index already exists
+
+- **WHEN** `scrobbledb index --analytics` is run against a database that already has a
+  usable index on one of those columns under a different name
+- **THEN** the command creates no second index for that column and reports it as already
+  in place
+
+#### Scenario: A name is taken by an index on something else
+
+- **WHEN** an index already carries the name the command would use but is not on the
+  needed column
+- **THEN** the command reports the conflict, still creates the others, and exits with a
+  non-zero status rather than reporting success
+
 #### Scenario: Row data is untouched
 
 - **WHEN** the analytics indexes are created
@@ -51,20 +68,19 @@ row data.
 #### Scenario: Empty or unpopulated database
 
 - **WHEN** `scrobbledb index --analytics` is run against a database whose scrobble
-  tables do not yet exist
+  tables, or the columns the indexes sit on, do not yet exist
 - **THEN** the command reports that there is nothing to index and exits without error
 
 ### Requirement: Missing analytics indexes are surfaced, not silently created
 
-Commands that depend on these indexes for acceptable performance SHALL detect their
-absence and tell the user how to create them, and SHALL NOT create them as a side
-effect.
+Commands that benefit from these indexes SHALL detect their absence and tell the user
+how to create them, and SHALL NOT create them as a side effect.
 
 #### Scenario: Warning at server startup
 
 - **WHEN** `scrobbledb serve` starts against a populated database that lacks the
   analytics indexes
-- **THEN** it prints a warning that analytical queries may be slow, names
+- **THEN** it prints a warning that lookups by track, album or artist may be slow, names
   `scrobbledb index --analytics` as the remedy, and starts the server anyway
 
 #### Scenario: No warning when indexes are present

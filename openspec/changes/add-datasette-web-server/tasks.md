@@ -416,7 +416,11 @@
   plain `index` aborts.
   Verified that the search index is left short when it starts short.
   The definitions and the create/check helpers live in `analytics_indexes.py`, shared
-  with `serve`’s startup warning
+  with `serve`’s startup warning.
+  An index counts as present by what it covers, not by its name: one led by the column
+  under any name does, while a partial, expression or non-binary-collation index does
+  not, and a name taken by an index on something else is a reported conflict with a
+  non-zero exit. Name comparison folds ASCII only, as SQLite does
 - [x] 9.2 Verify `scrobbledb index` without the flag behaves exactly as before (existing
   tests unchanged and passing)
 - [x] 9.3 Verify idempotency: a second `--analytics` run succeeds, reports the indexes
@@ -426,7 +430,7 @@
 - [x] 9.4 Verify row data is untouched by index creation, and that running `--analytics`
   against a database with no scrobble tables reports nothing to index and exits 0. Row
   contents of all four tables are compared before and after; the nothing-to-index case
-  covers no tables and only some of them
+  covers no tables, only some of them, and all four with a needed column missing
 - [x] 9.5 Verify a top-artists and a monthly-rollup query return identical results
   before and after indexing, and that `EXPLAIN QUERY PLAN` shows index use afterward.
   **The plan half held for top-artists only, and the design is corrected (D10).** The
