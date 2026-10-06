@@ -1,12 +1,20 @@
 """
 The analytics indexes: the secondary indexes scrobbledb's rollups need.
 
-A scrobbledb database carries no non-PK indexes by default, so every top-N and
-rollup is a full three-way join. These four make those queries cheap. They are
-created only on request, by `scrobbledb index --analytics`, and never as a side
-effect of anything else -- `serve` in particular detects their absence and says
-so, because its read-only guarantee is worth more than a faster first query
-(design D10).
+A scrobbledb database carries no non-PK indexes by default. These three cover
+the foreign-key columns that join plays to tracks to albums to artists, so a
+query that starts from the parent side -- the plays of a track, the tracks of an
+album -- can look rows up instead of scanning. A full-history rollup reads every
+play whatever indexes exist, so measured against a 56k-play database the top
+lists and the monthly rollup take the same time with or without them. There is
+deliberately no index on the month of a play: the rollup groups by `%Y` and
+`%m` separately, so an expression on `%Y-%m` is never used, and regrouping to
+match it was measured to save nothing (design D10).
+
+They are created only on request, by `scrobbledb index --analytics`, and never
+as a side effect of anything else -- `serve` in particular detects their absence
+and says so, because its read-only guarantee is worth more than a faster first
+query.
 
 This module holds the one definition both sides read: the command that creates
 the indexes and the server that checks for them.
@@ -25,10 +33,6 @@ ANALYTICS_INDEXES = {
     ),
     "idx_albums_artist_id": (
         "CREATE INDEX IF NOT EXISTS idx_albums_artist_id ON albums(artist_id)"
-    ),
-    "idx_plays_month": (
-        "CREATE INDEX IF NOT EXISTS idx_plays_month"
-        " ON plays(strftime('%Y-%m', timestamp))"
     ),
 }
 

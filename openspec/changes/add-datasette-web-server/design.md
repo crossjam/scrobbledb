@@ -643,9 +643,28 @@ the intended trade: the 3.x path was already untested in practice.
 
 ### D10: `--analytics` extends the existing `index` command; `serve` only warns
 
-Four indexes: `plays(track_id)`, `tracks(album_id)`, `albums(artist_id)`, and an
-expression index on `strftime('%Y-%m', timestamp)`. All `CREATE INDEX IF NOT EXISTS`, so
-idempotent by construction.
+Three indexes: `plays(track_id)`, `tracks(album_id)` and `albums(artist_id)`. All
+`CREATE INDEX IF NOT EXISTS`, so idempotent by construction.
+
+**Corrected in task group 9: there is no month index, and the indexes do not speed up
+the rollups.** The design originally also named an expression index on
+`strftime('%Y-%m', timestamp)`. The monthly rollup groups by `strftime('%Y', …)` and
+`strftime('%m', …)` separately, and SQLite uses an expression index only for an
+identical expression, so the planner never touched it. Regrouping the rollup by `%Y-%m`
+makes the planner use it but saves nothing, because a full-history rollup reads every
+play whatever the index.
+Measured on a copy of the live 56k-play database, best of 5, results identical:
+
+| Query | No indexes | Three FK indexes | Plan afterward |
+| --- | --- | --- | --- |
+| top artists | 352 ms | 361 ms | covering scan of `idx_plays_track_id` |
+| monthly rollup | 561 ms | 561 ms | unchanged |
+| top tracks | 633 ms | 502 ms | seeks and scans `idx_plays_track_id` |
+
+So the indexes are for lookups that start from the parent side, not for the
+full-history aggregates, and the spec no longer promises otherwise. The month index was
+dropped rather than kept as an index nothing uses, which would cost write time and disk
+on every ingest.
 
 *Why on `index` rather than as a `serve` side effect:* `serve`’s read-only guarantee is
 the more valuable property.

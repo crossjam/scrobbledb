@@ -409,9 +409,8 @@
 ## 9. Analytics indexes
 
 - [x] 9.1 Add `--analytics` to the existing `index` command creating `plays(track_id)`,
-  `tracks(album_id)`, `albums(artist_id)` and an expression index on
-  `strftime('%Y-%m', timestamp)`, all as `CREATE INDEX IF NOT EXISTS`; verify each index
-  appears in `sqlite_master` afterward.
+  `tracks(album_id)` and `albums(artist_id)`, all as `CREATE INDEX IF NOT EXISTS`;
+  verify each index appears in `sqlite_master` afterward.
   The flag creates the indexes and does *not* also rebuild the search index: the spec
   has it report each index created and exit 0 on a database with nothing to index, where
   plain `index` aborts.
@@ -428,8 +427,16 @@
   against a database with no scrobble tables reports nothing to index and exits 0. Row
   contents of all four tables are compared before and after; the nothing-to-index case
   covers no tables and only some of them
-- [ ] 9.5 Verify a top-artists and a monthly-rollup query return identical results
-  before and after indexing, and that `EXPLAIN QUERY PLAN` shows index use afterward
+- [x] 9.5 Verify a top-artists and a monthly-rollup query return identical results
+  before and after indexing, and that `EXPLAIN QUERY PLAN` shows index use afterward.
+  **The plan half held for top-artists only, and the design is corrected (D10).** The
+  monthly rollup groups by `%Y` and `%m` separately, so the planned `%Y-%m` expression
+  index was never used and was dropped; regrouping to match it was measured to save
+  nothing. Measured on the live 56k-play database, the three foreign-key indexes leave
+  top artists and the monthly rollup at the same speed (352→361 ms, 561→561 ms) and
+  speed up top tracks (633→502 ms), so the spec no longer promises faster rollups.
+  Verified through the production builders: results identical for both queries, and the
+  top-artists plan uses an analytics index afterward and none before
 
 ## 10. Test infrastructure
 

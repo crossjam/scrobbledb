@@ -394,7 +394,7 @@ def test_present_analytics_indexes_do_not_warn(indexed_db):
 
 def test_each_missing_analytics_index_is_detected(indexed_db):
     """Dropping any single index is enough to bring the warning back."""
-    assert len(ANALYTICS_INDEXES) >= 4
+    assert len(ANALYTICS_INDEXES) >= 3
     for name, statement in ANALYTICS_INDEXES.items():
         conn = sqlite3.connect(indexed_db)
         conn.execute(f"DROP INDEX {name}")

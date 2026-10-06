@@ -11,20 +11,19 @@ acceptable to run interactively from a web server.
 
 The system SHALL provide an opt-in way to create the secondary indexes that scrobbledb’s
 analytical queries depend on, covering at minimum the foreign-key columns joining plays
-to tracks, tracks to albums, and albums to artists, plus an index supporting
-month-grained grouping of plays.
+to tracks, tracks to albums, and albums to artists.
 
 #### Scenario: Indexes are created
 
 - **WHEN** a user runs `scrobbledb index --analytics` against a populated database
 - **THEN** the analytics indexes are created and the system reports each one it created
 
-#### Scenario: Analytical queries get faster
+#### Scenario: Indexed queries return the same results
 
 - **WHEN** a top-artists or monthly-rollup query is run before and after the analytics
   indexes are created
-- **THEN** both return identical results, and the query plan after creation uses the
-  indexes rather than scanning the joined tables
+- **THEN** both return identical results, and the top-artists query plan after creation
+  uses an analytics index
 
 #### Scenario: Existing index behavior is unchanged
 

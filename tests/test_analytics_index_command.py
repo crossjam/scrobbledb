@@ -15,7 +15,7 @@ import pytest
 import sqlite_utils
 from click.testing import CliRunner
 
-from scrobbledb import lastfm
+from scrobbledb import domain_queries, lastfm
 from scrobbledb.analytics_indexes import (
     ANALYTICS_INDEXES,
     SCROBBLE_TABLES,
@@ -24,14 +24,12 @@ from scrobbledb.analytics_indexes import (
 from scrobbledb.cli import cli
 
 #: The index set the spec names: the three foreign-key columns joining plays to
-#: tracks to albums to artists, plus month-grained grouping of plays. Written
-#: out rather than derived from `ANALYTICS_INDEXES`, which is the thing under
-#: test.
+#: tracks to albums to artists. Written out rather than derived from
+#: `ANALYTICS_INDEXES`, which is the thing under test.
 EXPECTED_COLUMNS = {
     ("plays", "track_id"),
     ("tracks", "album_id"),
     ("albums", "artist_id"),
-    ("plays", "strftime('%Y-%m', timestamp)"),
 }
 
 
@@ -259,3 +257,53 @@ def test_nothing_to_index_reports_and_exits_zero(tmp_path, tables):
     assert "Nothing to index" in result.output
     assert secondary_indexes(path) == {}
     assert digest(path) == before
+
+
+# --------------------------------------------------------------------------
+# 9.5  Same answers; the plan uses the indexes where the query can
+# --------------------------------------------------------------------------
+
+#: The production builders, in the positional form the CLI executes. Both are
+#: the spec's named queries.
+QUERIES = {
+    "top_artists": domain_queries.build_top_artists_sql,
+    "monthly_rollup": domain_queries.build_monthly_rollup_sql,
+}
+
+
+def execute(path, builder):
+    sql, params = builder(form=domain_queries.SQL_FORM_POSITIONAL)
+    conn = sqlite3.connect(path)
+    try:
+        rows = conn.execute(sql, params).fetchall()
+        plan = " | ".join(
+            row[3] for row in conn.execute("EXPLAIN QUERY PLAN " + sql, params)
+        )
+    finally:
+        conn.close()
+    return rows, plan
+
+
+@pytest.mark.parametrize("name", sorted(QUERIES))
+def test_results_are_identical_before_and_after(scrobble_db, name):
+    before, _ = execute(scrobble_db, QUERIES[name])
+    assert len(before) >= 2, "fixture returns too few rows to show an ordering"
+
+    run("--analytics", str(scrobble_db))
+
+    after, _ = execute(scrobble_db, QUERIES[name])
+    assert after == before
+
+
+def test_the_top_artists_plan_uses_an_analytics_index_afterward(scrobble_db):
+    """
+    The plan is read before as well, because a plan that mentions an analytics
+    index both ways would prove nothing about the command.
+    """
+    _, before = execute(scrobble_db, QUERIES["top_artists"])
+    assert not any(name in before for name in ANALYTICS_INDEXES), before
+
+    run("--analytics", str(scrobble_db))
+
+    _, after = execute(scrobble_db, QUERIES["top_artists"])
+    assert any(name in after for name in ANALYTICS_INDEXES), after

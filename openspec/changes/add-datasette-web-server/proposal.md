@@ -76,9 +76,8 @@ plugin, so the generic tools become scrobbledb-aware.
   own.
 - **`scrobbledb index --analytics`**: an opt-in flag on the existing `index` command
   that creates the non-PK indexes the database currently lacks entirely —
-  `plays(track_id)`, `tracks(album_id)`, `albums(artist_id)`, and an expression index on
-  `strftime('%Y-%m', timestamp)`. `serve` itself never writes; it detects missing
-  indexes and points at this command.
+  `plays(track_id)`, `tracks(album_id)` and `albums(artist_id)`. `serve` itself never
+  writes; it detects missing indexes and points at this command.
 - **Docs**: `docs/commands/serve.md` with the standard cog block, plus the `docs/cli.md`
   command table and the README command overview.
 
