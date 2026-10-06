@@ -399,3 +399,42 @@ def test_a_partial_index_does_not_count(scrobble_db):
     run("--analytics", str(scrobble_db))
 
     assert "idx_plays_track_id" in secondary_indexes(scrobble_db)
+
+
+def test_a_name_taken_in_another_case_is_still_a_conflict(scrobble_db):
+    """
+    SQLite identifiers are case-insensitive, so this index takes the name and
+    `IF NOT EXISTS` would skip the real one while the command reported success.
+    """
+    execute_sql(scrobble_db, "CREATE INDEX IDX_PLAYS_TRACK_ID ON plays(timestamp)")
+
+    result = run("--analytics", str(scrobble_db))
+
+    assert result.exit_code != 0
+    assert "Created index idx_plays_track_id" not in result.output
+    assert "already exists" in " ".join(result.output.split())
+
+
+def test_an_index_that_cannot_serve_the_lookup_does_not_count(scrobble_db):
+    """
+    A NOCASE index on the column is not usable for the binary comparison the
+    joins make. The premise is checked in the query plan rather than assumed: with
+    only that index the lookup scans, and with ours it seeks.
+    """
+    lookup = "EXPLAIN QUERY PLAN SELECT * FROM plays WHERE track_id = 't1'"
+
+    def lookup_plan():
+        conn = sqlite3.connect(scrobble_db)
+        try:
+            return " ".join(row[3] for row in conn.execute(lookup))
+        finally:
+            conn.close()
+
+    execute_sql(scrobble_db, "CREATE INDEX nocase ON plays(track_id COLLATE NOCASE)")
+    assert "USING INDEX" not in lookup_plan(), "the premise does not hold"
+
+    result = run("--analytics", str(scrobble_db))
+
+    assert result.exit_code == 0, result.output
+    assert "Created index idx_plays_track_id" in result.output
+    assert "USING INDEX idx_plays_track_id" in lookup_plan()

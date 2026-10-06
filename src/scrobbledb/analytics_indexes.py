@@ -77,8 +77,11 @@ def _indexed_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
     A column counts when an index starts with it, whatever the index is called
     and whatever follows it: a lookup on that column can use the index either
-    way. Partial indexes are skipped, since they cover only some of the rows,
-    as are expression indexes, whose leading term is not a column.
+    way. Three kinds do not count. Partial indexes cover only some of the rows.
+    Expression indexes lead with an expression, not a column. And an index whose
+    leading term is not compared as BINARY cannot serve a join or lookup on the
+    column, which is: scrobbledb never declares a collation, and SQLite will not
+    use a NOCASE index for a binary comparison (it scans instead).
     """
     leading = set()
     for _seq, name, _unique, _origin, partial in conn.execute(
@@ -86,8 +89,9 @@ def _indexed_columns(conn: sqlite3.Connection, table: str) -> set[str]:
     ).fetchall():
         if partial:
             continue
-        first = conn.execute(f"PRAGMA index_info({_quote(name)})").fetchone()
-        if first and first[2]:
+        first = conn.execute(f"PRAGMA index_xinfo({_quote(name)})").fetchone()
+        # (seqno, cid, name, desc, collation, key); the first row is the lead term.
+        if first and first[2] and (first[4] or "").upper() == "BINARY":
             leading.add(first[2].lower())
     return leading
 
@@ -141,13 +145,15 @@ def create_analytics_indexes(conn: sqlite3.Connection) -> IndexingResult:
     name is exactly what `IF NOT EXISTS` would pretend had worked.
     """
     missing = missing_analytics_indexes(conn)
+    # SQLite compares identifiers without regard to case, so IDX_PLAYS_TRACK_ID
+    # on another column takes the name just as idx_plays_track_id would.
     taken = {
-        row[0]
+        row[0].lower()
         for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
     }
     created, conflicts = [], []
     for name in missing:
-        if name in taken:
+        if name.lower() in taken:
             conflicts.append(name)
         else:
             conn.execute(ANALYTICS_INDEXES[name])
