@@ -5,9 +5,10 @@ A scrobbledb database carries no non-PK indexes by default. These three cover
 the foreign-key columns that join plays to tracks to albums to artists, so a
 query that starts from the parent side -- the plays of a track, the tracks of an
 album -- can look rows up instead of scanning. A full-history rollup reads every
-play whatever indexes exist, so measured against a 56k-play database the top
-lists and the monthly rollup take the same time with or without them. There is
-deliberately no index on the month of a play: the rollup groups by `%Y` and
+play whatever indexes exist: measured against a 56k-play database, top artists
+and the monthly rollup take the same time with or without them, while top tracks,
+which looks plays up by track, gets faster. There is deliberately no index on
+the month of a play: the rollup groups by `%Y` and
 `%m` separately, so an expression on `%Y-%m` is never used, and regrouping to
 match it was measured to save nothing (design D10).
 
