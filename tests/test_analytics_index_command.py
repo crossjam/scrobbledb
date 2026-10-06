@@ -18,6 +18,7 @@ from click.testing import CliRunner
 from scrobbledb import domain_queries, lastfm
 from scrobbledb.analytics_indexes import (
     ANALYTICS_INDEXES,
+    REQUIRED_COLUMNS,
     SCROBBLE_TABLES,
     missing_analytics_indexes,
 )
@@ -204,7 +205,7 @@ def test_a_second_run_creates_nothing_and_says_so(scrobble_db):
     result = run("--analytics", str(scrobble_db))
 
     assert result.exit_code == 0, result.output
-    assert "already exist" in result.output
+    assert "already in place" in result.output
     assert "Created" not in result.output
     assert digest(scrobble_db) == before, "a repeat run changed the file"
 
@@ -307,3 +308,94 @@ def test_the_top_artists_plan_uses_an_analytics_index_afterward(scrobble_db):
 
     _, after = execute(scrobble_db, QUERIES["top_artists"])
     assert any(name in after for name in ANALYTICS_INDEXES), after
+
+
+# --------------------------------------------------------------------------
+# Detection is by what an index covers, and the schema by its columns
+# --------------------------------------------------------------------------
+
+
+def execute_sql(path, *statements):
+    conn = sqlite3.connect(path)
+    for statement in statements:
+        conn.execute(statement)
+    conn.commit()
+    conn.close()
+
+
+@pytest.mark.parametrize(
+    "table, column",
+    [("plays", "track_id"), ("tracks", "album_id"), ("albums", "artist_id")],
+)
+def test_right_table_names_with_wrong_columns_is_nothing_to_index(tmp_path, table, column):
+    """
+    The four names are all present and one needed column is not. A names-only
+    guard lets this through and then fails with "no such column" half way
+    through creating the indexes.
+    """
+    path = tmp_path / "lookalike.db"
+    db = sqlite_utils.Database(path)
+    for name in SCROBBLE_TABLES:
+        needed = REQUIRED_COLUMNS.get(name, frozenset()) - {column}
+        db.execute(f"CREATE TABLE {name} (id TEXT, {', '.join(['other', *sorted(needed)])})")
+    db.conn.commit()
+    db.close()
+    before = digest(path)
+
+    result = run("--analytics", str(path))
+
+    assert result.exit_code == 0, result.output
+    assert "Nothing to index" in result.output
+    # Rich wraps the line at the terminal width, so compare it unwrapped.
+    assert f"{table} has no {column} column" in " ".join(result.output.split())
+    assert result.output.count(" has no ") == 1, "only the one column is missing"
+    assert secondary_indexes(path) == {}
+    assert digest(path) == before
+
+
+def test_a_name_taken_by_an_index_on_another_column_is_reported(scrobble_db):
+    """
+    `CREATE INDEX IF NOT EXISTS` would skip this silently, leaving
+    plays(track_id) unindexed while the command reported success.
+    """
+    execute_sql(scrobble_db, "CREATE INDEX idx_plays_track_id ON plays(timestamp)")
+
+    result = run("--analytics", str(scrobble_db))
+
+    assert result.exit_code != 0
+    assert "idx_plays_track_id" in result.output
+    assert "plays(track_id)" in result.output.replace("\n", "")
+    assert "already in place" not in result.output
+    conn = sqlite3.connect(scrobble_db)
+    try:
+        assert missing_analytics_indexes(conn) == ["idx_plays_track_id"]
+    finally:
+        conn.close()
+    # The other two were still created, so a later run only has the conflict left.
+    assert {"idx_tracks_album_id", "idx_albums_artist_id"} <= set(
+        secondary_indexes(scrobble_db)
+    )
+
+
+def test_an_equivalent_index_under_another_name_is_not_duplicated(scrobble_db):
+    """Led by the same column, so a lookup on it can use it, whatever follows."""
+    execute_sql(scrobble_db, "CREATE INDEX my_plays_idx ON plays(track_id, timestamp)")
+
+    result = run("--analytics", str(scrobble_db))
+
+    assert result.exit_code == 0, result.output
+    assert "idx_plays_track_id" not in result.output
+    assert "idx_plays_track_id" not in secondary_indexes(scrobble_db)
+    assert "Created index" in result.output  # the other two
+
+
+def test_a_partial_index_does_not_count(scrobble_db):
+    """It covers only some rows, so a lookup cannot rely on it."""
+    execute_sql(
+        scrobble_db,
+        "CREATE INDEX only_some ON plays(track_id) WHERE track_id <> 't1'",
+    )
+
+    run("--analytics", str(scrobble_db))
+
+    assert "idx_plays_track_id" in secondary_indexes(scrobble_db)

@@ -27,8 +27,9 @@ from . import sql as sql_commands
 from . import export as export_command
 from . import serve as serve_command
 from .analytics_indexes import (
+    INDEX_TARGETS,
     create_analytics_indexes,
-    missing_scrobble_tables,
+    unindexable_reasons,
 )
 from .commands import stats as stats_command
 from .commands import plays as plays_command
@@ -1105,26 +1106,34 @@ def index(database, analytics):
 
 def _create_analytics_indexes(db, database):
     """The `index --analytics` path: report what was created, change no rows."""
-    absent = missing_scrobble_tables(db.conn)
-    if absent:
+    reasons = unindexable_reasons(db.conn)
+    if reasons:
         console.print(
-            f"[yellow]![/yellow] Nothing to index: no {', '.join(absent)} "
-            f"table(s) in [cyan]{database}[/cyan] yet."
+            f"[yellow]![/yellow] Nothing to index in [cyan]{database}[/cyan] yet: "
+            f"{'; '.join(reasons)}."
         )
         console.print(
             "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
         )
         return
 
-    created, existing = create_analytics_indexes(db.conn)
-    for name in created:
+    result = create_analytics_indexes(db.conn)
+    for name in result.created:
         console.print(f"[green]✓[/green] Created index [cyan]{name}[/cyan]")
-    if not created:
+    for name in result.conflicts:
+        table, column = INDEX_TARGETS[name]
         console.print(
-            f"[green]✓[/green] All {len(existing)} analytics indexes already exist; "
+            f"[red]✗[/red] An index named [cyan]{name}[/cyan] already exists, but not "
+            f"on {table}({column}). Drop or rename it, then run this again."
+        )
+    if not result.created and not result.conflicts:
+        console.print(
+            "[green]✓[/green] Every analytics index is already in place; "
             "nothing created."
         )
     console.print(f"[cyan]Database:[/cyan] {database}")
+    if result.conflicts:
+        raise click.exceptions.Exit(1)
 
 
 @cli.command()
