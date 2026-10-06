@@ -725,9 +725,10 @@ scrobbledb ever grows real multi-user auth.
 - **Canned queries are slow, and the analytics indexes do not change that** — a full
   3-way join over ~47k plays per request, and Datasette’s default SQL time limit is 1s →
   `sql_time_limit_ms` is raised to 10000 in the served config (task 6.4). Measured in
-  task group 9, the foreign-key indexes leave the full-history rollups and top lists at
-  the same speed, so `serve`’s startup warning is about lookups that start from the
-  parent side, not about these queries.
+  task group 9, the foreign-key indexes leave the full-history rollups and top artists
+  at the same speed, and speed up only top tracks, which looks plays up by track. So
+  `serve`’s startup warning is about lookups that start from the parent side, not about
+  making these queries fast.
 - **The `md5:` identity problem produces duplicate-looking albums** → Album aggregates
   group by `title COLLATE NOCASE`, replicating `domain_queries.py:670`. This is a
   genuine trade-off: two distinct albums that share a title collapse into one row.

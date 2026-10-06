@@ -73,8 +73,8 @@ row data.
 
 ### Requirement: Missing analytics indexes are surfaced, not silently created
 
-Commands that benefit from these indexes SHALL detect their absence and tell the user
-how to create them, and SHALL NOT create them as a side effect.
+`scrobbledb serve` SHALL detect the absence of these indexes and tell the user how to
+create them; no command SHALL create them as a side effect.
 
 #### Scenario: Warning at server startup
 
