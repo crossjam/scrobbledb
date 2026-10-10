@@ -566,6 +566,17 @@ raise. Mitigation: `register_mcp_tools` lives in its own module
 This is also what makes the “MCP support not installed → server still starts, prints how
 to enable it” scenario work.
 
+**Verified in task group 8: `pm.check_pending()` raises with `datasette-mcp` installed,
+and not because of scrobbledb.**
+`datasette-mcp` 0.2 implements a `skip_csrf` hook for which Datasette 1.0a39 has no
+hookspec, so the first unmatched hookimpl `check_pending()` meets is that one.
+Datasette itself never calls `check_pending()`, and `/-/mcp` works over real HTTP
+regardless, so this is cosmetic — but it means the practical check is that
+scrobbledb's two modules add nothing to the unmatched set, which the tests assert, and
+that the hazard this decision guards against is real: in a plugin manager that never saw
+`datasette-mcp`'s hookspec, the tools module is rejected by `check_pending()`.
+With the package absent `check_pending()` passes outright.
+
 ### D9: Target Datasette 1.0a39, and verify the alpha surface at implementation time
 
 Chosen for the `datasette.yaml` config format and the `datasette.allowed()` /
@@ -694,6 +705,33 @@ database.
 `hasattr(datasette, "allowed")` fallback to `permission_allowed(...)` for 0.65. Since
 this design targets 1.0a39 only, the fallback is unnecessary, but the resource class and
 argument order must be confirmed against the installed alpha rather than assumed.
+
+**Confirmed in task group 8 against the installed 1.0a39:**
+
+```python
+await datasette.allowed(
+    action="execute-sql", resource=DatabaseResource(name), actor=actor
+)
+```
+
+`allowed` is `(self, *, action, resource=None, actor=None) -> bool`, keyword-only, and
+`DatabaseResource(database)` comes from `datasette.resources`.
+`datasette-mcp` 0.2 makes the same call; the `permission_allowed` fallback it carries
+for 0.65 is not needed.
+Denying `execute-sql` to everyone for one database is `databases: {<name>: {allow_sql:
+false}}`, which is how the tests withdraw it; a database that is merely viewable
+remains so.
+The actor is read from the request scope (`ctx.request_context.request.scope["actor"]`)
+and is `None` over the in-memory transport, so permission tests deny the permission
+rather than impersonate someone.
+
+Two behaviours follow from the design that the text above did not spell out.
+Every candidate database is checked for `view-database` and `execute-sql` before any
+database is read; only then is the permitted set filtered to the one carrying the
+scrobbledb schema.
+A server can carry more than one database — `serve` currently adds an empty `_memory`
+one — so with no `database` argument the tools pick the single permitted scrobbledb
+database, and ask for the argument only when there are several.
 
 *Alternative rejected:* routing tools through
 `datasette.client.get("/db/query.json?...")`, an internal ASGI request that traverses
