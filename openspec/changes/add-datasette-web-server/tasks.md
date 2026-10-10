@@ -401,6 +401,11 @@
   logic instead of copying it — `days_in_period`/`needs_date_range` (the CLI’s
   `avg_plays_per_day` span) and `fts_artist_ids`/`merge_artist_ids` (artist search
   candidates) — with the existing suites as the regression net.
+  Extracting the span exposed a bug the CLI already had: a period with only an upper
+  bound was measured as `until - now`, negative for any past `until`. It now runs from
+  the first play to `until` and is never under a day, which changes the CLI’s
+  `--until`-only output from a negative number to a sensible one; the clock is also an
+  argument, so the function is deterministic under test
   The database is the single permitted one carrying the scrobbledb schema, since `serve`
   also serves an empty `_memory` database
 

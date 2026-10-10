@@ -582,6 +582,28 @@ async def test_avg_plays_per_day_agrees_with_the_cli_within_a_day(mcp_db):
 
 
 @pytest.mark.asyncio
+async def test_an_upper_bound_alone_is_measured_from_the_first_play(mcp_db):
+    """
+    Used to be `until - now`, negative for any `until` in the past. The CLI
+    function shares the calculation, so this also pins that they agree.
+    """
+    expected = dq.get_top_artists(cli_db(mcp_db), limit=5, until=parse("50 days ago"))
+    async with mcp_session(mcp_db) as (client, _):
+        got = structured(
+            await client.call_tool("top_artists", {"until": "50 days ago", "limit": 5})
+        )
+
+    assert expected, "the CLI side returned nothing; the comparison is vacuous"
+    assert without_clock(got["items"]) == without_clock(expected)
+    for mine, theirs in zip(got["items"], expected):
+        assert mine["avg_plays_per_day"] > 0
+        assert theirs["avg_plays_per_day"] > 0
+        assert mine["avg_plays_per_day"] == pytest.approx(
+            theirs["avg_plays_per_day"], rel=0.01
+        )
+
+
+@pytest.mark.asyncio
 async def test_no_bounds_covers_the_whole_history(mcp_db):
     async with mcp_session(mcp_db) as (client, _):
         got = structured(await client.call_tool("top_artists", {"limit": 50}))
