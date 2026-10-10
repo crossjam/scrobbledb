@@ -65,8 +65,9 @@ def startup_warnings(path, explicit: bool = False) -> list[str]:
         missing = missing_analytics_indexes(conn)
         if missing:
             warnings.append(
-                f"{len(missing)} analytics index(es) are missing, so analytical "
-                f"queries may be slow. Run `scrobbledb index --analytics{target}` to create them."
+                f"{len(missing)} analytics index(es) are missing, so lookups by "
+                f"track, album or artist may be slow. Run "
+                f"`scrobbledb index --analytics{target}` to create them."
             )
 
         if "tracks" in tables:

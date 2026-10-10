@@ -392,9 +392,25 @@ def test_present_analytics_indexes_do_not_warn(indexed_db):
     )
 
 
+def test_equivalent_indexes_under_other_names_do_not_warn(populated_db):
+    """
+    The warning follows what the indexes cover, so a database indexed by hand
+    is not told to run a command that would create nothing.
+    """
+    conn = sqlite3.connect(populated_db)
+    conn.execute("CREATE INDEX a ON plays(track_id)")
+    conn.execute("CREATE INDEX b ON tracks(album_id, title)")
+    conn.execute("CREATE INDEX c ON albums(artist_id)")
+    conn.commit()
+    conn.close()
+    assert not any(
+        "--analytics" in w for w in serve_module.startup_warnings(populated_db)
+    )
+
+
 def test_each_missing_analytics_index_is_detected(indexed_db):
     """Dropping any single index is enough to bring the warning back."""
-    assert len(ANALYTICS_INDEXES) >= 4
+    assert len(ANALYTICS_INDEXES) >= 3
     for name, statement in ANALYTICS_INDEXES.items():
         conn = sqlite3.connect(indexed_db)
         conn.execute(f"DROP INDEX {name}")

@@ -643,9 +643,28 @@ the intended trade: the 3.x path was already untested in practice.
 
 ### D10: `--analytics` extends the existing `index` command; `serve` only warns
 
-Four indexes: `plays(track_id)`, `tracks(album_id)`, `albums(artist_id)`, and an
-expression index on `strftime('%Y-%m', timestamp)`. All `CREATE INDEX IF NOT EXISTS`, so
-idempotent by construction.
+Three indexes: `plays(track_id)`, `tracks(album_id)` and `albums(artist_id)`. All
+`CREATE INDEX IF NOT EXISTS`, so idempotent by construction.
+
+**Corrected in task group 9: there is no month index, and the indexes do not speed up
+the rollups.** The design originally also named an expression index on
+`strftime('%Y-%m', timestamp)`. The monthly rollup groups by `strftime('%Y', …)` and
+`strftime('%m', …)` separately, and SQLite uses an expression index only for an
+identical expression, so the planner never touched it. Regrouping the rollup by `%Y-%m`
+makes the planner use it but saves nothing, because a full-history rollup reads every
+play whatever the index.
+Measured on a copy of the live 56k-play database, best of 5, results identical:
+
+| Query | No indexes | Three FK indexes | Plan afterward |
+| --- | --- | --- | --- |
+| top artists | 352 ms | 361 ms | covering scan of `idx_plays_track_id` |
+| monthly rollup | 561 ms | 561 ms | unchanged |
+| top tracks | 633 ms | 502 ms | seeks and scans `idx_plays_track_id` |
+
+So the indexes are for lookups that start from the parent side, not for the
+full-history aggregates, and the spec no longer promises otherwise. The month index was
+dropped rather than kept as an index nothing uses, which would cost write time and disk
+on every ingest.
 
 *Why on `index` rather than as a `serve` side effect:* `serve`’s read-only guarantee is
 the more valuable property.
@@ -703,11 +722,13 @@ scrobbledb ever grows real multi-user auth.
   If profiling still shows a problem, the fallback is to resolve bounds in the MCP tool
   layer and leave the canned queries taking pre-normalized ISO strings, at the cost of
   the natural-language UX in the browser.
-- **Canned queries are slow without the analytics indexes** — a full 3-way join over
-  ~47k plays per request, and Datasette’s default SQL time limit is 1s → `serve` warns
-  at startup with the exact remedy.
-  If rollups still exceed the limit on large databases, raise `sql_time_limit_ms` in the
-  served config.
+- **Canned queries are slow, and the analytics indexes do not change that** — a full
+  3-way join over ~47k plays per request, and Datasette’s default SQL time limit is 1s →
+  `sql_time_limit_ms` is raised to 10000 in the served config (task 6.4). Measured in
+  task group 9, the foreign-key indexes leave the full-history rollups and top artists
+  at the same speed, and speed up only top tracks, which looks plays up by track. So
+  `serve`’s startup warning is about lookups that start from the parent side, not about
+  making these queries fast.
 - **The `md5:` identity problem produces duplicate-looking albums** → Album aggregates
   group by `title COLLATE NOCASE`, replicating `domain_queries.py:670`. This is a
   genuine trade-off: two distinct albums that share a title collapse into one row.

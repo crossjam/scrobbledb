@@ -20,11 +20,20 @@ Usage: scrobbledb index [OPTIONS] [DATABASE]
   from existing data. This enables fast full-text search across artists, albums,
   and tracks.
 
+  With --analytics, creates secondary indexes on the foreign-key columns that
+  join plays to tracks, tracks to albums and albums to artists, and leaves the
+  search index alone. They speed up lookups that start from the parent side,
+  such as the plays of a track; full-history rollups read every play and are not
+  helped. `scrobbledb serve` suggests this when they are missing. Safe to
+  repeat; it never changes any row.
+
   If DATABASE is not specified, uses the default location in the XDG data
   directory.
 
 Options:
-  --help  Show this message and exit.
+  --analytics  Create the foreign-key indexes used for lookups from a track,
+               album or artist, instead of rebuilding the search index.
+  --help       Show this message and exit.
 ```
 <!-- [[[end]]] -->
 

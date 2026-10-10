@@ -26,6 +26,11 @@ from . import lastfm
 from . import sql as sql_commands
 from . import export as export_command
 from . import serve as serve_command
+from .analytics_indexes import (
+    INDEX_TARGETS,
+    create_analytics_indexes,
+    unindexable_reasons,
+)
 from .commands import stats as stats_command
 from .commands import plays as plays_command
 from .commands import albums as albums_command
@@ -1028,13 +1033,26 @@ def ingest(ctx, database, auth, since_date, until_date, limit, batch_size, no_ba
     required=False,
     type=click.Path(file_okay=True, dir_okay=False, allow_dash=False),
 )
-def index(database):
+@click.option(
+    "--analytics",
+    is_flag=True,
+    help="Create the foreign-key indexes used for lookups from a track, album or "
+    "artist, instead of rebuilding the search index.",
+)
+def index(database, analytics):
     """
     Set up and rebuild FTS5 full-text search index.
 
     Creates the FTS5 virtual table with triggers and rebuilds the search index
     from existing data. This enables fast full-text search across artists,
     albums, and tracks.
+
+    With --analytics, creates secondary indexes on the foreign-key columns that
+    join plays to tracks, tracks to albums and albums to artists, and leaves the
+    search index alone. They speed up lookups that start from the parent side,
+    such as the plays of a track; full-history rollups read every play and are
+    not helped. `scrobbledb serve` suggests this when they are missing. Safe to
+    repeat; it never changes any row.
 
     If DATABASE is not specified, uses the default location in the XDG data directory.
     """
@@ -1049,6 +1067,10 @@ def index(database):
         raise click.Abort()
 
     db = sqlite_utils.Database(database)
+
+    if analytics:
+        _create_analytics_indexes(db, database)
+        return
 
     # Check if we have data to index
     if not db["tracks"].exists():
@@ -1083,6 +1105,38 @@ def index(database):
     console.print(
         "\n[dim]You can now use 'scrobbledb search <query>' to search your music![/dim]"
     )
+
+
+def _create_analytics_indexes(db, database):
+    """The `index --analytics` path: report what was created, change no rows."""
+    reasons = unindexable_reasons(db.conn)
+    if reasons:
+        console.print(
+            f"[yellow]![/yellow] Nothing to index in [cyan]{database}[/cyan] yet: "
+            f"{'; '.join(reasons)}."
+        )
+        console.print(
+            "[dim]Run 'scrobbledb ingest' to import your listening history first.[/dim]"
+        )
+        return
+
+    result = create_analytics_indexes(db.conn)
+    for name in result.created:
+        console.print(f"[green]✓[/green] Created index [cyan]{name}[/cyan]")
+    for name in result.conflicts:
+        table, column = INDEX_TARGETS[name]
+        console.print(
+            f"[red]✗[/red] An index named [cyan]{name}[/cyan] already exists, but not "
+            f"on {table}({column}). Drop or rename it, then run this again."
+        )
+    if not result.created and not result.conflicts:
+        console.print(
+            "[green]✓[/green] Every analytics index is already in place; "
+            "nothing created."
+        )
+    console.print(f"[cyan]Database:[/cyan] {database}")
+    if result.conflicts:
+        raise click.exceptions.Exit(1)
 
 
 @cli.command()
