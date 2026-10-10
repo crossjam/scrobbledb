@@ -1164,6 +1164,24 @@ def shape_artists_by_search(rows, query: str = "", limit: int = 20) -> list[dict
     return results[:limit]
 
 
+def fts_artist_ids(rows) -> list:
+    """The distinct artist ids in FTS5 candidate rows. Pure."""
+    return list(set(row[0] for row in rows))
+
+
+def merge_artist_ids(fts_ids: list, like_rows, limit: int) -> list:
+    """
+    Combine FTS5 and LIKE artist candidates, FTS first, without duplicates,
+    keeping at most twice `limit` of them. Pure.
+
+    Shared so the CLI and the MCP search tool, which run these queries on
+    different executors, cannot disagree about which candidates survive.
+    """
+    like_ids = [row[0] for row in like_rows]
+    all_ids = fts_ids + [aid for aid in like_ids if aid not in fts_ids]
+    return all_ids[: limit * 2]
+
+
 def get_artists_by_search(
     db: sqlite_utils.Database,
     query: str,
@@ -1185,8 +1203,7 @@ def get_artists_by_search(
         fts_sql, fts_params = build_artist_fts_candidates_sql(
             query=query, limit=limit, form=SQL_FORM_POSITIONAL
         )
-        fts_results = db.execute(fts_sql, fts_params).fetchall()
-        artist_ids = list(set(row[0] for row in fts_results))
+        artist_ids = fts_artist_ids(db.execute(fts_sql, fts_params).fetchall())
     else:
         # Fallback to LIKE search if FTS5 not available
         artist_ids = []
@@ -1196,11 +1213,9 @@ def get_artists_by_search(
         like_sql, like_params = build_artist_like_candidates_sql(
             query=query, limit=limit, form=SQL_FORM_POSITIONAL
         )
-        like_ids = [row[0] for row in db.execute(like_sql, like_params).fetchall()]
-
-        # Combine FTS and LIKE results, removing duplicates
-        all_ids = artist_ids + [aid for aid in like_ids if aid not in artist_ids]
-        artist_ids = all_ids[: limit * 2]
+        artist_ids = merge_artist_ids(
+            artist_ids, db.execute(like_sql, like_params).fetchall(), limit
+        )
 
     if not artist_ids:
         return []
@@ -1213,18 +1228,19 @@ def get_artists_by_search(
     )
 
 
-def _days_in_period(
-    db: sqlite_utils.Database,
+def days_in_period(
     since: Optional[datetime] = None,
     until: Optional[datetime] = None,
+    date_range: Optional[tuple] = None,
 ) -> int:
     """
-    Number of days the requested period spans, for avg_plays_per_day.
+    Number of days the requested period spans, for avg_plays_per_day. Pure.
 
-    Deliberately left on the executor path rather than folded into the shared
-    SQL: with no bounds it has to probe the database for the first and last
-    play, which a single-statement canned query cannot do. Naive bounds are
-    read as local wall-clock time, matching `_to_utc_iso`.
+    Naive bounds are read as local wall-clock time, matching `_to_utc_iso`.
+    With no bounds the period is the whole play history, which only the
+    database knows: `date_range` is its `(MIN(timestamp), MAX(timestamp))` and
+    is consulted only then. `needs_date_range` says whether a caller must
+    fetch it, so an async caller can do so without a second copy of this logic.
     """
     now = datetime.now(timezone.utc)
     if since and until:
@@ -1245,10 +1261,7 @@ def _days_in_period(
         return (until.astimezone(timezone.utc) - now).days or 1
 
     # All time - calculate from first to last play
-    date_range = db.execute(
-        "SELECT MIN(timestamp), MAX(timestamp) FROM plays"
-    ).fetchone()
-    if not (date_range[0] and date_range[1]):
+    if not (date_range and date_range[0] and date_range[1]):
         return 1
     first = (
         dateutil.parser.parse(date_range[0])
@@ -1261,6 +1274,37 @@ def _days_in_period(
         else date_range[1]
     )
     return (last - first).days or 1
+
+
+#: The query `days_in_period` needs answered when a period has no bounds.
+DATE_RANGE_SQL = "SELECT MIN(timestamp), MAX(timestamp) FROM plays"
+
+
+def needs_date_range(
+    since: Optional[datetime] = None, until: Optional[datetime] = None
+) -> bool:
+    """Whether `days_in_period` needs the play history's first and last play."""
+    return not (since or until)
+
+
+def _days_in_period(
+    db: sqlite_utils.Database,
+    since: Optional[datetime] = None,
+    until: Optional[datetime] = None,
+) -> int:
+    """
+    `days_in_period` for the CLI, probing the database only when it must.
+
+    Deliberately left on the executor path rather than folded into the shared
+    SQL: with no bounds it has to probe the database for the first and last
+    play, which a single-statement canned query cannot do.
+    """
+    date_range = (
+        db.execute(DATE_RANGE_SQL).fetchone()
+        if needs_date_range(since, until)
+        else None
+    )
+    return days_in_period(since, until, date_range)
 
 
 def build_top_artists_sql(
