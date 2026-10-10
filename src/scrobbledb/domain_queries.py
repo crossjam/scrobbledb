@@ -1249,7 +1249,8 @@ def days_in_period(
 
     Pure given `now`, the reference instant for an open upper bound; it is read
     from the clock only when not supplied, so a caller (or a test) that needs
-    two results to agree passes the same one to both.
+    two results to agree passes the same one to both. A naive `now`, like a
+    naive bound, is local wall-clock time.
     """
 
     def utc(value: datetime) -> datetime:
@@ -1260,8 +1261,7 @@ def days_in_period(
     def parsed(value):
         return dateutil.parser.parse(value) if isinstance(value, str) else value
 
-    if now is None:
-        now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc) if now is None else utc(now)
 
     if since and until:
         return max((utc(until) - utc(since)).days, 1)

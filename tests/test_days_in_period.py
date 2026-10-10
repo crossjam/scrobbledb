@@ -95,3 +95,12 @@ def test_the_date_range_is_needed_whenever_there_is_no_lower_bound(
     withheld = days_in_period(since, until, None, NOW)
     given = days_in_period(since, until, RANGE, NOW)
     assert (withheld != given) is expected or withheld == given == 1
+
+
+def test_a_naive_now_is_local_wall_clock_like_every_other_input():
+    """Used to raise TypeError subtracting a naive instant from an aware one."""
+    naive_now = NOW.astimezone().replace(tzinfo=None)
+    assert naive_now.tzinfo is None
+    assert days_in_period(utc(2026, 9, 1), None, None, naive_now) == days_in_period(
+        utc(2026, 9, 1), None, None, NOW
+    )
