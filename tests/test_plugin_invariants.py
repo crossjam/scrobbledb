@@ -231,15 +231,21 @@ def test_no_plugin_module_calls_an_executor(path):
         "import scrobbledb as s\ns.domain_queries.get_top_artists",
         "from scrobbledb.domain_queries import get_top_artists",
         "from scrobbledb.domain_queries import get_top_artists as fetch",
-        "from scrobbledb.domain_queries import *",
         "from ..domain_queries import get_top_artists",
         "from .. import domain_queries as dq\ndq.get_top_artists",
     ],
 )
 def test_the_executor_check_recognises_an_executor(source):
     """The control: the check above is not vacuously true, in any import form."""
-    # A star import brings in every executor; the one named is among them.
-    assert "scrobbledb.domain_queries.get_top_artists" in executors(ast.parse(source))
+    assert executors(ast.parse(source)) == ["scrobbledb.domain_queries.get_top_artists"]
+
+
+def test_the_executor_check_sees_through_a_star_import():
+    """A star import binds every executor at once; each is reported."""
+    found = executors(ast.parse("from scrobbledb.domain_queries import *"))
+
+    assert "scrobbledb.domain_queries.get_top_artists" in found
+    assert all(takes_a_database(resolve(name)) for name in found)
 
 
 def test_the_executor_check_allows_builders():
