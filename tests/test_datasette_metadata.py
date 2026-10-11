@@ -30,9 +30,6 @@ from scrobbledb.datasette_plugin import readonly  # noqa: E402
 
 from tests import test_datasette_queries as catalog_tests  # noqa: E402
 
-populated_db = catalog_tests.populated_db
-registered_plugin = catalog_tests.registered_plugin
-unindexed_db = catalog_tests.unindexed_db
 
 DATABASE = "scrobbles"
 

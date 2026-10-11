@@ -11,10 +11,11 @@ import sqlite3
 
 import pytest
 
-from scrobbledb import domain_queries
-from scrobbledb.datasette_plugin import functions as fns
+pytest.importorskip("datasette")
+pytest.importorskip("pytest_asyncio")
 
-pytest_asyncio_installed = pytest.importorskip("pytest_asyncio")
+from scrobbledb import domain_queries  # noqa: E402
+from scrobbledb.datasette_plugin import functions as fns  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -346,26 +347,6 @@ def test_registration_covers_every_function():
         conn.execute("SELECT fmt_ts('2024-01-01T12:00:00+00:00')").fetchone()[0]
         == "2024-01-01 12:00:00"
     )
-
-
-@pytest.fixture
-def registered_plugin():
-    """
-    Register the plugin with Datasette's global plugin manager, then remove it.
-
-    `pm.register` is process-global, so a leaked registration would silently
-    apply to every later test in the session. The teardown is mandatory rather
-    than polite (design D3).
-    """
-    from datasette.plugins import pm
-
-    from scrobbledb import datasette_plugin
-
-    pm.register(datasette_plugin, name="scrobbledb-test")
-    try:
-        yield
-    finally:
-        pm.unregister(name="scrobbledb-test")
 
 
 @pytest.fixture
