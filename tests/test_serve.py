@@ -36,9 +36,8 @@ from scrobbledb import serve as serve_module  # noqa: E402
 from scrobbledb.analytics_indexes import ANALYTICS_INDEXES  # noqa: E402
 from scrobbledb.cli import cli  # noqa: E402
 
-from tests import test_datasette_queries as catalog_tests  # noqa: E402
+from tests.library_fixture import populate  # noqa: E402
 
-populated_db = catalog_tests.populated_db
 
 SCROBBLE_TABLES = {"artists", "albums", "tracks", "plays"}
 
@@ -46,21 +45,6 @@ SCROBBLE_TABLES = {"artists", "albums", "tracks", "plays"}
 # --------------------------------------------------------------------------
 # Fixtures and helpers
 # --------------------------------------------------------------------------
-
-
-@pytest.fixture(autouse=True)
-def unregister_plugin():
-    """
-    `serve` registers the plugin with Datasette's process-global plugin
-    manager, so every test here removes it afterwards (design D3). Left behind,
-    it would make the next fixture that registers the same module raise.
-    """
-    yield
-    from datasette.plugins import pm
-
-    for name in (serve_module.PLUGIN_NAME, serve_module.MCP_PLUGIN_NAME):
-        if pm.get_plugin(name) is not None:
-            pm.unregister(name=name)
 
 
 @pytest.fixture
@@ -455,7 +439,7 @@ def test_matching_search_index_does_not_warn(indexed_db):
 
 def test_absent_search_index_warns(tmp_path):
     path = tmp_path / "scrobbles.db"
-    catalog_tests._populate(path).close()
+    populate(path).close()
     warnings = serve_module.startup_warnings(path)
     assert any("search index covers 0 of" in w for w in warnings), warnings
 
@@ -471,7 +455,7 @@ def remedies_for_every_warning(tmp_path, name):
     empty = tmp_path / "a" / name
     sqlite_utils.Database(empty)["notes"].insert({"id": 1})
     short = tmp_path / "b" / name
-    catalog_tests._populate(short).close()
+    populate(short).close()
     return {
         empty: serve_module.startup_warnings(empty, explicit=True),
         short: serve_module.startup_warnings(short, explicit=True),

@@ -37,10 +37,8 @@ from scrobbledb.datasette_plugin import add_read_only_database  # noqa: E402
 from scrobbledb.datasette_plugin import config as plugin_config  # noqa: E402
 from scrobbledb.datasette_plugin import mcp_tools  # noqa: E402
 
-from tests import test_datasette_queries as catalog_tests  # noqa: E402
 from tests import test_serve  # noqa: E402
 
-populated_db = catalog_tests.populated_db
 live_server = test_serve.live_server
 
 DATABASE = "scrobbles"
@@ -71,17 +69,6 @@ NEEDS_ARGUMENTS = {
     "track_details": {"title": "x"},
     "search_music": {"query": "x"},
 }
-
-
-@pytest.fixture(autouse=True)
-def unregister_plugins():
-    """`serve` registers with the process-global plugin manager; undo it."""
-    yield
-    from datasette.plugins import pm
-
-    for name in (serve_module.PLUGIN_NAME, serve_module.MCP_PLUGIN_NAME):
-        if pm.get_plugin(name) is not None:
-            pm.unregister(name=name)
 
 
 @pytest.fixture

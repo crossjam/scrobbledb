@@ -23,6 +23,7 @@ pytest.importorskip("datasette")
 pytest.importorskip("pytest_asyncio")
 
 import sqlite_utils  # noqa: E402
+from datasette.database import QueryInterrupted  # noqa: E402
 
 from scrobbledb.datasette_plugin import config as cfg  # noqa: E402
 from scrobbledb.datasette_plugin import queries as cat  # noqa: E402
@@ -30,9 +31,6 @@ from scrobbledb.datasette_plugin import readonly  # noqa: E402
 
 from tests import test_datasette_queries as catalog_tests  # noqa: E402
 
-populated_db = catalog_tests.populated_db
-registered_plugin = catalog_tests.registered_plugin
-unindexed_db = catalog_tests.unindexed_db
 
 DATABASE = "scrobbles"
 
@@ -534,12 +532,6 @@ def runnable_entries(path):
     ]
 
 
-def parameters_for(entry):
-    return {
-        name: FIXTURE_VALUES[name] for name in catalog_tests.PARAMETERS_FOR[entry.name]
-    }
-
-
 def assert_the_fixture_has_the_shape_it_claims(path):
     """
     The history spans years and is broken into runs, not one solid block.
@@ -636,6 +628,24 @@ async def test_the_whole_catalog_fits_the_limit_at_representative_scale(
 
 #: The analytics the task names as the workload ("rollups complete on an
 #: unindexed ~47k-play database"), plus the aggregate measured slowest of all.
+def refused_by_the_time_limit(response) -> bool:
+    """
+    Whether `sql_time_limit_ms` is what refused this request.
+
+    The limit has two ways to show. Usually the request's own query is the one
+    interrupted, inside the query view, which answers 400 naming the setting.
+    But the limit governs every statement on the connection, including
+    Datasette's own permission lookup that runs first; on a busy machine that
+    is the one cut off, outside the view, and the answer is a bare 500
+    `QueryInterrupted`. Only the time limit's progress handler interrupts a
+    connection, so either shape is the limit doing the refusing -- though in
+    the second, the request's own SQL never ran.
+    """
+    if response.status_code == 400:
+        return "sql_time_limit_ms" in response.text
+    return response.status_code == 500 and "QueryInterrupted" in response.text
+
+
 #: Used for the control below rather than the whole catalog, which costs 20s to
 #: run against a limit it is all failing against -- the same evidence, slowly.
 HEAVIEST_ENTRIES = ("monthly_rollup", "yearly_rollup", "daily_rollup", "top_albums")
@@ -651,6 +661,13 @@ async def test_that_workload_is_capable_of_failing(
     Run under a limit far below what they need. Without this, a catalog that had
     somehow become trivially fast would pass the headroom assertion while
     telling us nothing about whether the limit governs these queries at all.
+
+    Executed through the served database's `execute()` rather than over HTTP.
+    A request runs Datasette's own permission lookup first, under the same
+    limit, and on a busy machine that is what gets interrupted -- the response
+    then says the limit refused the request without the entry's SQL having run
+    at all. `execute()` applies the configured limit to the entry alone, on a
+    connection the plugin has prepared.
     """
     names = {entry.name for entry in cat.CATALOG}
     assert set(HEAVIEST_ENTRIES) <= names, (
@@ -662,15 +679,11 @@ async def test_that_workload_is_capable_of_failing(
         representative_db, config={"settings": {"sql_time_limit_ms": 5}}
     )
     try:
+        db = ds.get_database(DATABASE)
         for name in HEAVIEST_ENTRIES:
-            response = await ds.client.get(
-                f"/{DATABASE}/{name}.json",
-                params={"_shape": "array", **parameters_for(by_name[name])},
-            )
-            assert response.status_code != 200, f"{name} survived a 5ms limit"
-            assert "sql_time_limit_ms" in response.text, (
-                f"{name} was refused, but not by the time limit: {response.text}"
-            )
+            entry = by_name[name]
+            with pytest.raises(QueryInterrupted):
+                await db.execute(entry.sql, sql_parameters(entry.sql))
     finally:
         ds.close()
 
@@ -708,7 +721,7 @@ async def test_the_configured_time_limit_is_enforced(registered_plugin, populate
     finally:
         ds.close()
     assert too_tight.status_code != 200
-    assert "sql_time_limit_ms" in too_tight.text, (
+    assert refused_by_the_time_limit(too_tight), (
         f"refused, but not by the time limit: {too_tight.text}"
     )
 

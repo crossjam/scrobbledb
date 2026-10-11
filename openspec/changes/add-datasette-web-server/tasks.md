@@ -506,21 +506,21 @@
 
 ## 10. Test infrastructure
 
-- [ ] 10.1 Add a `pm.unregister` teardown fixture per design D3, following the autouse
+- [x] 10.1 Add a `pm.unregister` teardown fixture per design D3, following the autouse
   `reset_logger` precedent at `tests/test_logging.py:36-43`; verify a test registering
   the plugin does not leak it into a subsequent test in the same session
-- [ ] 10.2 Add a shared `populated_db` fixture based on `tests/test_stats.py:47-144` for
+- [x] 10.2 Add a shared `populated_db` fixture based on `tests/test_stats.py:47-144` for
   the new test modules; verify both a canned-query test and an HTTP test build on it
-- [ ] 10.3 Add HTTP-level tests using `Datasette(...).client` with `pytest-asyncio`,
+- [x] 10.3 Add HTTP-level tests using `Datasette(...).client` with `pytest-asyncio`,
   guarded by `pytest.importorskip("datasette")` so environments without the extra skip
   rather than fail; verify the suite passes both with and without the extra installed
-- [ ] 10.4 Add a test asserting the web and MCP surfaces reach SQLite only through
+- [x] 10.4 Add a test asserting the web and MCP surfaces reach SQLite only through
   Datasette — no `sqlite_utils.Database` is constructed anywhere under
   `datasette_plugin/`; verify by import-graph or source inspection over the package
-- [ ] 10.5 Add a test enumerating every registered MCP tool and asserting each is
+- [x] 10.5 Add a test enumerating every registered MCP tool and asserting each is
   refused for an actor lacking `execute-sql`, so a tool shipped without its D11 check
   fails the suite; verify the test fails when a check is deliberately removed
-- [ ] 10.6 Add a test asserting the canned query, the MCP tool, and the CLI function for
+- [x] 10.6 Add a test asserting the canned query, the MCP tool, and the CLI function for
   the same analytic return identical rows on the same fixture — the three-way check that
   the shared builders of group 2 actually stayed shared; verify for every analytic that
   has all three surfaces
