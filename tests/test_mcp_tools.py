@@ -408,6 +408,44 @@ async def test_every_domain_tool_is_refused_without_execute_sql(mcp_db, monkeypa
 
 
 @pytest.mark.asyncio
+async def test_every_domain_tool_is_refused_without_view_database(mcp_db, monkeypatch):
+    """
+    Visibility is a guarantee of its own: a caller who may not see a database
+    must not query it even if SQL execution would be allowed.
+
+    Datasette's config cannot isolate it -- denying `view-database` there denies
+    `execute-sql` too, so a config-only test would pass with this check deleted.
+    So only the `view-database` answer is withdrawn, at the `allowed()` call,
+    and everything else stays real.
+    """
+    async with mcp_session(mcp_db) as (client, ds):
+        real_allowed = ds.allowed
+        asked = []
+
+        async def allowed(*, action, resource=None, actor=None):
+            asked.append(action)
+            if action == "view-database":
+                return False
+            return await real_allowed(action=action, resource=resource, actor=actor)
+
+        monkeypatch.setattr(ds, "allowed", allowed)
+        domain = await domain_tools(client)
+        reads = ScrobbleDatabaseReads(monkeypatch, ds)
+        outcomes = await call_every_tool(client, domain)
+        named = await client.call_tool("collection_overview", {"database": DATABASE})
+
+    assert len(outcomes) >= len(REQUIRED_CATEGORIES)
+    assert "view-database" in asked
+    for name, result in outcomes.items():
+        assert result.is_error, f"{name} ran for a caller who may not view the database"
+        # Refused for visibility, not because execute-sql was withdrawn.
+        assert "permission to execute SQL" not in result.content[0].text, name
+    assert named.is_error
+    assert "does not exist or is not available" in named.content[0].text
+    assert reads.count == 0, "a refused tool still reached the database"
+
+
+@pytest.mark.asyncio
 async def test_the_upstream_sql_tool_is_refused_the_same_way(mcp_db, monkeypatch):
     async with mcp_session(
         mcp_db, {"allow_sql": False}, monkeypatch=monkeypatch
