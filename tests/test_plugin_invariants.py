@@ -20,6 +20,7 @@ import ast
 import importlib
 import importlib.util
 import inspect
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -68,48 +69,77 @@ def imported_module(node, package):
     return node.module or ""
 
 
-def scrobbledb_references(tree, package=datasette_plugin.__name__):
+def resolve(dotted):
     """
-    Every object the module reaches in another scrobbledb module, as
-    (written name, object): `dq.get_top_artists` through a module alias, or a
-    name brought in with `from scrobbledb.x import name` -- or the relative
-    form of either.
+    The object a dotted name refers to: the longest importable module prefix,
+    then attributes from there. None if it names nothing.
     """
-    modules = {}
-    found = []
+    parts = dotted.split(".")
+    for i in range(len(parts), 0, -1):
+        try:
+            obj = importlib.import_module(".".join(parts[:i]))
+        except ImportError:
+            continue
+        try:
+            for attr in parts[i:]:
+                obj = getattr(obj, attr)
+        except AttributeError:
+            return None
+        return obj
+    return None
+
+
+def dotted_chain(node):
+    """`a.b.c` as ["a", "b", "c"], or None for anything that is not a name chain."""
+    attrs = []
+    while isinstance(node, ast.Attribute):
+        attrs.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return None
+    return [node.id, *reversed(attrs)]
+
+
+def references(tree, package=datasette_plugin.__name__):
+    """
+    Every object the module names, as (qualified name, object).
+
+    Matched on what a name *resolves to* rather than on how it was written:
+    each import binding is recorded, and each dotted chain rooted in one --
+    `dq.get_top_artists`, `scrobbledb.domain_queries.get_top_artists`,
+    `sql.connect` after `from sqlite3 import dbapi2 as sql` -- is resolved to
+    the object it reaches. Relative imports are resolved against `package`.
+
+    Static, so a name built at run time (`importlib.import_module(...)`,
+    `getattr` with a string) is beyond it; that would be deliberate evasion,
+    not the slip this guards against.
+    """
+    bindings = {}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                if alias.name.startswith("scrobbledb."):
-                    modules[alias.asname or alias.name] = alias.name
+                if alias.asname:
+                    bindings[alias.asname] = alias.name
+                else:
+                    # `import a.b` binds `a`; chains through it resolve below.
+                    root = alias.name.split(".")[0]
+                    bindings[root] = root
         elif isinstance(node, ast.ImportFrom):
             source = imported_module(node, package)
-            if source.split(".")[0] != "scrobbledb":
-                continue
             for alias in node.names:
-                qualified = f"{source}.{alias.name}"
-                try:
-                    importlib.import_module(qualified)
-                except ImportError:
-                    module = importlib.import_module(source)
-                    found.append((qualified, getattr(module, alias.name)))
-                else:
-                    modules[alias.asname or alias.name] = qualified
+                bindings[alias.asname or alias.name] = f"{source}.{alias.name}"
 
+    named = set(bindings.values())
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id in modules
-        ):
-            module = importlib.import_module(modules[node.value.id])
-            if hasattr(module, node.attr):
-                found.append(
-                    (
-                        f"{modules[node.value.id]}.{node.attr}",
-                        getattr(module, node.attr),
-                    )
-                )
+        chain = dotted_chain(node)
+        if chain and chain[0] in bindings:
+            named.add(".".join([bindings[chain[0]], *chain[1:]]))
+
+    found = []
+    for name in sorted(named):
+        obj = resolve(name)
+        if obj is not None:
+            found.append((name, obj))
     return found
 
 
@@ -123,36 +153,30 @@ def takes_a_database(obj) -> bool:
     )
 
 
-def direct_connections(tree):
-    """`sqlite_utils` imports and `sqlite3.connect`, under any alias, in one module."""
-    found = []
-    sqlite3_names = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name.split(".")[0] == "sqlite_utils":
-                    found.append(f"import {alias.name}")
-                elif alias.name == "sqlite3":
-                    sqlite3_names.add(alias.asname or alias.name)
-        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
-            if node.module.split(".")[0] == "sqlite_utils":
-                found.append(f"from {node.module} import ...")
-            elif node.module == "sqlite3":
-                found += [
-                    f"from sqlite3 import {a.name}"
-                    for a in node.names
-                    if a.name == "connect"
-                ]
+#: What opens a SQLite connection directly. `sqlite3.dbapi2.connect` is the
+#: same object as `sqlite3.connect`, so resolving names catches it either way.
+CONNECTORS = (sqlite3.connect, sqlite3.Connection)
 
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr == "connect"
-            and isinstance(node.value, ast.Name)
-            and node.value.id in sqlite3_names
-        ):
-            found.append(f"{node.value.id}.connect")
-    return found
+
+def direct_connections(tree, package=datasette_plugin.__name__):
+    """Anything from `sqlite_utils`, and the `sqlite3` connectors, however named."""
+    return [
+        name
+        for name, obj in references(tree, package)
+        if name.split(".")[0] == "sqlite_utils"
+        or any(obj is connector for connector in CONNECTORS)
+    ]
+
+
+def executors(tree, package=datasette_plugin.__name__):
+    """scrobbledb functions that take a database, however named."""
+    return sorted(
+        {
+            name
+            for name, obj in references(tree, package)
+            if name.split(".")[0] == "scrobbledb" and takes_a_database(obj)
+        }
+    )
 
 
 def test_the_scan_sees_the_whole_plugin():
@@ -167,7 +191,7 @@ def test_the_scan_sees_the_whole_plugin():
 )
 def test_no_plugin_module_opens_its_own_connection(path):
     """Neither `sqlite_utils` nor `sqlite3.connect`: Datasette owns the connections."""
-    assert direct_connections(ast.parse(path.read_text())) == []
+    assert direct_connections(ast.parse(path.read_text()), package_of(path)) == []
 
 
 @pytest.mark.parametrize(
@@ -182,10 +206,7 @@ def test_no_plugin_module_calls_an_executor(path):
     Derived from signatures rather than from a `get_` prefix, so an executor
     under any name is caught.
     """
-    references = scrobbledb_references(ast.parse(path.read_text()), package_of(path))
-    executors = sorted({name for name, obj in references if takes_a_database(obj)})
-
-    assert executors == []
+    assert executors(ast.parse(path.read_text()), package_of(path)) == []
 
 
 @pytest.mark.parametrize(
@@ -193,17 +214,22 @@ def test_no_plugin_module_calls_an_executor(path):
     [
         "from scrobbledb import domain_queries as dq\ndq.get_top_artists",
         "import scrobbledb.domain_queries as dq\ndq.get_top_artists",
+        "import scrobbledb.domain_queries\nscrobbledb.domain_queries.get_top_artists",
+        "import scrobbledb as s\ns.domain_queries.get_top_artists",
         "from scrobbledb.domain_queries import get_top_artists",
+        "from scrobbledb.domain_queries import get_top_artists as fetch",
         "from ..domain_queries import get_top_artists",
         "from .. import domain_queries as dq\ndq.get_top_artists",
     ],
 )
 def test_the_executor_check_recognises_an_executor(source):
     """The control: the check above is not vacuously true, in any import form."""
-    (reference,) = scrobbledb_references(ast.parse(source))
-    assert reference[0] == "scrobbledb.domain_queries.get_top_artists"
-    assert takes_a_database(reference[1])
-    assert not takes_a_database(dq.build_top_artists_sql)
+    assert executors(ast.parse(source)) == ["scrobbledb.domain_queries.get_top_artists"]
+
+
+def test_the_executor_check_allows_builders():
+    source = "from scrobbledb import domain_queries as dq\ndq.build_top_artists_sql"
+    assert executors(ast.parse(source)) == []
 
 
 @pytest.mark.parametrize(
@@ -217,6 +243,12 @@ def test_the_executor_check_recognises_an_executor(source):
         "import sqlite3 as sql\nsql.connect(':memory:')",
         "from sqlite3 import connect",
         "from sqlite3 import connect as open_db",
+        "import sqlite3.dbapi2 as sql\nsql.connect(':memory:')",
+        "from sqlite3 import dbapi2 as sql\nsql.connect(':memory:')",
+        "from sqlite3.dbapi2 import connect",
+        "import sqlite3\nsqlite3.dbapi2.connect(':memory:')",
+        "import sqlite3\nsqlite3.Connection(':memory:')",
+        "from sqlite3 import Connection",
     ],
 )
 def test_the_connection_check_recognises_a_connection(source):
@@ -240,7 +272,7 @@ def builders_used_by_the_tools():
     tree = ast.parse((PLUGIN_DIR / "mcp_tools.py").read_text())
     return {
         obj
-        for name, obj in scrobbledb_references(tree)
+        for name, obj in references(tree)
         if name.startswith("scrobbledb.domain_queries.build_")
     }
 
