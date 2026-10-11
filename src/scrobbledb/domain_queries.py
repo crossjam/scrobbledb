@@ -1164,9 +1164,17 @@ def shape_artists_by_search(rows, query: str = "", limit: int = 20) -> list[dict
     return results[:limit]
 
 
-def fts_artist_ids(rows) -> list:
-    """The distinct artist ids in FTS5 candidate rows. Pure."""
-    return list(set(row[0] for row in rows))
+def fts_artist_ids(rows, limit: Optional[int] = None) -> list:
+    """
+    The distinct artist ids in FTS5 candidate rows, in the order they came. Pure.
+
+    With a `limit`, at most twice that many: the same candidate budget
+    `merge_artist_ids` applies, so the statistics query that follows aggregates
+    a bounded set whichever path the candidates took. The candidate query itself
+    over-fetches three times the limit; this is where the surplus is dropped.
+    """
+    ids = list(dict.fromkeys(row[0] for row in rows))
+    return ids if limit is None else ids[: limit * 2]
 
 
 def merge_artist_ids(fts_ids: list, like_rows, limit: int) -> list:
@@ -1203,7 +1211,9 @@ def get_artists_by_search(
         fts_sql, fts_params = build_artist_fts_candidates_sql(
             query=query, limit=limit, form=SQL_FORM_POSITIONAL
         )
-        artist_ids = fts_artist_ids(db.execute(fts_sql, fts_params).fetchall())
+        artist_ids = fts_artist_ids(
+            db.execute(fts_sql, fts_params).fetchall(), limit
+        )
     else:
         # Fallback to LIKE search if FTS5 not available
         artist_ids = []

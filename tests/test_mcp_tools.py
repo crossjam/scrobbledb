@@ -836,6 +836,61 @@ async def test_an_enormous_limit_is_not_handed_to_the_database(
     assert mcp_tools.ROW_CAP + 1 in integers, "the one-past-the-cap row is not requested"
 
 
+@pytest.fixture
+def crowded_db(mcp_db):
+    """`mcp_db` plus eight artists sharing a name prefix, each with a play."""
+    now = datetime.now(timezone.utc)
+    db = sqlite_utils.Database(mcp_db)
+    for n in range(1, 9):
+        db["artists"].insert({"id": f"c{n}", "name": f"Crowd {n}"})
+        db["albums"].insert({"id": f"calb{n}", "title": f"Crowd Album {n}", "artist_id": f"c{n}"})
+        db["tracks"].insert({"id": f"ct{n}", "title": f"Crowd Song {n}", "album_id": f"calb{n}"})
+        db["plays"].insert(
+            {"timestamp": (now - timedelta(hours=n)).isoformat(), "track_id": f"ct{n}"}
+        )
+    lastfm.setup_fts5(db)
+    lastfm.rebuild_fts5(db)
+    db.conn.commit()
+    db.close()
+    return mcp_db
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("limit", [1, 2, 3])
+async def test_artist_search_aggregates_at_most_twice_the_limit(
+    crowded_db, monkeypatch, limit
+):
+    """
+    The FTS candidate query over-fetches three times the limit, and every id it
+    returns used to reach the statistics aggregation. Eight artists match, so
+    for these limits the unbounded path hands over 3, 6 and 8 where the budget
+    allows 2, 4 and 6.
+    """
+    import json
+
+    seen = []
+    async with mcp_session(crowded_db) as (client, ds):
+        db = ds.get_database(DATABASE)
+        real = db.execute
+
+        async def spy(sql, params=None, *args, **kwargs):
+            seen.append((sql, list(params or [])))
+            return await real(sql, params, *args, **kwargs)
+
+        monkeypatch.setattr(db, "execute", spy)
+        got = structured(
+            await client.call_tool("search_music", {"query": "Crowd", "limit": limit})
+        )
+
+    stats = [json.loads(p[0]) for sql, p in seen if "artists.id IN" in sql and "json_each" in sql]
+    assert len(stats) == 1, "expected exactly one statistics query"
+    assert len(stats[0]) == limit * 2, stats[0]
+    assert got["artists"]["count"] == limit
+    assert got["artists"]["items"] == dq.get_artists_by_search(
+        cli_db(crowded_db), "Crowd", limit=limit
+    )
+
+
 @pytest.mark.asyncio
 async def test_a_limit_inside_the_cap_is_not_a_truncation(mcp_db, monkeypatch):
     """The caller's own limit stops the list; only the cap counts as truncation."""

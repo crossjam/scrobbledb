@@ -452,8 +452,10 @@
   would exceed the cap reports truncation.
   The cap is 100 rows. `truncated` means the cap cut the result, not that the caller’s
   own `limit` did, and SQL is asked for at most one row past the cap so a request for a
-  million does not make the database aggregate a million. Verified for every list tool
-  with a cap of one, with controls for a limit inside the cap and for the default
+  million does not make the database aggregate a million. Artist search is the one
+  exception: it aggregates up to twice that many candidates so they can be re-ranked,
+  the budget the CLI already uses, and that budget is tested. Verified for every list
+  tool with a cap of one, with controls for a limit inside the cap and for the default
 
 - [x] 8.9 Verify MCP inherits the read-only guarantee: a write statement through
   `execute_sql` fails, and a full MCP session leaves the database file unchanged.
