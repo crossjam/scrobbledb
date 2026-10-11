@@ -633,6 +633,23 @@ async def test_the_whole_catalog_fits_the_limit_at_representative_scale(
 
 #: The analytics the task names as the workload ("rollups complete on an
 #: unindexed ~47k-play database"), plus the aggregate measured slowest of all.
+def refused_by_the_time_limit(response) -> bool:
+    """
+    Whether `sql_time_limit_ms` is what refused this request.
+
+    The limit has two ways to show. Usually the request's own query is the one
+    interrupted, inside the query view, which answers 400 naming the setting.
+    But the limit governs every statement on the connection, including
+    Datasette's own permission lookup that runs first; on a busy machine that
+    is the one cut off, outside the view, and the answer is a bare 500
+    `QueryInterrupted`. Only the time limit's progress handler interrupts a
+    connection, so either shape is the limit doing the refusing.
+    """
+    if response.status_code == 400:
+        return "sql_time_limit_ms" in response.text
+    return response.status_code == 500 and "QueryInterrupted" in response.text
+
+
 #: Used for the control below rather than the whole catalog, which costs 20s to
 #: run against a limit it is all failing against -- the same evidence, slowly.
 HEAVIEST_ENTRIES = ("monthly_rollup", "yearly_rollup", "daily_rollup", "top_albums")
@@ -665,7 +682,7 @@ async def test_that_workload_is_capable_of_failing(
                 params={"_shape": "array", **parameters_for(by_name[name])},
             )
             assert response.status_code != 200, f"{name} survived a 5ms limit"
-            assert "sql_time_limit_ms" in response.text, (
+            assert refused_by_the_time_limit(response), (
                 f"{name} was refused, but not by the time limit: {response.text}"
             )
     finally:
@@ -705,7 +722,7 @@ async def test_the_configured_time_limit_is_enforced(registered_plugin, populate
     finally:
         ds.close()
     assert too_tight.status_code != 200
-    assert "sql_time_limit_ms" in too_tight.text, (
+    assert refused_by_the_time_limit(too_tight), (
         f"refused, but not by the time limit: {too_tight.text}"
     )
 
