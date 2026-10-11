@@ -374,37 +374,99 @@
 
 ## 8. MCP tools
 
-- [ ] 8.1 Create `datasette_plugin/mcp_tools.py` holding the `register_mcp_tools`
+- [x] 8.1 Create `datasette_plugin/mcp_tools.py` holding the `register_mcp_tools`
   hookimpl in its own module per design D8, registered by `serve` only after
   `datasette_mcp` imports successfully; verify that with `datasette-mcp` absent the
   server still starts, prints that MCP is unavailable with how to enable it, and that
-  `pm.check_pending()` does not raise
-- [ ] 8.2 Wrap the shared builders from group 2 as MCP tools, executing through
+  `pm.check_pending()` does not raise.
+  Run for real with the package hidden from `importlib.metadata` and its module blocked:
+  the server starts, the index answers 200, `/-/mcp` is 404, the startup output says the
+  endpoint is unavailable, and `check_pending()` passes.
+  With the package installed `check_pending()` raises on `datasette-mcp`’s own
+  `skip_csrf` hookimpl, which Datasette 1.0a39 has no spec for, so there the check is
+  that scrobbledb’s modules add nothing to the unmatched set; a control shows the
+  hookimpl is rejected by a manager that never saw the hookspec (design D8)
+
+- [x] 8.2 Wrap the shared builders from group 2 as MCP tools, executing through
   `await datasette.get_database(name).execute(sql, params)` and shaping with the shared
   shapers — never opening a `sqlite_utils.Database` — covering overview, top artists,
   top albums, top tracks, recent plays, artist/album/track detail, search, and time
   rollups; verify an MCP client listing tools sees all of them alongside the three
-  upstream built-ins
-- [ ] 8.3 Add an explicit authorization check to every tool before it executes, per
+  upstream built-ins.
+  Ten tools: collection overview, top artists, top albums, top tracks, recent plays,
+  artist, album and track details, `search_music`, and a day/month/year rollup.
+  Listed from the live server rather than from a list in the test, with a floor on how
+  many there are.
+  Two pure helpers were extracted from `domain_queries` so the async tools reuse the
+  logic instead of copying it — `days_in_period`/`needs_date_range` (the CLI’s
+  `avg_plays_per_day` span) and `fts_artist_ids`/`merge_artist_ids` (artist search
+  candidates) — with the existing suites as the regression net.
+  Extracting the span exposed a bug the CLI already had: a period with only an upper
+  bound was measured as `until - now`, negative for any past `until`. It now runs from
+  the first play to `until` and is never under a day, which changes the CLI’s
+  `--until`-only output from a negative number to a sensible one; the clock is also an
+  argument, so the function is deterministic under test
+  The database is the single permitted one carrying the scrobbledb schema, since `serve`
+  also serves an empty `_memory` database
+
+- [x] 8.3 Add an explicit authorization check to every tool before it executes, per
   design D11, since `Database.execute()` performs no permission checks of its own;
-  verify a caller lacking `execute-sql` is refused by each tool
-- [ ] 8.4 Confirm the 1.0a39 authorization API shape (`datasette.allowed(...)` and the
+  verify a caller lacking `execute-sql` is refused by each tool.
+  Both permissions are settled for every candidate before any database is read.
+  Verified for every tool, derived from the listing, with a spy counting every route to
+  the scrobbledb database object (`execute`, `execute_fn`, `execute_write_fn`): zero for
+  refused calls, and a control showing the same calls succeed when permitted. Removing
+  the check from one tool, or from all of them, fails the suite
+
+- [x] 8.4 Confirm the 1.0a39 authorization API shape (`datasette.allowed(...)` and the
   `DatabaseResource` import path used by `datasette-mcp` 0.2) against the installed
-  alpha rather than assuming it; record the confirmed form in `design.md` D11
-- [ ] 8.5 Give every tool a description and a typed input schema marking optional
+  alpha rather than assuming it; record the confirmed form in `design.md` D11.
+  Recorded in D11, and pinned by a test on the signature so an alpha bump breaks there
+
+- [x] 8.5 Give every tool a description and a typed input schema marking optional
   parameters; verify the listed schema for a time-ranged tool shows
-  `since`/`until`/`limit` as optional
-- [ ] 8.6 Accept CLI time vocabulary on range parameters via `parse_when`; verify
+  `since`/`until`/`limit` as optional.
+  Every tool and every parameter carries a description; checked across all tools
+
+- [x] 8.6 Accept CLI time vocabulary on range parameters via `parse_when`; verify
   `6 months ago` returns the same rows as the equivalent CLI invocation, and that an
   uninterpretable bound returns an error naming the value with an example of an accepted
-  form
-- [ ] 8.7 Return a structured no-match result for an unknown artist and an error listing
+  form.
+  Uses `parse_relative_time`, the parser `parse_when` is built on, rather than the SQL
+  function: the tool hands the same builders the same datetimes the CLI does, and
+  `parse_when` answers an unreadable value with NULL where the tool has to name it.
+  Verified for six tool/CLI pairs with fixture plays 300, 100 and 2 days back, so the
+  bound separates rows by months and a bounded result is asserted to differ from the
+  unbounded one; and for every time-ranged tool, for both bounds
+
+- [x] 8.7 Return a structured no-match result for an unknown artist and an error listing
   candidates for an ambiguous one, mirroring `domain_queries.get_artist_details`’s
-  LIMIT-2 ambiguity check; verify both
-- [ ] 8.8 Cap result rows and signal truncation in the response; verify a tool call that
-  would exceed the cap reports truncation
-- [ ] 8.9 Verify MCP inherits the read-only guarantee: a write statement through
-  `execute_sql` fails, and a full MCP session leaves the database file unchanged
+  LIMIT-2 ambiguity check; verify both.
+  An exact id from `search_music` is accepted by the detail tools; the round trip is
+  tested for all three kinds.
+  Partial-name matching makes some real names ambiguous — on the live data “Radiohead”
+  also matches “Robin S. & Radiohead” — and the error then names both and points at the
+  id, as the CLI’s `ValueError` does
+
+- [x] 8.8 Cap result rows and signal truncation in the response; verify a tool call that
+  would exceed the cap reports truncation.
+  The cap is 100 rows. `truncated` means the cap cut the result, not that the caller’s
+  own `limit` did, and SQL is asked for at most one row past the cap so a request for a
+  million does not make the database aggregate a million. Artist search is the one
+  exception: its candidate query over-fetches three times the limit so they can be
+  re-ranked, and all of them are aggregated (303 at the default cap, about 10 ms
+  measured) as the CLI does; that bound is tested. Cutting the candidates further would
+  be a second arbitrary cut, since the candidate query has no `ORDER BY`. Verified for
+  every list tool with a cap of one, with controls for a limit inside the cap and for
+  the default
+
+- [x] 8.9 Verify MCP inherits the read-only guarantee: a write statement through
+  `execute_sql` fails, and a full MCP session leaves the database file unchanged.
+  Five write statements (`DELETE`, `INSERT`, `DROP`, `ATTACH`, `PRAGMA query_only=OFF`)
+  fail through `execute_sql` and leave the file byte-identical; a session calling every
+  tool also does, with no journal left behind. Repeated over real HTTP against a live
+  `scrobbledb serve`
+
 
 ## 9. Analytics indexes
 

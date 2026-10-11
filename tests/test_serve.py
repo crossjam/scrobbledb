@@ -58,8 +58,9 @@ def unregister_plugin():
     yield
     from datasette.plugins import pm
 
-    if pm.get_plugin(serve_module.PLUGIN_NAME) is not None:
-        pm.unregister(name=serve_module.PLUGIN_NAME)
+    for name in (serve_module.PLUGIN_NAME, serve_module.MCP_PLUGIN_NAME):
+        if pm.get_plugin(name) is not None:
+            pm.unregister(name=name)
 
 
 @pytest.fixture

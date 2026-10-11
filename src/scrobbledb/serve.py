@@ -28,6 +28,10 @@ from .config_utils import get_default_db_path
 #: `/-/plugins.json` reports it by.
 PLUGIN_NAME = "scrobbledb"
 
+#: The same for the MCP tools module, which is registered separately and only
+#: when `datasette-mcp` is installed (design D8).
+MCP_PLUGIN_NAME = "scrobbledb-mcp"
+
 #: How to get the dependencies this command needs, for the error shown
 #: without them.
 INSTALL_HINT = (
@@ -97,6 +101,16 @@ def register_plugin() -> None:
     if not pm.is_registered(datasette_plugin):
         pm.register(datasette_plugin, name=PLUGIN_NAME)
 
+    # The tools hookimpl has no hookspec to match unless `datasette-mcp` is
+    # installed, and an unmatched hookimpl makes `pm.check_pending()` raise. So
+    # it is registered only once the import that defines the hookspec has
+    # succeeded.
+    if mcp_available():
+        from scrobbledb.datasette_plugin import mcp_tools
+
+        if not pm.is_registered(mcp_tools):
+            pm.register(mcp_tools, name=MCP_PLUGIN_NAME)
+
 
 def build_datasette(path):
     """
@@ -121,9 +135,17 @@ def build_datasette(path):
 
 
 def mcp_available() -> bool:
-    """Whether `datasette-mcp`, which owns the `/-/mcp` endpoint, is installed."""
+    """
+    Whether the MCP endpoint and scrobbledb's tools for it can be loaded.
+
+    `datasette-mcp` owns the `/-/mcp` endpoint and defines the hook the tools
+    module implements; the tools module also needs the `mcp` SDK it brings.
+    Importing the module is the check, so "available" means exactly "will load".
+    """
     try:
         import datasette_mcp  # noqa: F401
+
+        from scrobbledb.datasette_plugin import mcp_tools  # noqa: F401
     except ImportError:
         return False
     return True
