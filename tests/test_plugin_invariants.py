@@ -89,6 +89,15 @@ def resolve(dotted):
     return None
 
 
+def star_exports(module_name):
+    """The names `from module_name import *` binds."""
+    module = importlib.import_module(module_name)
+    names = getattr(module, "__all__", None)
+    if names is None:
+        names = [name for name in vars(module) if not name.startswith("_")]
+    return names
+
+
 def dotted_chain(node):
     """`a.b.c` as ["a", "b", "c"], or None for anything that is not a name chain."""
     attrs = []
@@ -127,7 +136,11 @@ def references(tree, package=datasette_plugin.__name__):
         elif isinstance(node, ast.ImportFrom):
             source = imported_module(node, package)
             for alias in node.names:
-                bindings[alias.asname or alias.name] = f"{source}.{alias.name}"
+                if alias.name == "*":
+                    for name in star_exports(source):
+                        bindings[name] = f"{source}.{name}"
+                else:
+                    bindings[alias.asname or alias.name] = f"{source}.{alias.name}"
 
     named = set(bindings.values())
     for node in ast.walk(tree):
@@ -218,13 +231,15 @@ def test_no_plugin_module_calls_an_executor(path):
         "import scrobbledb as s\ns.domain_queries.get_top_artists",
         "from scrobbledb.domain_queries import get_top_artists",
         "from scrobbledb.domain_queries import get_top_artists as fetch",
+        "from scrobbledb.domain_queries import *",
         "from ..domain_queries import get_top_artists",
         "from .. import domain_queries as dq\ndq.get_top_artists",
     ],
 )
 def test_the_executor_check_recognises_an_executor(source):
     """The control: the check above is not vacuously true, in any import form."""
-    assert executors(ast.parse(source)) == ["scrobbledb.domain_queries.get_top_artists"]
+    # A star import brings in every executor; the one named is among them.
+    assert "scrobbledb.domain_queries.get_top_artists" in executors(ast.parse(source))
 
 
 def test_the_executor_check_allows_builders():
@@ -249,6 +264,9 @@ def test_the_executor_check_allows_builders():
         "import sqlite3\nsqlite3.dbapi2.connect(':memory:')",
         "import sqlite3\nsqlite3.Connection(':memory:')",
         "from sqlite3 import Connection",
+        "from sqlite_utils import *",
+        "from sqlite3 import *",
+        "from sqlite3.dbapi2 import *",
     ],
 )
 def test_the_connection_check_recognises_a_connection(source):
