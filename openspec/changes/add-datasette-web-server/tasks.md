@@ -453,9 +453,12 @@
   The cap is 100 rows. `truncated` means the cap cut the result, not that the caller’s
   own `limit` did, and SQL is asked for at most one row past the cap so a request for a
   million does not make the database aggregate a million. Artist search is the one
-  exception: it aggregates up to twice that many candidates so they can be re-ranked,
-  the budget the CLI already uses, and that budget is tested. Verified for every list
-  tool with a cap of one, with controls for a limit inside the cap and for the default
+  exception: its candidate query over-fetches three times the limit so they can be
+  re-ranked, and all of them are aggregated (303 at the default cap, about 10 ms
+  measured) as the CLI does; that bound is tested. Cutting the candidates further would
+  be a second arbitrary cut, since the candidate query has no `ORDER BY`. Verified for
+  every list tool with a cap of one, with controls for a limit inside the cap and for
+  the default
 
 - [x] 8.9 Verify MCP inherits the read-only guarantee: a write statement through
   `execute_sql` fails, and a full MCP session leaves the database file unchanged.

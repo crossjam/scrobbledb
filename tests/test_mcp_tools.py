@@ -895,14 +895,15 @@ def crowded_db(mcp_db):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("limit", [1, 2, 3])
-async def test_artist_search_aggregates_at_most_twice_the_limit(
+async def test_artist_search_aggregates_at_most_three_times_the_limit(
     crowded_db, monkeypatch, limit
 ):
     """
-    The FTS candidate query over-fetches three times the limit, and every id it
-    returns used to reach the statistics aggregation. Eight artists match, so
-    for these limits the unbounded path hands over 3, 6 and 8 where the budget
-    allows 2, 4 and 6.
+    Artist search is the one tool that aggregates more than its limit: the FTS
+    candidate query over-fetches three times the limit so the candidates can be
+    re-ranked. That multiple is the stated bound, and this pins it, so a larger
+    over-fetch cannot slip in unnoticed. Eight artists match, so for limits of 1,
+    2 and 3 the bound is reached (3, 6) and then the supply runs out (8).
     """
     import json
 
@@ -920,9 +921,14 @@ async def test_artist_search_aggregates_at_most_twice_the_limit(
             await client.call_tool("search_music", {"query": "Crowd", "limit": limit})
         )
 
-    stats = [json.loads(p[0]) for sql, p in seen if "artists.id IN" in sql and "json_each" in sql]
+    stats = [
+        json.loads(p[0])
+        for sql, p in seen
+        if "artists.id IN" in sql and "json_each" in sql
+    ]
     assert len(stats) == 1, "expected exactly one statistics query"
-    assert len(stats[0]) == limit * 2, stats[0]
+    assert len(stats[0]) == min(limit * 3, 8), stats[0]
+    assert len(stats[0]) <= limit * 3
     assert got["artists"]["count"] == limit
     assert got["artists"]["items"] == dq.get_artists_by_search(
         cli_db(crowded_db), "Crowd", limit=limit

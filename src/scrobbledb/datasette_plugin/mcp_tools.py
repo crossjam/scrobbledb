@@ -271,9 +271,9 @@ def _sql_limit(limit: Optional[int]) -> int:
 
     The extra row is what lets `_rows` tell "exactly the cap" from "more than
     the cap", and it stops a request for a million rows from making the
-    database aggregate a million. Artist search is the one exception: it
-    aggregates up to twice this many candidates so they can be re-ranked, the
-    budget the CLI already uses (see `_search_artists`).
+    database aggregate a million. Artist search is the one exception: its
+    candidate query over-fetches three times the limit so they can be re-ranked,
+    and all of them are aggregated, as the CLI does (see `_search_artists`).
     """
     return ROW_CAP + 1 if limit is None else min(limit, ROW_CAP + 1)
 
@@ -642,10 +642,14 @@ async def _search_artists(db, query: str, limit: int) -> tuple[list[dict], bool]
     """
     Artist search, the same candidate pipeline `get_artists_by_search` runs.
 
-    The candidates handed to the statistics query are bounded at twice `limit`
-    on every path, FTS or LIKE, because the pipeline re-ranks them by fuzzy
-    match and so wants more than it returns. That is the one place a tool
-    reads more than `ROW_CAP` + 1 rows' worth of aggregation, and it is bounded.
+    The candidates handed to the statistics query are bounded at three times
+    `limit` (the FTS candidate query's over-fetch; the LIKE-merge path keeps two),
+    because the pipeline re-ranks them by fuzzy match and so wants more than it
+    returns. That is the one place a tool aggregates more than `ROW_CAP` + 1
+    rows' worth, and the bound is a small multiple: measured against a 57k-play
+    database, aggregating 303 candidates takes about 10 ms where the candidate
+    query itself takes 30-70 ms. The candidate query has no ORDER BY, so cutting
+    its result further would only add a second arbitrary cut.
 
     The FTS5 stage is allowed to fail. Its query is built from the caller's text
     (`artist_name:<text>*`), so an apostrophe or a slash is an FTS5 syntax
@@ -660,7 +664,7 @@ async def _search_artists(db, query: str, limit: int) -> tuple[list[dict], bool]
             _call(dq.build_artist_fts_candidates_sql, query=query, limit=limit),
             tolerate_sql_errors=True,
         )
-        ids = dq.fts_artist_ids(results.rows, limit) if results is not None else []
+        ids = dq.fts_artist_ids(results.rows) if results is not None else []
     if len(ids) < limit:
         like = await _fetch(
             db, _call(dq.build_artist_like_candidates_sql, query=query, limit=limit)
