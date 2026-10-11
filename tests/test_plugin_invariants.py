@@ -18,6 +18,7 @@ The third invariant, that every MCP tool refuses a caller without
 
 import ast
 import importlib
+import importlib.util
 import inspect
 from pathlib import Path
 
@@ -52,11 +53,27 @@ def plugin_sources():
     return sorted(PLUGIN_DIR.rglob("*.py"))
 
 
-def scrobbledb_references(tree):
+def package_of(path):
+    """The package a relative import in `path` resolves against."""
+    parts = path.relative_to(PLUGIN_DIR).parent.parts
+    return ".".join((datasette_plugin.__name__, *parts))
+
+
+def imported_module(node, package):
+    """The absolute module an `ImportFrom` names, resolving a relative one."""
+    if node.level:
+        return importlib.util.resolve_name(
+            "." * node.level + (node.module or ""), package
+        )
+    return node.module or ""
+
+
+def scrobbledb_references(tree, package=datasette_plugin.__name__):
     """
     Every object the module reaches in another scrobbledb module, as
     (written name, object): `dq.get_top_artists` through a module alias, or a
-    name brought in with `from scrobbledb.x import name`.
+    name brought in with `from scrobbledb.x import name` -- or the relative
+    form of either.
     """
     modules = {}
     found = []
@@ -65,15 +82,16 @@ def scrobbledb_references(tree):
             for alias in node.names:
                 if alias.name.startswith("scrobbledb."):
                     modules[alias.asname or alias.name] = alias.name
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            if not node.module.startswith("scrobbledb"):
+        elif isinstance(node, ast.ImportFrom):
+            source = imported_module(node, package)
+            if source.split(".")[0] != "scrobbledb":
                 continue
             for alias in node.names:
-                qualified = f"{node.module}.{alias.name}"
+                qualified = f"{source}.{alias.name}"
                 try:
                     importlib.import_module(qualified)
                 except ImportError:
-                    module = importlib.import_module(node.module)
+                    module = importlib.import_module(source)
                     found.append((qualified, getattr(module, alias.name)))
                 else:
                     modules[alias.asname or alias.name] = qualified
@@ -106,14 +124,17 @@ def takes_a_database(obj) -> bool:
 
 
 def direct_connections(tree):
-    """`sqlite_utils` imports and `sqlite3.connect` calls in one module."""
+    """`sqlite_utils` imports and `sqlite3.connect`, under any alias, in one module."""
     found = []
+    sqlite3_names = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            found += [
-                a.name for a in node.names if a.name.split(".")[0] == "sqlite_utils"
-            ]
-        elif isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                if alias.name.split(".")[0] == "sqlite_utils":
+                    found.append(f"import {alias.name}")
+                elif alias.name == "sqlite3":
+                    sqlite3_names.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module and not node.level:
             if node.module.split(".")[0] == "sqlite_utils":
                 found.append(f"from {node.module} import ...")
             elif node.module == "sqlite3":
@@ -122,13 +143,15 @@ def direct_connections(tree):
                     for a in node.names
                     if a.name == "connect"
                 ]
-        elif (
+
+    for node in ast.walk(tree):
+        if (
             isinstance(node, ast.Attribute)
             and node.attr == "connect"
             and isinstance(node.value, ast.Name)
-            and node.value.id == "sqlite3"
+            and node.value.id in sqlite3_names
         ):
-            found.append("sqlite3.connect")
+            found.append(f"{node.value.id}.connect")
     return found
 
 
@@ -159,20 +182,52 @@ def test_no_plugin_module_calls_an_executor(path):
     Derived from signatures rather than from a `get_` prefix, so an executor
     under any name is caught.
     """
-    references = scrobbledb_references(ast.parse(path.read_text()))
+    references = scrobbledb_references(ast.parse(path.read_text()), package_of(path))
     executors = sorted({name for name, obj in references if takes_a_database(obj)})
 
     assert executors == []
 
 
-def test_the_executor_check_recognises_an_executor():
-    """The control: the check above is not vacuously true."""
-    tree = ast.parse("from scrobbledb import domain_queries as dq\ndq.get_top_artists")
-
-    (reference,) = scrobbledb_references(tree)
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from scrobbledb import domain_queries as dq\ndq.get_top_artists",
+        "import scrobbledb.domain_queries as dq\ndq.get_top_artists",
+        "from scrobbledb.domain_queries import get_top_artists",
+        "from ..domain_queries import get_top_artists",
+        "from .. import domain_queries as dq\ndq.get_top_artists",
+    ],
+)
+def test_the_executor_check_recognises_an_executor(source):
+    """The control: the check above is not vacuously true, in any import form."""
+    (reference,) = scrobbledb_references(ast.parse(source))
     assert reference[0] == "scrobbledb.domain_queries.get_top_artists"
     assert takes_a_database(reference[1])
     assert not takes_a_database(dq.build_top_artists_sql)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "import sqlite_utils",
+        "import sqlite_utils as su",
+        "from sqlite_utils import Database",
+        "from sqlite_utils.db import Database",
+        "import sqlite3\nsqlite3.connect(':memory:')",
+        "import sqlite3 as sql\nsql.connect(':memory:')",
+        "from sqlite3 import connect",
+        "from sqlite3 import connect as open_db",
+    ],
+)
+def test_the_connection_check_recognises_a_connection(source):
+    """The control for the connection check, in each import form."""
+    assert direct_connections(ast.parse(source)) != []
+
+
+def test_the_connection_check_allows_sqlite3_for_its_exceptions():
+    """`mcp_tools` imports `sqlite3` to catch its errors, which is fine."""
+    source = "import sqlite3\ntry:\n    pass\nexcept sqlite3.DatabaseError:\n    pass"
+    assert direct_connections(ast.parse(source)) == []
 
 
 # --------------------------------------------------------------------------
@@ -206,9 +261,10 @@ def builders_used_by_the_cli():
     return used
 
 
-#: A bound that falls between plays, so it filters on any local clock, and a
-#: limit below the number of rows each analytic would otherwise return.
-SINCE = "2024-01-02"
+#: A bound that falls between plays, so it filters on any local clock, and
+#: late enough that the result under `LIMIT` differs with and without it for
+#: every analytic -- so the bound, not the limit, is what changes the rows.
+SINCE = "2024-03-15"
 LIMIT = 3
 
 
@@ -333,9 +389,12 @@ async def test_canned_query_tool_and_cli_return_the_same_rows(populated_db, case
         canned = response.json()
 
         if canned_params.get("since"):
+            without_bound = {k: v for k, v in canned_params.items() if k != "since"}
             unbounded = await ds.client.get(
-                f"/{populated_db.stem}/{entry}.json", params={"_shape": "array"}
+                f"/{populated_db.stem}/{entry}.json",
+                params={"_shape": "array", **without_bound},
             )
+            assert unbounded.status_code == 200, unbounded.text
             assert unbounded.json() != canned, "the bound changed nothing"
 
         async with Client(datasette_mcp.create_mcp_server(ds)) as client:
