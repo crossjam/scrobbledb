@@ -278,7 +278,9 @@ def test_raw_album_ids_come_back_ordered_when_sqlite_can_order(alias_db, builder
     assert multi, "fixture has no multi-id album to order"
     for ids in before + after:
         assert ids.split(",") == sorted(ids.split(","))
-    assert before == after
+    # Row order is not under test: the builders order only by a count that
+    # ties in this fixture, so an index may legitimately reorder the rows.
+    assert sorted(before) == sorted(after)
 
 
 def test_album_ids_partition_every_album(alias_db):
