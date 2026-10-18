@@ -7,6 +7,7 @@ including statistics, filtering, and aggregation queries.
 
 import json
 import re
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import dateparser
@@ -175,11 +176,37 @@ def _exact_conditions(params: _Params, filters: dict) -> list[str]:
     return conditions
 
 
+# SQLite accepts ORDER BY inside an aggregate from 3.44.
+_ORDERED_AGGREGATE_MIN_SQLITE = (3, 44, 0)
+
+
+def _album_ids_aggregate() -> str:
+    """
+    The aggregate that collects an album group's ids, ordered where SQLite can.
+
+    group_concat() has no defined order, so on SQLite 3.44 and later the order
+    is asked for in the aggregate itself, which keeps the stored queries (whose
+    rows reach callers unshaped) stable. Earlier versions cannot, and fall back
+    to the unordered aggregate; `_split_ids` sorts for every caller that goes
+    through the shapers. The version is the one Python is linked against, so
+    it is read when the SQL is built, not at import.
+    """
+    if sqlite3.sqlite_version_info >= _ORDERED_AGGREGATE_MIN_SQLITE:
+        return "group_concat(DISTINCT albums.id ORDER BY albums.id)"
+    return "group_concat(DISTINCT albums.id)"
+
+
 def _split_ids(value) -> list[str]:
-    """Split a group_concat() of ids back into a list."""
+    """
+    Split a group_concat() of ids back into a sorted list.
+
+    SQLite gives group_concat() no defined order, so the same query can return
+    the ids differently once an index changes the plan. The ids are a set;
+    sorting makes the list comparable between runs.
+    """
     if not value:
         return []
-    return value.split(",")
+    return sorted(value.split(","))
 
 
 def _sort_direction(order: str) -> str:
@@ -988,7 +1015,7 @@ def build_albums_list_sql(
     sql = f"""
         SELECT
             MAX(albums.id) as album_id,
-            group_concat(DISTINCT albums.id) as album_ids,
+            {_album_ids_aggregate()} as album_ids,
             albums.title as album_title,
             {_AGGREGATE_ARTIST_NAME} as artist_name,
             COUNT(DISTINCT tracks.id) as track_count,
@@ -2184,7 +2211,7 @@ def build_top_albums_sql(
     sql = f"""
         SELECT
             MAX(albums.id) as album_id,
-            group_concat(DISTINCT albums.id) as album_ids,
+            {_album_ids_aggregate()} as album_ids,
             albums.title as album_title,
             {_AGGREGATE_ARTIST_NAME} as artist_name,
             COUNT(*) as play_count,

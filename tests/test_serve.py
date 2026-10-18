@@ -11,6 +11,7 @@ subprocess on a kernel-chosen port.
 """
 
 import hashlib
+from pathlib import Path
 import os
 import queue
 import re
@@ -330,6 +331,35 @@ async def test_built_server_lists_the_plugin(populated_db):
         response = await ds.client.get("/-/plugins.json")
         names = {plugin["name"] for plugin in response.json()}
         assert datasette_plugin.__name__ in names
+    finally:
+        ds.close()
+
+
+@pytest.mark.asyncio
+async def test_built_server_serves_only_the_scrobbledb_database(populated_db):
+    """Datasette's empty `_memory` database must not be served alongside it."""
+    ds = serve_module.build_datasette(populated_db)
+    try:
+        served = [name for name in ds.databases if name != "_internal"]
+        assert served == [Path(populated_db).stem]
+        response = await ds.client.get("/_memory/-/query.json?sql=select+1")
+        assert response.status_code == 404
+    finally:
+        ds.close()
+
+
+@pytest.mark.asyncio
+async def test_a_database_file_named_memory_is_still_served(tmp_path, populated_db):
+    """The `_memory` removal must not take a file of that name with it."""
+    import shutil
+
+    path = tmp_path / "_memory.db"
+    shutil.copy(populated_db, path)
+    ds = serve_module.build_datasette(str(path))
+    try:
+        assert [n for n in ds.databases if n != "_internal"] == ["_memory"]
+        response = await ds.client.get("/_memory/plays.json?_size=1")
+        assert response.status_code == 200
     finally:
         ds.close()
 
