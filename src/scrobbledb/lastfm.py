@@ -767,9 +767,18 @@ def setup_fts5(db: Database):
 
     if "tracks" in table_names:
         # Trigger for track inserts/updates
+        # tracks_ai once lacked the leading DELETE its siblings have. CREATE
+        # TRIGGER IF NOT EXISTS would keep that old body forever, so replace
+        # it when the stored definition predates the fix.
+        stored = db.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'tracks_ai'"
+        ).fetchone()
+        if stored is not None and "DELETE FROM tracks_fts" not in stored[0]:
+            db.execute("DROP TRIGGER tracks_ai")
         db.execute(
             """
             CREATE TRIGGER IF NOT EXISTS tracks_ai AFTER INSERT ON tracks BEGIN
+                DELETE FROM tracks_fts WHERE track_id = new.id;
                 INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id)
                 SELECT artists.name, albums.title, new.title, artists.id, albums.id, new.id
                 FROM albums JOIN artists ON albums.artist_id = artists.id
@@ -819,6 +828,78 @@ def rebuild_fts5(db: Database):
         JOIN artists ON albums.artist_id = artists.id
     """
     )
+
+
+def verify_fts5(db: Database) -> Dict:
+    """
+    Compare the search index with the tracks it should contain. Read-only.
+
+    A track belongs in the index when it joins to an album and an artist, which
+    is exactly what rebuild_fts5() indexes. Returns a dict with:
+    - tracks / indexable / indexed: COUNT(tracks), the number of tracks that
+      join to an album and artist, and COUNT(tracks_fts)
+    - missing: indexable track ids absent from the index
+    - extra: indexed track ids that should not be there
+    - duplicated: track ids indexed more than once
+    - stale: indexed track ids whose stored text or ids differ from the tables
+    - ok: True when the index matches exactly
+    """
+    tracks = db.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+    if "tracks_fts" not in db.table_names():
+        return {
+            "tracks": tracks,
+            "indexable": 0,
+            "indexed": 0,
+            "missing": [],
+            "extra": [],
+            "duplicated": [],
+            "stale": [],
+            "index_exists": False,
+            "ok": False,
+        }
+    # The same projection rebuild_fts5() indexes.
+    expected = """
+        SELECT tracks.id AS id, artists.name AS artist_name,
+               albums.title AS album_title, tracks.title AS track_title,
+               artists.id AS artist_id, albums.id AS album_id
+        FROM tracks
+        JOIN albums ON tracks.album_id = albums.id
+        JOIN artists ON albums.artist_id = artists.id
+    """
+
+    # Compared in Python: track_id is UNINDEXED, so any per-track lookup in SQL
+    # rescans the index and verification goes quadratic on a large library.
+    wanted = {row[0]: tuple(row) for row in db.execute(expected)}
+    seen: dict = {}
+    stale_ids = set()
+    for row in db.execute(
+        "SELECT track_id, artist_name, album_title, track_title, artist_id, album_id "
+        "FROM tracks_fts"
+    ):
+        seen[row[0]] = seen.get(row[0], 0) + 1
+        if row[0] in wanted and tuple(row) != wanted[row[0]]:
+            stale_ids.add(row[0])
+
+    def listing(values) -> list:
+        # FTS5 does not constrain track_id's type. Report every id as text so
+        # NULL and integers sort and print alongside the usual text ids.
+        return sorted(("NULL" if v is None else str(v)) for v in values)
+
+    missing = listing(wanted.keys() - seen.keys())
+    extra = listing(seen.keys() - wanted.keys())
+    duplicated = listing(k for k, n in seen.items() if k is not None and n > 1)
+    stale = listing(stale_ids)
+    return {
+        "tracks": tracks,
+        "indexable": len(wanted),
+        "indexed": sum(seen.values()),
+        "missing": missing,
+        "extra": extra,
+        "duplicated": duplicated,
+        "stale": stale,
+        "index_exists": True,
+        "ok": not (missing or extra or duplicated or stale),
+    }
 
 
 def search_tracks(db: Database, query: str, limit: int = None):

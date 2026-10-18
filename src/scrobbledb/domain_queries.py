@@ -1549,13 +1549,18 @@ def build_artist_stats_sql(
     artist_id=None,
     form: str = SQL_FORM_NAMED,
 ) -> tuple[str, object]:
-    """Build the per-artist statistics query. Pure: touches no database."""
+    """
+    Build the per-artist statistics query. Pure: touches no database.
+
+    Albums are counted by ``albums.title COLLATE NOCASE``, the identity
+    `build_artist_albums_sql` groups on, so the count matches the album list.
+    """
     params = _Params(form)
     sql = f"""
         SELECT
             COUNT(*) as play_count,
             COUNT(DISTINCT tracks.id) as track_count,
-            COUNT(DISTINCT albums.id) as album_count,
+            COUNT(DISTINCT albums.title COLLATE NOCASE) as album_count,
             MIN(plays.timestamp) as first_played,
             MAX(plays.timestamp) as last_played
         FROM plays
@@ -1685,11 +1690,24 @@ def build_artist_albums_sql(
     artist_id=None,
     form: str = SQL_FORM_NAMED,
 ) -> tuple[str, object]:
-    """Build an artist's album listing query. Pure: touches no database."""
+    """
+    Build an artist's album listing query. Pure: touches no database.
+
+    Uses the same grouping as `build_albums_list_sql`:
+    ``albums.title COLLATE NOCASE``. Grouping by ``albums.id`` -- as this query
+    previously did -- returned one album held under several synthesized
+    ``md5:`` ids as several rows, with its tracks and plays split between them.
+    The artist is fixed by the filter, so no attribution column is needed.
+
+    ``album_id`` is a single stable representative; ``album_ids`` carries every
+    id in the group, which is what the counts beside it describe. A caller that
+    expands a row into its tracks must use ``album_ids``. See design D4.
+    """
     params = _Params(form)
     sql = f"""
         SELECT
-            albums.id as album_id,
+            MAX(albums.id) as album_id,
+            {_album_ids_aggregate()} as album_ids,
             albums.title as album_title,
             COUNT(DISTINCT tracks.id) as track_count,
             COUNT(plays.timestamp) as play_count,
@@ -1698,7 +1716,7 @@ def build_artist_albums_sql(
         LEFT JOIN tracks ON tracks.album_id = albums.id
         LEFT JOIN plays ON plays.track_id = tracks.id
         WHERE albums.artist_id = {params.add("artist_id", artist_id)}
-        GROUP BY albums.id, albums.title
+        GROUP BY albums.title COLLATE NOCASE
         ORDER BY play_count DESC
     """
     return sql, params.values
@@ -1709,10 +1727,11 @@ def shape_artist_albums(rows) -> list[dict]:
     return [
         {
             "album_id": row[0],
-            "album_title": row[1],
-            "track_count": row[2],
-            "play_count": row[3],
-            "last_played": row[4],
+            "album_ids": _split_ids(row[1]),
+            "album_title": row[2],
+            "track_count": row[3],
+            "play_count": row[4],
+            "last_played": row[5],
         }
         for row in rows
     ]

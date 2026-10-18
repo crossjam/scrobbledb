@@ -86,7 +86,7 @@ def overview(ctx, database, format):
         format_overview_stats(stats_data, console)
     else:
         output = format_output([stats_data], format)
-        console.print(output)
+        click.echo(output)
 
 
 @stats.command()
@@ -151,7 +151,7 @@ def monthly(ctx, database, since, until, period, limit, format):
         format_monthly_rollup(rows, console)
     else:
         output = format_output(rows, format)
-        console.print(output)
+        click.echo(output)
 
 
 @stats.command()
@@ -213,4 +213,4 @@ def yearly(ctx, database, since, until, period, limit, format):
         format_yearly_rollup(rows, console)
     else:
         output = format_output(rows, format)
-        console.print(output)
+        click.echo(output)

@@ -6,10 +6,19 @@ a suite run without it has to skip the modules that need it rather than fail to
 collect this file.
 """
 
-import pytest
+import os
 
-from scrobbledb import lastfm
-from tests.library_fixture import populate
+# Rich reads FORCE_COLOR when a Console is constructed, and the commands build
+# theirs at import time, so this has to run before anything imports scrobbledb.
+# Tests of human-facing output assert on plain text; machine-readable output is
+# covered separately by tests/test_machine_output_plain.py, which puts the
+# consoles back into the forced-colour state on purpose.
+os.environ.pop("FORCE_COLOR", None)
+
+import pytest  # noqa: E402
+
+from scrobbledb import lastfm  # noqa: E402
+from tests.library_fixture import populate  # noqa: E402
 
 pytest_plugins = ["pytester"]
 
