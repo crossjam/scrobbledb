@@ -28,9 +28,9 @@ Usage: scrobbledb index [OPTIONS] [DATABASE]
   repeat; it never changes any row.
 
   With --verify, changes nothing: it prints the track and index counts and the
-  ids missing from, extra in, or duplicated in the index, one `key value` pair
-  per line, and exits 1 if the index has drifted. Repair drift by running the
-  command again without --verify.
+  ids missing from, extra in, duplicated in, or stale in the index, one `key
+  value` pair per line, and exits 1 if the index has drifted. Repair drift by
+  running the command again without --verify.
 
   If DATABASE is not specified, uses the default location in the XDG data
   directory.

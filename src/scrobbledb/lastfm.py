@@ -841,50 +841,67 @@ def verify_fts5(db: Database) -> Dict:
     - missing: indexable track ids absent from the index
     - extra: indexed track ids that should not be there
     - duplicated: track ids indexed more than once
+    - stale: indexed track ids whose stored text or ids differ from the tables
     - ok: True when the index matches exactly
     """
-    names = db.table_names()
-    if "tracks_fts" not in names:
+    tracks = db.execute("SELECT COUNT(*) FROM tracks").fetchone()[0]
+    if "tracks_fts" not in db.table_names():
         return {
-            "tracks": 0,
+            "tracks": tracks,
             "indexable": 0,
             "indexed": 0,
             "missing": [],
             "extra": [],
             "duplicated": [],
+            "stale": [],
             "index_exists": False,
             "ok": False,
         }
+    # The same projection rebuild_fts5() indexes.
     expected = """
-        SELECT tracks.id FROM tracks
+        SELECT tracks.id AS id, artists.name AS artist_name,
+               albums.title AS album_title, tracks.title AS track_title,
+               artists.id AS artist_id, albums.id AS album_id
+        FROM tracks
         JOIN albums ON tracks.album_id = albums.id
         JOIN artists ON albums.artist_id = artists.id
     """
 
     def ids(sql: str) -> list:
-        return [row[0] for row in db.execute(sql).fetchall()]
+        # A NULL track_id is reported as the string NULL so it can be printed.
+        return [("NULL" if row[0] is None else row[0]) for row in db.execute(sql)]
 
     missing = ids(
-        f"SELECT id FROM ({expected}) WHERE id NOT IN "
-        "(SELECT track_id FROM tracks_fts) ORDER BY id"
+        f"SELECT id FROM ({expected}) AS e WHERE NOT EXISTS "
+        "(SELECT 1 FROM tracks_fts f WHERE f.track_id = e.id) ORDER BY id"
     )
     extra = ids(
-        f"SELECT DISTINCT track_id FROM tracks_fts WHERE track_id NOT IN ({expected}) "
-        "ORDER BY track_id"
+        "SELECT DISTINCT f.track_id FROM tracks_fts f WHERE f.track_id IS NULL "
+        f"OR NOT EXISTS (SELECT 1 FROM ({expected}) AS e WHERE e.id = f.track_id) "
+        "ORDER BY f.track_id"
     )
     duplicated = ids(
-        "SELECT track_id FROM tracks_fts GROUP BY track_id "
-        "HAVING COUNT(*) > 1 ORDER BY track_id"
+        "SELECT track_id FROM tracks_fts WHERE track_id IS NOT NULL "
+        "GROUP BY track_id HAVING COUNT(*) > 1 ORDER BY track_id"
+    )
+    # Present, but the indexed text or ids no longer match the tables.
+    stale = ids(
+        f"SELECT DISTINCT e.id FROM ({expected}) AS e JOIN tracks_fts f "
+        "ON f.track_id = e.id WHERE f.artist_name IS NOT e.artist_name "
+        "OR f.album_title IS NOT e.album_title OR f.track_title IS NOT e.track_title "
+        "OR f.artist_id IS NOT e.artist_id OR f.album_id IS NOT e.album_id "
+        "ORDER BY e.id"
     )
     return {
-        "tracks": db.execute("SELECT COUNT(*) FROM tracks").fetchone()[0],
+        "tracks": tracks,
         "indexable": db.execute(f"SELECT COUNT(*) FROM ({expected})").fetchone()[0],
         "indexed": db.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0],
         "missing": missing,
         "extra": extra,
         "duplicated": duplicated,
+        "stale": stale,
         "index_exists": True,
-        "ok": not (missing or extra or duplicated),
+        "ok": not (missing or extra or duplicated or stale),
     }
 
 

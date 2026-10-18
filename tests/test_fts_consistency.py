@@ -161,6 +161,42 @@ def test_verify_without_an_index_fails(tmp_path):
     assert "status no-index" in result.output
 
 
+def test_verify_flags_stale_text_with_correct_ids(db_path):
+    db = sqlite_utils.Database(db_path)
+    db.execute("UPDATE tracks_fts SET track_title = 'Old Title' WHERE track_id = 't1'")
+    db.close()
+    result = verify(db_path)
+    assert result.exit_code == 1
+    lines = result.output.splitlines()
+    assert "stale t1" in lines and "missing 0" in lines and "extra 0" in lines
+
+
+def test_verify_flags_null_track_id_without_hiding_missing(db_path):
+    db = sqlite_utils.Database(db_path)
+    lastfm.save_track(db, {"id": "t2", "album_id": "b1", "title": "Other"})
+    db.execute("DELETE FROM tracks_fts WHERE track_id = 't2'")
+    db.execute(
+        "INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id) "
+        "VALUES ('a', 'b', 'c', 'a1', 'b1', NULL)"
+    )
+    db.close()
+    result = verify(db_path)
+    assert result.exit_code == 1
+    lines = result.output.splitlines()
+    assert "missing t2" in lines
+    assert "extra NULL" in lines
+
+
+def test_verify_without_index_reports_real_track_count(tmp_path):
+    path = str(tmp_path / "bare.db")
+    db = sqlite_utils.Database(path)
+    lastfm.save_artist(db, {"id": "a1", "name": "A"})
+    lastfm.save_album(db, {"id": "b1", "artist_id": "a1", "title": "B"})
+    lastfm.save_track(db, {"id": "t1", "album_id": "b1", "title": "T"})
+    db.close()
+    assert "tracks 1" in verify(path).output.splitlines()
+
+
 def test_verify_rejects_analytics_combination(db_path):
     result = CliRunner().invoke(cli.cli, ["index", "--verify", "--analytics", db_path])
     assert result.exit_code != 0

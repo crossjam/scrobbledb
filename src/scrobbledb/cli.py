@@ -1090,7 +1090,7 @@ def index(database, analytics, verify):
     repeat; it never changes any row.
 
     With --verify, changes nothing: it prints the track and index counts and
-    the ids missing from, extra in, or duplicated in the index, one
+    the ids missing from, extra in, duplicated in, or stale in the index, one
     `key value` pair per line, and exits 1 if the index has drifted. Repair
     drift by running the command again without --verify.
 
@@ -1170,7 +1170,8 @@ def _verify_search_index(db):
     click.echo(f"missing {len(result['missing'])}")
     click.echo(f"extra {len(result['extra'])}")
     click.echo(f"duplicated {len(result['duplicated'])}")
-    for key in ("missing", "extra", "duplicated"):
+    click.echo(f"stale {len(result['stale'])}")
+    for key in ("missing", "extra", "duplicated", "stale"):
         for track_id in result[key]:
             click.echo(f"{key} {track_id}")
     click.echo("status ok" if result["ok"] else "status drifted")
