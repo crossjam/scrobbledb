@@ -125,6 +125,64 @@ def test_about_command_uses_package_metadata(runner):
     assert "authors: Alice Example; Bob Example" in result.output
 
 
+def test_ingest_no_cache_option_disables_lastfm_cache(
+    runner, temp_db, temp_auth
+):
+    """The ingest flag forwards cache bypassing to Last.fm requests."""
+    mock_user = Mock()
+    mock_network = Mock()
+    mock_network.get_user.return_value = mock_user
+
+    with (
+        patch("scrobbledb.lastfm.get_network", return_value=mock_network),
+        patch("scrobbledb.lastfm.recent_tracks_count", return_value=0) as count,
+    ):
+        result = runner.invoke(
+            cli.cli,
+            [
+                "ingest",
+                temp_db[0],
+                "--auth",
+                temp_auth,
+                "--since-date",
+                "2026-01-01",
+                "--no-cache",
+                "--dry-run",
+            ],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert count.call_args.kwargs["cacheable"] is False
+
+
+@pytest.mark.parametrize(
+    "extra_args, expected_cacheable",
+    [(["--no-cache"], False), ([], True)],
+)
+def test_ingest_forwards_cacheable_to_track_fetch(
+    runner, temp_db, temp_auth, extra_args, expected_cacheable
+):
+    """A real (non-dry-run) ingest passes cacheable to both Last.fm fetches."""
+    mock_network = Mock()
+    mock_network.get_user.return_value = Mock()
+
+    with (
+        patch("scrobbledb.lastfm.get_network", return_value=mock_network),
+        patch("scrobbledb.lastfm.recent_tracks_count", return_value=0) as count,
+        patch("scrobbledb.lastfm.recent_tracks", return_value=iter([])) as tracks,
+        patch("scrobbledb.lastfm.setup_fts5"),
+        patch("scrobbledb.lastfm.rebuild_fts5"),
+    ):
+        result = runner.invoke(
+            cli.cli,
+            ["ingest", temp_db[0], "--auth", temp_auth, *extra_args],
+        )
+
+    assert result.exit_code == 0, result.output
+    assert count.call_args.kwargs["cacheable"] is expected_cacheable
+    assert tracks.call_args.kwargs["cacheable"] is expected_cacheable
+
+
 class TestTableExistsFix:
     """Tests for the table.exists() method call fix.
 
