@@ -543,7 +543,7 @@
   verify all four stages pass
 - [x] 12.2 Run `uv run poe test` in an environment without the serve extra; verify the
   suite passes with serve tests skipped and `tests/test_docs_generation.py` still green
-- [ ] 12.3 End-to-end against a real database: `scrobbledb serve`, browse the four
+- [x] 12.3 End-to-end against a real database: `scrobbledb serve`, browse the four
   tables, run every canned query from the UI, connect an MCP client to `/-/mcp` and
   exercise each scrobbledb tool; verify results match the equivalent CLI commands and
   the database file hash is unchanged
