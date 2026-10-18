@@ -1068,7 +1068,13 @@ def ingest(
     help="Create the foreign-key indexes used for lookups from a track, album or "
     "artist, instead of rebuilding the search index.",
 )
-def index(database, analytics):
+@click.option(
+    "--verify",
+    is_flag=True,
+    help="Check the search index against the tracks table and exit nonzero if "
+    "they disagree. Read-only.",
+)
+def index(database, analytics, verify):
     """
     Set up and rebuild FTS5 full-text search index.
 
@@ -1083,8 +1089,16 @@ def index(database, analytics):
     not helped. `scrobbledb serve` suggests this when they are missing. Safe to
     repeat; it never changes any row.
 
+    With --verify, changes nothing: it prints the track and index counts and
+    the ids missing from, extra in, or duplicated in the index, one
+    `key value` pair per line, and exits 1 if the index has drifted. Repair
+    drift by running the command again without --verify.
+
     If DATABASE is not specified, uses the default location in the XDG data directory.
     """
+    if verify and analytics:
+        raise click.UsageError("--verify and --analytics cannot be combined.")
+
     if database is None:
         database = get_default_db_path()
 
@@ -1096,6 +1110,10 @@ def index(database, analytics):
         raise click.Abort()
 
     db = sqlite_utils.Database(database)
+
+    if verify:
+        _verify_search_index(db)
+        return
 
     if analytics:
         _create_analytics_indexes(db, database)
@@ -1134,6 +1152,30 @@ def index(database, analytics):
     console.print(
         "\n[dim]You can now use 'scrobbledb search <query>' to search your music![/dim]"
     )
+
+
+def _verify_search_index(db):
+    """The `index --verify` path: report drift as plain lines, change nothing."""
+    if not db["tracks"].exists():
+        click.echo("status no-tracks-table")
+        raise SystemExit(1)
+    result = lastfm.verify_fts5(db)
+    if not result["index_exists"]:
+        click.echo("status no-index")
+        click.echo(f"tracks {result['tracks']}")
+        raise SystemExit(1)
+    click.echo(f"tracks {result['tracks']}")
+    click.echo(f"indexable {result['indexable']}")
+    click.echo(f"indexed {result['indexed']}")
+    click.echo(f"missing {len(result['missing'])}")
+    click.echo(f"extra {len(result['extra'])}")
+    click.echo(f"duplicated {len(result['duplicated'])}")
+    for key in ("missing", "extra", "duplicated"):
+        for track_id in result[key]:
+            click.echo(f"{key} {track_id}")
+    click.echo("status ok" if result["ok"] else "status drifted")
+    if not result["ok"]:
+        raise SystemExit(1)
 
 
 def _create_analytics_indexes(db, database):
