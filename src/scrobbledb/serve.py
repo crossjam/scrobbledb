@@ -130,6 +130,11 @@ def build_datasette(path):
         metadata=plugin_config.load_metadata(name),
         config=plugin_config.load_config(name),
     )
+    # Datasette adds an empty `_memory` database to any instance built without
+    # files. Dropping it first leaves the scrobbledb database as the only one
+    # served, and cannot clobber it if the file itself is called `_memory`.
+    if "_memory" in ds.databases:
+        ds.remove_database("_memory")
     add_read_only_database(ds, path, name=name)
     return ds
 
