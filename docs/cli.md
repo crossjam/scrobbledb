@@ -25,6 +25,7 @@ This guide orients you to the `scrobbledb` command-line interface and links to d
 | `ingest` | Fetch recent plays from Last.fm/Libre.fm | [Ingest](commands/ingest.md) |
 | `plays` | View play history with filtering | [Plays](commands/plays.md) |
 | `search` | Full-text search across the library | [Search](commands/search.md) |
+| `serve` | Browse and query scrobbles in a web browser, with an MCP endpoint | [Serve](commands/serve.md) |
 | `sql` | sqlite-utils passthrough commands | [SQL](commands/sql.md) |
 | `stats` | Overview, monthly, and yearly listening stats | [Stats](commands/stats.md) |
 | `tracks` | Search tracks, view top tracks, and track details | [Tracks](commands/tracks.md) |
