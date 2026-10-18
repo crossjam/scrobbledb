@@ -527,13 +527,13 @@
 
 ## 11. Documentation
 
-- [ ] 11.1 Add `docs/commands/serve.md` using the cog block from
+- [x] 11.1 Add `docs/commands/serve.md` using the cog block from
   `docs/commands/sql.md:7-13`, documenting that a plain `datasette scrobbledb.db`
   invocation does not get the customizations (design D3); verify `poe docs:cli`
   regenerates it and leaves the git tree clean
-- [ ] 11.2 Add `serve` to the `docs/cli.md` command table (alphabetical) and the README
+- [x] 11.2 Add `serve` to the `docs/cli.md` command table (alphabetical) and the README
   “Command Overview” at `README.md:132-160`; verify by reading the rendered tables
-- [ ] 11.3 Document the MCP endpoint URL and an example MCP client configuration in
+- [x] 11.3 Document the MCP endpoint URL and an example MCP client configuration in
   `docs/commands/serve.md`; verify a client configured from those instructions connects
   and lists the scrobbledb tools
 

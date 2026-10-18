@@ -146,6 +146,7 @@ scrobbledb provides a comprehensive set of commands for managing and exploring y
 
 - **`search`** - Full-text search across artists, albums, and tracks ([docs](docs/commands/search.md))
 - **`browse`** - Interactive terminal UI for browsing tracks ([docs](docs/commands/browse.md))
+- **`serve`** - Read-only web UI and MCP endpoint for your scrobbles, via Datasette ([docs](docs/commands/serve.md))
 - **`plays`** - View and filter listening history chronologically ([docs](docs/commands/plays.md))
 - **`artists`** - Browse artists, view top artists, see detailed statistics ([docs](docs/commands/artists.md))
 - **`albums`** - Search albums and view album details with tracks ([docs](docs/commands/albums.md))
