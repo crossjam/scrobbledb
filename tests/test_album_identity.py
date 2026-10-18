@@ -214,14 +214,18 @@ def test_album_ids_are_sorted_in_every_album_query(alias_db):
 ALBUM_ID_BUILDERS = [
     domain_queries.build_albums_list_sql,
     domain_queries.build_top_albums_sql,
+    domain_queries.build_artist_albums_sql,
 ]
+
+#: Builders whose filter is required rather than optional.
+BUILDER_ARGS = {domain_queries.build_artist_albums_sql: {"artist_id": "art-1"}}
 
 
 def _raw_album_ids(path, builder):
     """`album_ids` exactly as SQLite returns it, before any shaper sorts it."""
     db = sqlite_utils.Database(path)
     try:
-        sql, params = builder()
+        sql, params = builder(**BUILDER_ARGS.get(builder, {}))
         return [row[1] for row in db.execute(sql, params).fetchall() if row[1]]
     finally:
         db.close()
@@ -237,7 +241,7 @@ def test_album_ids_aggregate_is_ordered_only_where_sqlite_allows(
 ):
     """The SQL asks for an order from 3.44 on, and never earlier."""
     monkeypatch.setattr("sqlite3.sqlite_version_info", version)
-    sql, _ = builder()
+    sql, _ = builder(**BUILDER_ARGS.get(builder, {}))
 
     assert ("ORDER BY albums.id)" in sql) is ordered
     assert "group_concat(DISTINCT albums.id" in sql
@@ -281,6 +285,119 @@ def test_raw_album_ids_come_back_ordered_when_sqlite_can_order(alias_db, builder
     # Row order is not under test: the builders order only by a count that
     # ties in this fixture, so an index may legitimately reorder the rows.
     assert sorted(before) == sorted(after)
+
+
+@pytest.fixture
+def artist_albums_db(alias_db):
+    """
+    `alias_db` plus an album an artist holds under several ids at once.
+
+    Artist Alpha's "Mixtape" has three ids: two share a title spelling and one
+    differs in case, so grouped (one row) and split (three rows) answers
+    differ. Artist Zulu has a same-titled "Mixtape" that must stay out of
+    Alpha's listing.
+    """
+    db = sqlite_utils.Database(alias_db)
+    db["albums"].insert_all(
+        [
+            {"id": "md5:mix-a", "title": "Mixtape", "artist_id": "art-1"},
+            {"id": "md5:mix-b", "title": "Mixtape", "artist_id": "art-1"},
+            {"id": "md5:mix-c", "title": "MIXTAPE", "artist_id": "art-1"},
+            {"id": "zulu-mix", "title": "Mixtape", "artist_id": "art-2"},
+        ]
+    )
+    db["tracks"].insert_all(
+        [
+            {"id": "trk-m1", "title": "M1", "album_id": "md5:mix-a"},
+            {"id": "trk-m2", "title": "M2", "album_id": "md5:mix-b"},
+            {"id": "trk-m3", "title": "M3", "album_id": "md5:mix-c"},
+            {"id": "trk-z1", "title": "Z1", "album_id": "zulu-mix"},
+        ]
+    )
+    db["plays"].insert_all(
+        [
+            {"track_id": "trk-m1", "timestamp": "2024-02-01T12:00:00+00:00"},
+            {"track_id": "trk-m2", "timestamp": "2024-02-02T12:00:00+00:00"},
+            {"track_id": "trk-m3", "timestamp": "2024-02-03T12:00:00+00:00"},
+            {"track_id": "trk-m3", "timestamp": "2024-02-04T12:00:00+00:00"},
+            {"track_id": "trk-z1", "timestamp": "2024-02-05T12:00:00+00:00"},
+        ]
+    )
+    db.close()
+    return alias_db
+
+
+def _artist_albums(path, artist_id):
+    db = sqlite_utils.Database(path)
+    try:
+        return domain_queries.get_artist_albums(db, artist_id)
+    finally:
+        db.close()
+
+
+def test_artist_albums_collapses_alias_ids_and_case(artist_albums_db):
+    """Three ids differing by case are one row whose counts cover all three."""
+    rows = _artist_albums(artist_albums_db, "art-1")
+    by_title = {r["album_title"].lower(): r for r in rows}
+
+    mix = by_title["mixtape"]
+    assert [r["album_title"].lower() for r in rows].count("mixtape") == 1
+    assert mix["album_ids"] == ["md5:mix-a", "md5:mix-b", "md5:mix-c"]
+    assert mix["album_id"] == "md5:mix-c"
+    assert mix["track_count"] == 3
+    assert mix["play_count"] == 4
+    assert mix["last_played"] == "2024-02-04T12:00:00+00:00"
+
+    doubles = by_title["doubles"]
+    assert doubles["album_ids"] == ["alb-a2", "md5:aliasdup"]
+    assert doubles["play_count"] == 2
+
+
+def test_artist_albums_stays_scoped_to_the_artist(artist_albums_db):
+    """Another artist's same-titled album neither merges in nor leaks out."""
+    alpha = _artist_albums(artist_albums_db, "art-1")
+    zulu = _artist_albums(artist_albums_db, "art-2")
+
+    assert all("zulu-mix" not in r["album_ids"] for r in alpha)
+    assert all("aaa-hits" not in r["album_ids"] for r in alpha)
+    assert {r["album_title"].lower() for r in zulu} == {"greatest hits", "mixtape"}
+    zulu_mix = next(r for r in zulu if r["album_title"].lower() == "mixtape")
+    assert zulu_mix["album_ids"] == ["zulu-mix"]
+    assert zulu_mix["play_count"] == 1
+
+
+def test_artist_albums_agrees_with_the_album_list(artist_albums_db):
+    """The per-artist listing and the filtered library listing are the same set."""
+    db = sqlite_utils.Database(artist_albums_db)
+    try:
+        listing = domain_queries.get_albums_list(db, artist_id="art-1", limit=100)
+        per_artist = domain_queries.get_artist_albums(db, "art-1")
+    finally:
+        db.close()
+
+    def key(r):
+        return (
+            r["album_title"].lower(),
+            r["album_id"],
+            tuple(r["album_ids"]),
+            r["track_count"],
+            r["play_count"],
+        )
+
+    assert len(per_artist) >= 2
+    assert sorted(map(key, per_artist)) == sorted(map(key, listing))
+
+
+def test_artist_albums_ids_expand_to_every_track(artist_albums_db):
+    """Resolving `album_ids` gives the tracks the row's track_count promises."""
+    db = sqlite_utils.Database(artist_albums_db)
+    try:
+        for row in domain_queries.get_artist_albums(db, "art-1"):
+            tracks = domain_queries.get_album_tracks_for_ids(db, row["album_ids"])
+            assert len(tracks) == row["track_count"]
+            assert row["album_id"] in row["album_ids"]
+    finally:
+        db.close()
 
 
 def test_album_ids_partition_every_album(alias_db):

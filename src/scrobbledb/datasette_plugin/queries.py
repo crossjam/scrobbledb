@@ -289,10 +289,9 @@ class QueryEntry:
 #: they exist only here, built on builders written in the `domain_queries` style
 #: so the CLI can adopt them later.
 #:
-#: Deliberately absent: `build_artist_albums_sql` groups by `albums.id`, so it
-#: does not satisfy the album-aggregate requirement (an alias group would be
-#: several rows). The `album_list` entry's `artist`/`artist_id` filters cover
-#: the same ground with the corrected grouping. The `*_lookup` builders are
+#: Deliberately absent: `build_artist_albums_sql`, which duplicates what the
+#: `album_list` entry's `artist`/`artist_id` filters already serve with the same
+#: grouping. The `*_lookup` builders are
 #: LIMIT-2 ambiguity probes, not analytics, and the search builders re-rank in
 #: Python, so neither belongs in a single-statement stored query.
 CATALOG: tuple[QueryEntry, ...] = (
