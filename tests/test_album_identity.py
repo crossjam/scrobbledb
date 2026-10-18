@@ -400,6 +400,20 @@ def test_artist_albums_ids_expand_to_every_track(artist_albums_db):
         db.close()
 
 
+def test_artist_summary_counts_albums_the_way_the_list_groups_them(artist_albums_db):
+    """album_count in the summary equals the played rows in the album list."""
+    db = sqlite_utils.Database(artist_albums_db)
+    try:
+        listing = domain_queries.get_artist_albums(db, "art-1")
+        details = domain_queries.get_artist_details(db, artist_id="art-1")
+    finally:
+        db.close()
+    played = [row for row in listing if row["play_count"]]
+    # Some played group holds several ids, so counting ids would disagree.
+    assert any(len(row["album_ids"]) > 1 for row in played)
+    assert details["album_count"] == len(played)
+
+
 def test_album_ids_partition_every_album(alias_db):
     """Together the groups account for every album exactly once."""
     db = sqlite_utils.Database(alias_db)

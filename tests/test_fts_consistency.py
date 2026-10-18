@@ -171,6 +171,29 @@ def test_verify_flags_stale_text_with_correct_ids(db_path):
     assert "stale t1" in lines and "missing 0" in lines and "extra 0" in lines
 
 
+@pytest.mark.parametrize(
+    "column, value",
+    [
+        ("artist_name", "Old Artist"),
+        ("album_title", "Old Album"),
+        ("track_title", "Old Title"),
+        ("artist_id", "old-artist"),
+        ("album_id", "old-album"),
+    ],
+)
+def test_verify_flags_each_stale_column(db_path, column, value):
+    db = sqlite_utils.Database(db_path)
+    # Derived from the index itself: every column but the key is covered.
+    columns = {r[1] for r in db.execute("PRAGMA table_info(tracks_fts)").fetchall()}
+    covered = {"artist_name", "album_title", "track_title", "artist_id", "album_id"}
+    assert columns - {"track_id"} == covered
+    db.execute(f"UPDATE tracks_fts SET {column} = ? WHERE track_id = 't1'", [value])
+    db.close()
+    result = verify(db_path)
+    assert result.exit_code == 1
+    assert "stale t1" in result.output.splitlines()
+
+
 def test_verify_flags_null_track_id_without_hiding_missing(db_path):
     db = sqlite_utils.Database(db_path)
     lastfm.save_track(db, {"id": "t2", "album_id": "b1", "title": "Other"})

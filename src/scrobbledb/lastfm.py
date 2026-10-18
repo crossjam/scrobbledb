@@ -867,35 +867,31 @@ def verify_fts5(db: Database) -> Dict:
         JOIN artists ON albums.artist_id = artists.id
     """
 
-    def ids(sql: str) -> list:
-        # A NULL track_id is reported as the string NULL so it can be printed.
-        return [("NULL" if row[0] is None else row[0]) for row in db.execute(sql)]
+    # Compared in Python: track_id is UNINDEXED, so any per-track lookup in SQL
+    # rescans the index and verification goes quadratic on a large library.
+    wanted = {row[0]: tuple(row) for row in db.execute(expected)}
+    seen: dict = {}
+    stale_ids = set()
+    for row in db.execute(
+        "SELECT track_id, artist_name, album_title, track_title, artist_id, album_id "
+        "FROM tracks_fts"
+    ):
+        seen[row[0]] = seen.get(row[0], 0) + 1
+        if row[0] in wanted and tuple(row) != wanted[row[0]]:
+            stale_ids.add(row[0])
 
-    missing = ids(
-        f"SELECT id FROM ({expected}) AS e WHERE NOT EXISTS "
-        "(SELECT 1 FROM tracks_fts f WHERE f.track_id = e.id) ORDER BY id"
-    )
-    extra = ids(
-        "SELECT DISTINCT f.track_id FROM tracks_fts f WHERE f.track_id IS NULL "
-        f"OR NOT EXISTS (SELECT 1 FROM ({expected}) AS e WHERE e.id = f.track_id) "
-        "ORDER BY f.track_id"
-    )
-    duplicated = ids(
-        "SELECT track_id FROM tracks_fts WHERE track_id IS NOT NULL "
-        "GROUP BY track_id HAVING COUNT(*) > 1 ORDER BY track_id"
-    )
-    # Present, but the indexed text or ids no longer match the tables.
-    stale = ids(
-        f"SELECT DISTINCT e.id FROM ({expected}) AS e JOIN tracks_fts f "
-        "ON f.track_id = e.id WHERE f.artist_name IS NOT e.artist_name "
-        "OR f.album_title IS NOT e.album_title OR f.track_title IS NOT e.track_title "
-        "OR f.artist_id IS NOT e.artist_id OR f.album_id IS NOT e.album_id "
-        "ORDER BY e.id"
-    )
+    def listing(values) -> list:
+        # A NULL track_id is reported as the string NULL so it can be printed.
+        return sorted(("NULL" if v is None else v) for v in values)
+
+    missing = listing(wanted.keys() - seen.keys())
+    extra = listing(seen.keys() - wanted.keys())
+    duplicated = listing(k for k, n in seen.items() if k is not None and n > 1)
+    stale = listing(stale_ids)
     return {
         "tracks": tracks,
-        "indexable": db.execute(f"SELECT COUNT(*) FROM ({expected})").fetchone()[0],
-        "indexed": db.execute("SELECT COUNT(*) FROM tracks_fts").fetchone()[0],
+        "indexable": len(wanted),
+        "indexed": sum(seen.values()),
         "missing": missing,
         "extra": extra,
         "duplicated": duplicated,

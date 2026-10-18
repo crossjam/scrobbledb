@@ -1549,13 +1549,18 @@ def build_artist_stats_sql(
     artist_id=None,
     form: str = SQL_FORM_NAMED,
 ) -> tuple[str, object]:
-    """Build the per-artist statistics query. Pure: touches no database."""
+    """
+    Build the per-artist statistics query. Pure: touches no database.
+
+    Albums are counted by ``albums.title COLLATE NOCASE``, the identity
+    `build_artist_albums_sql` groups on, so the count matches the album list.
+    """
     params = _Params(form)
     sql = f"""
         SELECT
             COUNT(*) as play_count,
             COUNT(DISTINCT tracks.id) as track_count,
-            COUNT(DISTINCT albums.id) as album_count,
+            COUNT(DISTINCT albums.title COLLATE NOCASE) as album_count,
             MIN(plays.timestamp) as first_played,
             MAX(plays.timestamp) as last_played
         FROM plays
