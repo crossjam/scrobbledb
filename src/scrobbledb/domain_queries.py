@@ -176,10 +176,16 @@ def _exact_conditions(params: _Params, filters: dict) -> list[str]:
 
 
 def _split_ids(value) -> list[str]:
-    """Split a group_concat() of ids back into a list."""
+    """
+    Split a group_concat() of ids back into a sorted list.
+
+    SQLite gives group_concat() no defined order, so the same query can return
+    the ids differently once an index changes the plan. The ids are a set;
+    sorting makes the list comparable between runs.
+    """
     if not value:
         return []
-    return value.split(",")
+    return sorted(value.split(","))
 
 
 def _sort_direction(order: str) -> str:

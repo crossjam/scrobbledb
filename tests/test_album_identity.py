@@ -185,6 +185,32 @@ def test_album_id_is_a_member_of_album_ids(alias_db):
         assert row["album_id"] in row["album_ids"]
 
 
+def test_album_ids_are_sorted_in_every_album_query(alias_db):
+    """
+    `album_ids` is a set, so it must come back in one order however the plan
+    runs. group_concat() has no defined order; an index changes the plan, which
+    changed the order, as `index --analytics` does.
+    """
+    db = sqlite_utils.Database(alias_db)
+    try:
+        for build in (
+            lambda: domain_queries.get_albums_list(db, sort="name", order="asc"),
+            lambda: domain_queries.get_top_albums(db),
+        ):
+            before = build()
+            db["plays"].create_index(["track_id"], if_not_exists=True)
+            db["tracks"].create_index(["album_id"], if_not_exists=True)
+            after = build()
+            multi = [r for r in before if len(r["album_ids"]) > 1]
+            assert multi, "fixture has no multi-id album to order"
+            for rows in (before, after):
+                for row in rows:
+                    assert row["album_ids"] == sorted(row["album_ids"])
+            assert [r["album_ids"] for r in before] == [r["album_ids"] for r in after]
+    finally:
+        db.close()
+
+
 def test_album_ids_partition_every_album(alias_db):
     """Together the groups account for every album exactly once."""
     db = sqlite_utils.Database(alias_db)
