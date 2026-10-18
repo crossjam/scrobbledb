@@ -211,6 +211,76 @@ def test_album_ids_are_sorted_in_every_album_query(alias_db):
         db.close()
 
 
+ALBUM_ID_BUILDERS = [
+    domain_queries.build_albums_list_sql,
+    domain_queries.build_top_albums_sql,
+]
+
+
+def _raw_album_ids(path, builder):
+    """`album_ids` exactly as SQLite returns it, before any shaper sorts it."""
+    db = sqlite_utils.Database(path)
+    try:
+        sql, params = builder()
+        return [row[1] for row in db.execute(sql, params).fetchall() if row[1]]
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("builder", ALBUM_ID_BUILDERS)
+@pytest.mark.parametrize(
+    "version, ordered",
+    [((3, 43, 2), False), ((3, 44, 0), True), ((3, 47, 1), True)],
+)
+def test_album_ids_aggregate_is_ordered_only_where_sqlite_allows(
+    monkeypatch, builder, version, ordered
+):
+    """The SQL asks for an order from 3.44 on, and never earlier."""
+    monkeypatch.setattr("sqlite3.sqlite_version_info", version)
+    sql, _ = builder()
+
+    assert ("ORDER BY albums.id)" in sql) is ordered
+    assert "group_concat(DISTINCT albums.id" in sql
+
+
+def test_album_id_builders_cover_every_builder_that_aggregates_album_ids():
+    """A new builder that aggregates album ids must be added to the list."""
+    import inspect
+
+    found = [
+        name
+        for name, fn in inspect.getmembers(domain_queries, inspect.isfunction)
+        if name.startswith("build_") and "_album_ids_aggregate()" in inspect.getsource(fn)
+    ]
+    assert len(found) >= 2
+    assert {fn.__name__ for fn in ALBUM_ID_BUILDERS} == set(found)
+
+
+@pytest.mark.parametrize("builder", ALBUM_ID_BUILDERS)
+def test_raw_album_ids_come_back_ordered_when_sqlite_can_order(alias_db, builder):
+    """
+    The stored queries return the aggregate unshaped, so the order has to come
+    from the SQL, and has to survive an index changing the plan.
+    """
+    import sqlite3
+
+    if sqlite3.sqlite_version_info < (3, 44, 0):
+        pytest.skip("this SQLite cannot order inside an aggregate")
+
+    before = _raw_album_ids(alias_db, builder)
+    db = sqlite_utils.Database(alias_db)
+    db["plays"].create_index(["track_id"], if_not_exists=True)
+    db["tracks"].create_index(["album_id"], if_not_exists=True)
+    db.close()
+    after = _raw_album_ids(alias_db, builder)
+
+    multi = [ids for ids in before if "," in ids]
+    assert multi, "fixture has no multi-id album to order"
+    for ids in before + after:
+        assert ids.split(",") == sorted(ids.split(","))
+    assert before == after
+
+
 def test_album_ids_partition_every_album(alias_db):
     """Together the groups account for every album exactly once."""
     db = sqlite_utils.Database(alias_db)
