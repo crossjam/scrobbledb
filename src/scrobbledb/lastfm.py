@@ -881,8 +881,9 @@ def verify_fts5(db: Database) -> Dict:
             stale_ids.add(row[0])
 
     def listing(values) -> list:
-        # A NULL track_id is reported as the string NULL so it can be printed.
-        return sorted(("NULL" if v is None else v) for v in values)
+        # FTS5 does not constrain track_id's type. Report every id as text so
+        # NULL and integers sort and print alongside the usual text ids.
+        return sorted(("NULL" if v is None else str(v)) for v in values)
 
     missing = listing(wanted.keys() - seen.keys())
     extra = listing(seen.keys() - wanted.keys())

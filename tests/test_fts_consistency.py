@@ -210,6 +210,21 @@ def test_verify_flags_null_track_id_without_hiding_missing(db_path):
     assert "extra NULL" in lines
 
 
+def test_verify_reports_mixed_type_track_ids_without_crashing(db_path):
+    db = sqlite_utils.Database(db_path)
+    for track_id in (5, None, "zz"):
+        db.execute(
+            "INSERT INTO tracks_fts (artist_name, album_title, track_title, artist_id, album_id, track_id) "
+            "VALUES ('a', 'b', 'c', 'a1', 'b1', ?)",
+            [track_id],
+        )
+    db.close()
+    result = verify(db_path)
+    assert result.exit_code == 1
+    lines = result.output.splitlines()
+    assert {"extra 5", "extra NULL", "extra zz"} <= set(lines)
+
+
 def test_verify_without_index_reports_real_track_count(tmp_path):
     path = str(tmp_path / "bare.db")
     db = sqlite_utils.Database(path)
