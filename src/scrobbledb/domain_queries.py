@@ -375,7 +375,7 @@ def build_monthly_rollup_sql(
             CAST(strftime('%m', plays.timestamp) AS INTEGER) as month,
             COUNT(*) as scrobbles,
             COUNT(DISTINCT artists.id) as unique_artists,
-            COUNT(DISTINCT albums.id) as unique_albums,
+            COUNT(DISTINCT albums.title COLLATE NOCASE) as unique_albums,
             COUNT(DISTINCT tracks.id) as unique_tracks
         FROM plays
         JOIN tracks ON plays.track_id = tracks.id
@@ -459,7 +459,7 @@ def build_yearly_rollup_sql(
             CAST(strftime('%Y', plays.timestamp) AS INTEGER) as year,
             COUNT(*) as scrobbles,
             COUNT(DISTINCT artists.id) as unique_artists,
-            COUNT(DISTINCT albums.id) as unique_albums,
+            COUNT(DISTINCT albums.title COLLATE NOCASE) as unique_albums,
             COUNT(DISTINCT tracks.id) as unique_tracks
         FROM plays
         JOIN tracks ON plays.track_id = tracks.id
@@ -755,7 +755,7 @@ def build_artists_with_stats_sql(
             artists.name as artist_name,
             COUNT(*) as play_count,
             COUNT(DISTINCT tracks.id) as track_count,
-            COUNT(DISTINCT albums.id) as album_count,
+            COUNT(DISTINCT albums.title COLLATE NOCASE) as album_count,
             MAX(plays.timestamp) as last_played
         FROM plays
         JOIN tracks ON plays.track_id = tracks.id
@@ -1143,7 +1143,7 @@ def build_artist_search_stats_sql(
         SELECT
             artists.id as artist_id,
             artists.name as artist_name,
-            COUNT(DISTINCT albums.id) as album_count,
+            COUNT(DISTINCT albums.title COLLATE NOCASE) as album_count,
             COUNT(DISTINCT tracks.id) as track_count,
             COUNT(plays.timestamp) as play_count,
             MAX(plays.timestamp) as last_played
@@ -2330,7 +2330,7 @@ def build_daily_rollup_sql(
             date(plays.timestamp) as day,
             COUNT(*) as scrobbles,
             COUNT(DISTINCT artists.id) as unique_artists,
-            COUNT(DISTINCT albums.id) as unique_albums,
+            COUNT(DISTINCT albums.title COLLATE NOCASE) as unique_albums,
             COUNT(DISTINCT tracks.id) as unique_tracks
         {_PLAYS_JOINS}
         {where_clause}
