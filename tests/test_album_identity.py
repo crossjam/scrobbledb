@@ -631,3 +631,102 @@ def test_one_artist_under_several_ids_is_still_named(duplicate_artist_db):
     assert rows[0]["artist_name"] == "DJ Shadow"
     assert rows[0]["artist_name"] != VARIOUS_ARTISTS
     assert set(rows[0]["album_ids"]) == {"alb-1", "md5:alb2"}
+
+
+# --- album counts follow the same identity as the album listings -------------
+
+
+def _run(path, builder, **kwargs):
+    db = sqlite_utils.Database(path)
+    try:
+        sql, params = builder(**kwargs)
+        return [tuple(row) for row in db.execute(sql, params).fetchall()]
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def alias_plays_db(alias_db):
+    """alias_db plus one day on which both ids of the same album are played."""
+    db = sqlite_utils.Database(alias_db)
+    db["plays"].insert_all(
+        [
+            {"track_id": "trk-a2", "timestamp": "2024-01-05T10:00:00+00:00"},
+            {"track_id": "trk-a3", "timestamp": "2024-01-05T11:00:00+00:00"},
+        ]
+    )
+    db.close()
+    return alias_db
+
+
+def test_no_query_counts_distinct_album_ids():
+    """
+    Derived guard: counting `albums.id` is the defect, wherever it recurs. The
+    album listings group by title, so a count beside them must too.
+    """
+    import inspect
+
+    source = inspect.getsource(domain_queries)
+    assert "COUNT(DISTINCT albums.id)" not in source
+    # Floor: the title-based form is what replaced it, in all six queries.
+    assert source.count("COUNT(DISTINCT albums.title COLLATE NOCASE)") >= 6
+
+
+@pytest.mark.parametrize(
+    "builder, column",
+    [
+        (domain_queries.build_monthly_rollup_sql, 4),
+        (domain_queries.build_yearly_rollup_sql, 3),
+    ],
+)
+def test_period_rollups_count_albums_as_the_list_groups_them(
+    alias_plays_db, builder, column
+):
+    db = sqlite_utils.Database(alias_plays_db)
+    try:
+        groups = len(domain_queries.get_albums_list(db))
+        ids = db.execute("SELECT COUNT(*) FROM albums").fetchone()[0]
+    finally:
+        db.close()
+    (row,) = _run(alias_plays_db, builder)
+    assert groups < ids  # the fixture tells the two answers apart
+    assert row[column] == groups
+
+
+def test_daily_rollup_counts_aliases_of_one_album_once(alias_plays_db):
+    rows = domain_queries.shape_daily_rollup(
+        _run(alias_plays_db, domain_queries.build_daily_rollup_sql)
+    )
+    by_day = {row["day"]: row for row in rows}
+    # Two ids of one album on 2024-01-05: two by id, one by title.
+    assert by_day["2024-01-05"]["unique_albums"] == 1
+    assert by_day["2024-01-05"]["unique_tracks"] == 2
+
+
+def test_artist_counts_agree_with_the_artists_album_list(alias_plays_db):
+    db = sqlite_utils.Database(alias_plays_db)
+    try:
+        expected = {
+            artist_id: len(
+                [
+                    row
+                    for row in domain_queries.get_artist_albums(db, artist_id)
+                    if row["play_count"]
+                ]
+            )
+            for artist_id in ("art-1", "art-2")
+        }
+        ranked = {
+            row["artist_id"]: row["album_count"]
+            for row in domain_queries.get_artists_with_stats(db)
+        }
+        sql, params = domain_queries.build_artist_search_stats_sql(
+            artist_ids=["art-1", "art-2"]
+        )
+        searched = {row[0]: row[2] for row in db.execute(sql, params).fetchall()}
+    finally:
+        db.close()
+    # art-1 holds three album ids but two albums.
+    assert expected == {"art-1": 2, "art-2": 1}
+    assert ranked == expected
+    assert searched == expected
